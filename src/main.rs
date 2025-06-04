@@ -1,7 +1,7 @@
-use local_ip_address::local_ip;
+use local_ip_address::list_afinet_netifas;
 use std::{
     collections::HashSet,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -40,18 +40,23 @@ async fn send(socket: Arc<UdpSocket>) -> io::Result<()> {
 }
 
 async fn recv(socket: Arc<UdpSocket>, devices: Arc<Mutex<HashSet<SocketAddr>>>) -> io::Result<()> {
-    let local_ip = SocketAddr::new(local_ip().unwrap(), BROADCAST_PORT);
+    let ifas = list_afinet_netifas().unwrap();
     let mut buf = [0; 1024];
 
     loop {
         let (size, src_addr) = socket.recv_from(&mut buf).await?;
+        let msg = String::from_utf8_lossy(&buf[..size]);
 
-        let _msg = String::from_utf8_lossy(&buf[..size]);
+        if is_host(&ifas, src_addr.ip()) || msg != "ping" {
+            continue;
+        }
 
-        let mut devices = devices.lock().unwrap();
-        if src_addr != local_ip && !devices.contains(&src_addr) {
-            devices.insert(src_addr);
-            println!("Device connected: {}", src_addr);
+        {
+            let mut devices = devices.lock().unwrap();
+            if !devices.contains(&src_addr) {
+                devices.insert(src_addr);
+                println!("Device connected: {}", src_addr);
+            }
         }
     }
 }
@@ -66,4 +71,8 @@ async fn state(devices: Arc<Mutex<HashSet<SocketAddr>>>) {
         let devices = devices.lock().unwrap();
         println!("Connected Synche devices: {:?}", devices);
     }
+}
+
+fn is_host(ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
+    ifas.iter().any(|ifa| ifa.1 == addr)
 }
