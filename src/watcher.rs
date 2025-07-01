@@ -1,10 +1,17 @@
-use notify::{Event, Watcher};
-use std::{path::Path, sync::mpsc};
+use notify::{Config, Event, RecommendedWatcher, Watcher};
+use std::path::Path;
+use tokio::{io, sync::mpsc};
 
-pub fn watch() {
-    let (tx, rx) = mpsc::channel();
+pub async fn watch() -> io::Result<()> {
+    let (tx, mut rx) = mpsc::channel(100);
 
-    let mut watcher = notify::recommended_watcher(tx).unwrap();
+    let mut watcher = RecommendedWatcher::new(
+        move |res: notify::Result<Event>| {
+            let _ = tx.blocking_send(res);
+        },
+        Config::default(),
+    )
+    .unwrap();
 
     let path = Path::new("synche-files");
     watcher
@@ -13,7 +20,7 @@ pub fn watch() {
 
     println!("Watching for file changes...");
 
-    for res in rx {
+    while let Some(res) = rx.recv().await {
         match res {
             Ok(event) => handle_event(event),
             Err(err) => {
@@ -21,6 +28,7 @@ pub fn watch() {
             }
         }
     }
+    Ok(())
 }
 
 fn handle_event(e: Event) {
