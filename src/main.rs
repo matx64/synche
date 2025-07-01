@@ -1,5 +1,6 @@
 mod config;
 mod file;
+mod watcher;
 
 use crate::file::{recv_files, send_file};
 use local_ip_address::list_afinet_netifas;
