@@ -1,3 +1,4 @@
+mod config;
 mod file;
 
 use crate::file::{recv_files, send_file};
@@ -32,6 +33,8 @@ impl Device {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    let _cfg = config::init();
+
     let bind_addr = format!("0.0.0.0:{}", BROADCAST_PORT);
 
     let socket = Arc::new(UdpSocket::bind(&bind_addr).await?);
