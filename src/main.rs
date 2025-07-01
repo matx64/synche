@@ -1,3 +1,6 @@
+mod file;
+
+use crate::file::{recv_files, send_file};
 use local_ip_address::list_afinet_netifas;
 use std::{
     collections::HashMap,
@@ -10,17 +13,18 @@ use tokio::{io, net::UdpSocket};
 const BROADCAST_PORT: u16 = 8888;
 const BROADCAST_INTERVAL_SECS: u64 = 5;
 const DEVICE_TIMEOUT_SECS: u64 = 15;
+const SEND_FILE: bool = true;
 
 #[derive(Debug)]
 struct Device {
-    addr: SocketAddr,
+    _addr: SocketAddr,
     last_seen: SystemTime,
 }
 
 impl Device {
-    pub fn new(addr: SocketAddr) -> Self {
+    pub fn new(_addr: SocketAddr) -> Self {
         Self {
-            addr,
+            _addr,
             last_seen: SystemTime::now(),
         }
     }
@@ -32,36 +36,33 @@ async fn main() -> io::Result<()> {
 
     let socket = Arc::new(UdpSocket::bind(&bind_addr).await?);
     socket.set_broadcast(true)?;
+
     let devices = Arc::new(Mutex::new(HashMap::<SocketAddr, Device>::new()));
 
-    let send_task = tokio::spawn(send(socket.clone()));
-    let recv_task = tokio::spawn(recv(socket, devices.clone()));
-    let state_task = tokio::spawn(state(devices));
-
-    tokio::select! {
-        _ = send_task => {},
-        _ = recv_task => {},
-        _ = state_task => {},
-    };
+    tokio::try_join!(
+        state(devices.clone()),
+        send_presence(socket.clone()),
+        recv_presence(socket, devices),
+        recv_files(),
+    )?;
     Ok(())
 }
 
-async fn send(socket: Arc<UdpSocket>) -> io::Result<()> {
+async fn send_presence(socket: Arc<UdpSocket>) -> io::Result<()> {
     let broadcast_addr = format!("255.255.255.255:{}", BROADCAST_PORT);
-
     loop {
         socket.send_to("ping".as_bytes(), &broadcast_addr).await?;
         tokio::time::sleep(Duration::from_secs(BROADCAST_INTERVAL_SECS)).await;
     }
 }
 
-async fn recv(
+async fn recv_presence(
     socket: Arc<UdpSocket>,
     devices: Arc<Mutex<HashMap<SocketAddr, Device>>>,
 ) -> io::Result<()> {
     let ifas = list_afinet_netifas().unwrap();
-    let mut buf = [0; 1024];
 
+    let mut buf = [0; 1024];
     loop {
         let (size, src_addr) = socket.recv_from(&mut buf).await?;
 
@@ -70,16 +71,22 @@ async fn recv(
             continue;
         }
 
+        let mut should_send_file = false;
         {
             let mut devices = devices.lock().unwrap();
             if devices.insert(src_addr, Device::new(src_addr)).is_none() {
                 println!("Device connected: {}", src_addr);
+                should_send_file = SEND_FILE;
             }
+        }
+
+        if should_send_file {
+            send_file("file.txt", src_addr).await?;
         }
     }
 }
 
-async fn state(devices: Arc<Mutex<HashMap<SocketAddr, Device>>>) {
+async fn state(devices: Arc<Mutex<HashMap<SocketAddr, Device>>>) -> io::Result<()> {
     println!(
         "🚀 Synche running on port {}. Press Ctrl+C to stop.",
         BROADCAST_PORT
@@ -99,6 +106,7 @@ async fn state(devices: Arc<Mutex<HashMap<SocketAddr, Device>>>) {
             println!("No Synche devices connected.");
         }
     }
+    Ok(())
 }
 
 fn is_host(ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
