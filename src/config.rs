@@ -1,9 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::{collections::HashMap, fs::read_to_string};
+use std::{
+    collections::HashMap,
+    fs::read_to_string,
+    sync::{Arc, RwLock},
+};
 
 pub struct Config {
-    pub synched_files: HashMap<String, SynchedFile>,
+    pub synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -22,5 +26,7 @@ pub fn init() -> Config {
         .map(|f| (f.name.clone(), f))
         .collect::<HashMap<_, _>>();
 
-    Config { synched_files }
+    Config {
+        synched_files: Arc::new(RwLock::new(synched_files)),
+    }
 }

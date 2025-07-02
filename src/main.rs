@@ -5,7 +5,7 @@ mod watcher;
 use crate::{
     config::SynchedFile,
     file::{recv_files, send_file, sync_files},
-    watcher::watch_files,
+    watcher::FileWatcher,
 };
 use local_ip_address::list_afinet_netifas;
 use std::{
@@ -40,7 +40,7 @@ impl Device {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let _cfg = config::init();
+    let cfg = config::init();
 
     let bind_addr = format!("0.0.0.0:{}", BROADCAST_PORT);
 
@@ -50,12 +50,14 @@ async fn main() -> io::Result<()> {
     let devices = Arc::new(Mutex::new(HashMap::<SocketAddr, Device>::new()));
     let (sync_tx, sync_rx) = mpsc::channel::<String>(100);
 
+    let mut watcher = FileWatcher::new(sync_tx, cfg.synched_files.clone());
+
     tokio::try_join!(
         state(devices.clone()),
         send_presence(socket.clone()),
         recv_presence(socket, devices.clone()),
         sync_files(sync_rx, devices.clone()),
-        watch_files(sync_tx),
+        watcher.watch_files(),
         recv_files(),
     )?;
     Ok(())
