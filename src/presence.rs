@@ -72,22 +72,37 @@ impl PresenceHandler {
         loop {
             let (size, src_addr) = socket.recv_from(&mut buf).await?;
 
-            let _msg = String::from_utf8_lossy(&buf[..size]);
             if self.is_host(&ifas, src_addr.ip()) {
                 continue;
             }
 
-            let mut should_send_file = false;
-            {
-                let mut devices = self.devices.write().unwrap();
-                if devices.insert(src_addr, Device::new(src_addr)).is_none() {
-                    println!("Device connected: {}", src_addr);
-                    should_send_file = SEND_FILE;
-                }
-            }
+            let device_synched_files =
+                match self.deserialize_files(&String::from_utf8_lossy(&buf[..size])) {
+                    Ok(map) => map,
+                    Err(err) => {
+                        eprintln!("Failed to deserialize msg from {}: {}", src_addr, err);
+                        continue;
+                    }
+                };
 
-            if should_send_file {
-                send_file("file.txt", src_addr).await?;
+            let sync_devices = match self.devices.write() {
+                Ok(mut devices) => {
+                    let inserted = devices
+                        .insert(src_addr, Device::new(src_addr, device_synched_files))
+                        .is_none();
+                    if inserted {
+                        println!("Device connected: {}", src_addr);
+                    }
+                    inserted
+                }
+                Err(err) => {
+                    eprintln!("Devices write error: {}", err);
+                    false
+                }
+            };
+
+            if sync_devices {
+                self.sync_devices(src_addr).await;
             }
         }
     }
@@ -115,6 +130,10 @@ impl PresenceHandler {
         }
     }
 
+    async fn sync_devices(&self, other: SocketAddr) {
+        todo!()
+    }
+
     fn is_host(&self, ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
         ifas.iter().any(|ifa| ifa.1 == addr)
     }
@@ -128,6 +147,16 @@ impl PresenceHandler {
                     Err(err) => Err(err.to_string()),
                 }
             }
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    fn deserialize_files(&self, msg: &str) -> Result<HashMap<String, SynchedFile>, String> {
+        match serde_json::from_str::<Vec<SynchedFile>>(msg) {
+            Ok(files) => Ok(files
+                .into_iter()
+                .map(|f| (f.name.clone(), f))
+                .collect::<HashMap<String, SynchedFile>>()),
             Err(err) => Err(err.to_string()),
         }
     }
