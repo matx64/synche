@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
     time::Duration,
 };
 use tokio::{
@@ -103,7 +103,7 @@ pub async fn send_file<P: AsRef<Path>>(
 
 pub async fn sync_files(
     mut sync_rx: Receiver<String>,
-    devices: Arc<Mutex<HashMap<SocketAddr, Device>>>,
+    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
 ) -> io::Result<()> {
     let mut buffer = HashSet::<String>::new();
     let mut interval = time::interval(Duration::from_secs(10));
@@ -123,7 +123,7 @@ pub async fn sync_files(
                 println!("Synching files: {:?}", buffer);
 
                 let devices = {
-                    let devices = devices.lock().unwrap();
+                    let devices = devices.read().unwrap();
                     devices
                         .values()
                         .filter(|d| {
