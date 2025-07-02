@@ -11,7 +11,6 @@ use tokio::{io, net::UdpSocket};
 const BROADCAST_PORT: u16 = 8888;
 const BROADCAST_INTERVAL_SECS: u64 = 5;
 const DEVICE_TIMEOUT_SECS: u64 = 15;
-const SEND_FILE: bool = true;
 
 pub struct PresenceHandler {
     socket: Arc<UdpSocket>,
@@ -57,9 +56,11 @@ impl PresenceHandler {
 
             if let Err(e) = socket.send_to(msg.as_bytes(), &broadcast_addr).await {
                 eprintln!("Error sending presence: {}", e);
+                retries += 1;
+            } else {
+                retries = 0;
             }
 
-            retries = 0;
             tokio::time::sleep(Duration::from_secs(BROADCAST_INTERVAL_SECS)).await;
         }
     }
@@ -107,6 +108,44 @@ impl PresenceHandler {
         }
     }
 
+    async fn sync_devices(&self, other: SocketAddr) {
+        let other_device = if let Ok(devices) = self.devices.read() {
+            if let Some(device) = devices.get(&other) {
+                device.clone()
+            } else {
+                return;
+            }
+        } else {
+            eprintln!("Failed to read devices");
+            return;
+        };
+
+        let files_to_send = if let Ok(files) = self.synched_files.read() {
+            files
+                .values()
+                .filter_map(|f| {
+                    other_device
+                        .synched_files
+                        .get(&f.name)
+                        .filter(|d| d.last_updated_at < f.last_updated_at)
+                        .map(|_| f.name.clone())
+                })
+                .collect::<Vec<String>>()
+        } else {
+            eprintln!("Failed to read synched files");
+            return;
+        };
+
+        for file in files_to_send {
+            if send_file(format!("synche-files/{}", file), other)
+                .await
+                .is_err()
+            {
+                eprintln!("Failed to send file {} to {}", file, other);
+            }
+        }
+    }
+
     pub async fn watch_devices(&self) -> io::Result<()> {
         println!(
             "🚀 Synche running on port {}. Press Ctrl+C to stop.",
@@ -128,10 +167,6 @@ impl PresenceHandler {
                 println!("No Synche devices connected.");
             }
         }
-    }
-
-    async fn sync_devices(&self, other: SocketAddr) {
-        todo!()
     }
 
     fn is_host(&self, ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
