@@ -127,7 +127,7 @@ impl PresenceHandler {
                     other_device
                         .synched_files
                         .get(&f.name)
-                        .filter(|d| d.last_updated_at < f.last_updated_at)
+                        .filter(|d| d.last_modified_at < f.last_modified_at)
                         .map(|_| f.name.clone())
                 })
                 .collect::<Vec<String>>()

@@ -1,10 +1,8 @@
 [
     {
-        "name": "file.txt",
-        "last_updated_at": "2025-07-01 12:08:39.834290300 UTC"
+        "name": "file.txt"
     },
     {
-        "name": "file1.txt",
-        "last_updated_at": "2025-07-01 12:08:39.834290300 UTC"
+        "name": "file1.txt"
     }
 ]
