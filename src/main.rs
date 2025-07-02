@@ -2,7 +2,11 @@ mod config;
 mod file;
 mod watcher;
 
-use crate::file::{recv_files, send_file};
+use crate::{
+    config::SynchedFile,
+    file::{recv_files, send_file, sync_files},
+    watcher::watch_files,
+};
 use local_ip_address::list_afinet_netifas;
 use std::{
     collections::HashMap,
@@ -10,23 +14,25 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
-use tokio::{io, net::UdpSocket};
+use tokio::{io, net::UdpSocket, sync::mpsc};
 
 const BROADCAST_PORT: u16 = 8888;
 const BROADCAST_INTERVAL_SECS: u64 = 5;
 const DEVICE_TIMEOUT_SECS: u64 = 15;
 const SEND_FILE: bool = true;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Device {
-    _addr: SocketAddr,
+    addr: SocketAddr,
+    synched_files: HashMap<String, SynchedFile>,
     last_seen: SystemTime,
 }
 
 impl Device {
-    pub fn new(_addr: SocketAddr) -> Self {
+    pub fn new(addr: SocketAddr) -> Self {
         Self {
-            _addr,
+            addr,
+            synched_files: HashMap::new(),
             last_seen: SystemTime::now(),
         }
     }
@@ -42,11 +48,14 @@ async fn main() -> io::Result<()> {
     socket.set_broadcast(true)?;
 
     let devices = Arc::new(Mutex::new(HashMap::<SocketAddr, Device>::new()));
+    let (sync_tx, sync_rx) = mpsc::channel::<String>(100);
 
     tokio::try_join!(
         state(devices.clone()),
         send_presence(socket.clone()),
-        recv_presence(socket, devices),
+        recv_presence(socket, devices.clone()),
+        sync_files(sync_rx, devices.clone()),
+        watch_files(sync_tx),
         recv_files(),
     )?;
     Ok(())

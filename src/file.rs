@@ -1,8 +1,17 @@
-use std::{net::SocketAddr, path::Path};
+use crate::Device;
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
     fs::File,
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    sync::mpsc::Receiver,
+    time,
 };
 
 const TCP_PORT: u16 = 8889;
@@ -89,5 +98,56 @@ pub async fn send_file<P: AsRef<Path>>(
         "Sent file: {} ({} bytes) to {}",
         file_name, file_size, target_addr
     );
+    Ok(())
+}
+
+pub async fn sync_files(
+    mut sync_rx: Receiver<String>,
+    devices: Arc<Mutex<HashMap<SocketAddr, Device>>>,
+) -> io::Result<()> {
+    let mut buffer = HashSet::<String>::new();
+    let mut interval = time::interval(Duration::from_secs(10));
+
+    loop {
+        tokio::select! {
+            Some(file_name) = sync_rx.recv() => {
+                println!("File name added to buffer: {}", file_name);
+                buffer.insert(file_name);
+            }
+
+            _ = interval.tick() => {
+                if buffer.is_empty() {
+                    continue;
+                }
+
+                println!("Synching files: {:?}", buffer);
+
+                let devices = {
+                    let devices = devices.lock().unwrap();
+                    devices
+                        .values()
+                        .filter(|d| {
+                            buffer
+                                .iter()
+                                .any(|file_name| d.synched_files.contains_key(file_name))
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+
+                for device in devices {
+                    for file_name in &buffer {
+                        if device.synched_files.contains_key(file_name) {
+                            if let Err(err) = send_file(&format!("/synche-files/{}", file_name), device.addr).await {
+                                eprintln!("Error synching file: {}", err);
+                            }
+                        }
+                    }
+                }
+
+                buffer.clear();
+            }
+        }
+    }
     Ok(())
 }
