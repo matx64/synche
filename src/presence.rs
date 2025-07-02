@@ -1,4 +1,4 @@
-use crate::{Device, file::send_file};
+use crate::{Device, config::SynchedFile, file::send_file};
 use local_ip_address::list_afinet_netifas;
 use std::{
     collections::HashMap,
@@ -16,24 +16,50 @@ const SEND_FILE: bool = true;
 pub struct PresenceHandler {
     socket: Arc<UdpSocket>,
     devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+    synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
 }
 
 impl PresenceHandler {
-    pub async fn new(devices: Arc<RwLock<HashMap<SocketAddr, Device>>>) -> Self {
+    pub async fn new(
+        devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+        synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+    ) -> Self {
         let bind_addr = format!("0.0.0.0:{}", BROADCAST_PORT);
 
         let socket = Arc::new(UdpSocket::bind(&bind_addr).await.unwrap());
         socket.set_broadcast(true).unwrap();
 
-        Self { socket, devices }
+        Self {
+            socket,
+            devices,
+            synched_files,
+        }
     }
 
     pub async fn send_presence(&self) -> io::Result<()> {
         let socket = self.socket.clone();
         let broadcast_addr = format!("255.255.255.255:{}", BROADCAST_PORT);
+        let mut retries: usize = 0;
 
         loop {
-            socket.send_to("ping".as_bytes(), &broadcast_addr).await?;
+            if retries >= 3 {
+                return Err(io::Error::other("Failed to send presence 3 times"));
+            }
+
+            let msg = match self.serialize_files() {
+                Ok(json) => json,
+                Err(e) => {
+                    eprintln!("Failed to serialize files: {}", e);
+                    retries += 1;
+                    continue;
+                }
+            };
+
+            if let Err(e) = socket.send_to(msg.as_bytes(), &broadcast_addr).await {
+                eprintln!("Error sending presence: {}", e);
+            }
+
+            retries = 0;
             tokio::time::sleep(Duration::from_secs(BROADCAST_INTERVAL_SECS)).await;
         }
     }
@@ -46,8 +72,8 @@ impl PresenceHandler {
         loop {
             let (size, src_addr) = socket.recv_from(&mut buf).await?;
 
-            let msg = String::from_utf8_lossy(&buf[..size]);
-            if self.is_host(&ifas, src_addr.ip()) || msg != "ping" {
+            let _msg = String::from_utf8_lossy(&buf[..size]);
+            if self.is_host(&ifas, src_addr.ip()) {
                 continue;
             }
 
@@ -66,7 +92,7 @@ impl PresenceHandler {
         }
     }
 
-    pub async fn state(&self) -> io::Result<()> {
+    pub async fn watch_devices(&self) -> io::Result<()> {
         println!(
             "🚀 Synche running on port {}. Press Ctrl+C to stop.",
             BROADCAST_PORT
@@ -87,10 +113,22 @@ impl PresenceHandler {
                 println!("No Synche devices connected.");
             }
         }
-        Ok(())
     }
 
     fn is_host(&self, ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
         ifas.iter().any(|ifa| ifa.1 == addr)
+    }
+
+    fn serialize_files(&self) -> Result<String, String> {
+        match self.synched_files.read() {
+            Ok(files) => {
+                let vec = files.values().collect::<Vec<_>>();
+                match serde_json::to_string(&vec) {
+                    Ok(json) => Ok(json),
+                    Err(err) => Err(err.to_string()),
+                }
+            }
+            Err(err) => Err(err.to_string()),
+        }
     }
 }

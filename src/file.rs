@@ -149,5 +149,4 @@ pub async fn sync_files(
             }
         }
     }
-    Ok(())
 }

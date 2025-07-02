@@ -41,15 +41,15 @@ async fn main() -> io::Result<()> {
     let (sync_tx, sync_rx) = mpsc::channel::<String>(100);
     let devices = Arc::new(RwLock::new(HashMap::<SocketAddr, Device>::new()));
 
-    let presence_handler = PresenceHandler::new(devices.clone()).await;
-    let mut watcher = FileWatcher::new(sync_tx, cfg.synched_files.clone());
+    let presence_handler = PresenceHandler::new(devices.clone(), cfg.synched_files.clone()).await;
+    let mut file_watcher = FileWatcher::new(sync_tx, cfg.synched_files);
 
     tokio::try_join!(
-        presence_handler.state(),
+        presence_handler.watch_devices(),
         presence_handler.send_presence(),
         presence_handler.recv_presence(),
-        watcher.watch_files(),
-        sync_files(sync_rx, devices.clone()),
+        file_watcher.watch(),
+        sync_files(sync_rx, devices),
         recv_files(),
     )?;
     Ok(())

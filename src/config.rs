@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::read_to_string,
@@ -10,7 +10,7 @@ pub struct Config {
     pub synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SynchedFile {
     pub name: String,
     pub last_updated_at: DateTime<Utc>,
