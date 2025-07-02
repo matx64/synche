@@ -1,4 +1,5 @@
-use crate::Device;
+use crate::{Device, config::SynchedFile};
+use chrono::Utc;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -16,15 +17,21 @@ use tokio::{
 
 const TCP_PORT: u16 = 8889;
 
-pub async fn recv_files() -> std::io::Result<()> {
+pub async fn recv_files(
+    synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT)).await?;
     loop {
         let (mut socket, _addr) = listener.accept().await?;
-        tokio::spawn(async move { handle_file(&mut socket).await });
+        let files = synched_files.clone();
+        tokio::spawn(async move { handle_file(&mut socket, files).await });
     }
 }
 
-async fn handle_file(socket: &mut TcpStream) -> std::io::Result<()> {
+async fn handle_file(
+    socket: &mut TcpStream,
+    synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+) -> std::io::Result<()> {
     println!("Handling File...");
 
     // Read file name length (u64)
@@ -49,6 +56,18 @@ async fn handle_file(socket: &mut TcpStream) -> std::io::Result<()> {
     // Save file
     let mut file = File::create(&file_name).await?;
     file.write_all(&file_buf).await?;
+
+    match synched_files.write() {
+        Ok(mut files) => {
+            if let Some(file) = files.get_mut(&file_name) {
+                file.last_modified_at = Utc::now();
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to write files: {}", err);
+        }
+    }
+
     println!(
         "Received file: {} ({} bytes) from {}",
         file_name,

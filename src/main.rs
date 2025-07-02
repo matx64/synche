@@ -42,7 +42,7 @@ async fn main() -> io::Result<()> {
     let devices = Arc::new(RwLock::new(HashMap::<SocketAddr, Device>::new()));
 
     let presence_handler = PresenceHandler::new(devices.clone(), cfg.synched_files.clone()).await;
-    let mut file_watcher = FileWatcher::new(sync_tx, cfg.synched_files);
+    let mut file_watcher = FileWatcher::new(sync_tx, cfg.synched_files.clone());
 
     tokio::try_join!(
         presence_handler.watch_devices(),
@@ -50,7 +50,7 @@ async fn main() -> io::Result<()> {
         presence_handler.recv_presence(),
         file_watcher.watch(),
         sync_files(sync_rx, devices),
-        recv_files(),
+        recv_files(cfg.synched_files),
     )?;
     Ok(())
 }
