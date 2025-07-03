@@ -155,7 +155,10 @@ impl PresenceHandler {
         loop {
             tokio::time::sleep(Duration::from_secs(10)).await;
 
-            let mut devices = self.devices.write().unwrap();
+            let mut devices = match self.devices.write() {
+                Ok(devices) => devices,
+                Err(_) => continue,
+            };
             devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > DEVICE_TIMEOUT_SECS));
 
             if !devices.is_empty() {

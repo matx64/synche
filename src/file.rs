@@ -54,17 +54,12 @@ async fn handle_file(
     socket.read_exact(&mut file_buf).await?;
 
     // Save file
-    let mut file = File::create(&file_name).await?;
+    let mut file = File::create(&format!("synche-files/{}", file_name)).await?;
     file.write_all(&file_buf).await?;
 
-    match synched_files.write() {
-        Ok(mut files) => {
-            if let Some(file) = files.get_mut(&file_name) {
-                file.last_modified_at = Utc::now();
-            }
-        }
-        Err(err) => {
-            eprintln!("Failed to write files: {}", err);
+    if let Ok(mut files) = synched_files.write() {
+        if let Some(file) = files.get_mut(&file_name) {
+            file.last_modified_at = Utc::now();
         }
     }
 
@@ -141,24 +136,21 @@ pub async fn sync_files(
 
                 println!("Synching files: {:?}", buffer);
 
-                let devices = {
-                    let devices = devices.read().unwrap();
+                let devices = if let Ok(devices) = devices.read() {
                     devices
                         .values()
-                        .filter(|d| {
-                            buffer
-                                .iter()
-                                .any(|file_name| d.synched_files.contains_key(file_name))
-                        })
+                        .filter(|device| buffer.iter().any(|f| device.synched_files.contains_key(f)))
                         .cloned()
                         .collect::<Vec<_>>()
+                } else {
+                    continue;
                 };
 
                 for device in devices {
                     for file_name in &buffer {
                         if device.synched_files.contains_key(file_name) {
                             if let Err(err) = send_file(&format!("/synche-files/{}", file_name), device.addr).await {
-                                eprintln!("Error synching file: {}", err);
+                                eprintln!("Error synching file `{}`: {}", file_name, err);
                             }
                         }
                     }

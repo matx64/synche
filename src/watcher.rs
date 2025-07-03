@@ -50,7 +50,8 @@ impl FileWatcher {
 
         while let Some(res) = self.watch_rx.recv().await {
             match res {
-                Ok(event) => self.handle_event(event).await,
+                Ok(event) if event.kind.is_modify() => self.handle_event(event).await,
+                Ok(_) => {}
                 Err(err) => {
                     eprintln!("Watch error: {}", err);
                 }
