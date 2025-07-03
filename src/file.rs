@@ -1,4 +1,5 @@
 use crate::{Device, config::SynchedFile};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -38,12 +39,6 @@ async fn handle_file(
 ) -> std::io::Result<()> {
     let src_addr = socket.peer_addr()?;
 
-    if let Ok(devices) = devices.read() {
-        if !devices.contains_key(&src_addr.ip()) {
-            return Ok(());
-        }
-    }
-
     println!("Handling received file from: {}", src_addr);
 
     // Read file name length (u64)
@@ -56,6 +51,11 @@ async fn handle_file(
     socket.read_exact(&mut file_name_buf).await?;
     let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
 
+    // Read file hash (32 bytes)
+    let mut hash_buf = [0u8; 32];
+    socket.read_exact(&mut hash_buf).await?;
+    let received_hash = hex::encode(hash_buf);
+
     // Read file size (u64)
     let mut file_size_buf = [0u8; 8];
     socket.read_exact(&mut file_size_buf).await?;
@@ -64,6 +64,15 @@ async fn handle_file(
     // Read file contents
     let mut file_buf = vec![0u8; file_size as usize];
     socket.read_exact(&mut file_buf).await?;
+
+    // Compute hash for corruption check
+    let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
+    if computed_hash != received_hash {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Hash mismatch: data corruption detected",
+        ));
+    }
 
     // Read file last modification date
     let mut timestamp_buf = [0u8; 8];
@@ -129,6 +138,10 @@ pub async fn send_file(
 
     // Send file name
     stream.write_all(file_name.as_bytes()).await?;
+
+    // Send file hash (32 bytes)
+    let hash_bytes = hex::decode(&synched_file.hash).unwrap();
+    stream.write_all(&hash_bytes).await?;
 
     // Send file size (u64)
     let file_size = buffer.len() as u64;

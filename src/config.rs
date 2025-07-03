@@ -30,7 +30,7 @@ pub fn init() -> Config {
     let files_dir = "synche-files";
 
     let files = load_config_file(cfg_path);
-    fs::create_dir_all("synche-files").unwrap();
+    fs::create_dir_all(files_dir).unwrap();
 
     Config {
         synched_files: Arc::new(RwLock::new(build_synched_files(files, files_dir))),
