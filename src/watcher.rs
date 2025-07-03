@@ -1,5 +1,6 @@
 use crate::config::SynchedFile;
-use notify::{Config, Error, Event, ReadDirectoryChangesWatcher, RecommendedWatcher, Watcher};
+use chrono::Utc;
+use notify::{Config, Error, Event, RecommendedWatcher, Watcher};
 use std::{
     collections::HashMap,
     path::Path,
@@ -11,15 +12,15 @@ use tokio::{
 };
 
 pub struct FileWatcher {
-    watcher: ReadDirectoryChangesWatcher,
+    watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
-    sync_tx: Sender<String>,
+    sync_tx: Sender<SynchedFile>,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
 }
 
 impl FileWatcher {
     pub fn new(
-        sync_tx: Sender<String>,
+        sync_tx: Sender<SynchedFile>,
         synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
     ) -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(100);
@@ -69,16 +70,23 @@ impl FileWatcher {
 
             println!("File changed: {}", file_name);
 
-            let should_send = match self.synched_files.read() {
-                Ok(synched_files) => synched_files.contains_key(file_name),
+            let file = match self.synched_files.write() {
+                Ok(mut files) => {
+                    if let Some(file) = files.get_mut(file_name) {
+                        file.last_modified_at = Utc::now();
+                        Some(file.clone())
+                    } else {
+                        None
+                    }
+                }
                 Err(err) => {
                     eprintln!("Failed to read synched_files: {}", err);
-                    false
+                    None
                 }
             };
 
-            if should_send {
-                if let Err(err) = self.sync_tx.send(file_name.to_owned()).await {
+            if let Some(file) = file {
+                if let Err(err) = self.sync_tx.send(file).await {
                     eprintln!("sync_tx send error: {}", err);
                 }
             }

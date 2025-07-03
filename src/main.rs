@@ -38,7 +38,7 @@ impl Device {
 async fn main() -> io::Result<()> {
     let cfg = config::init();
 
-    let (sync_tx, sync_rx) = mpsc::channel::<String>(100);
+    let (sync_tx, sync_rx) = mpsc::channel::<SynchedFile>(100);
     let devices = Arc::new(RwLock::new(HashMap::<SocketAddr, Device>::new()));
 
     let presence_handler = PresenceHandler::new(devices.clone(), cfg.synched_files.clone()).await;
@@ -49,8 +49,8 @@ async fn main() -> io::Result<()> {
         presence_handler.send_presence(),
         presence_handler.recv_presence(),
         file_watcher.watch(),
-        sync_files(sync_rx, devices),
-        recv_files(cfg.synched_files),
+        sync_files(sync_rx, devices.clone()),
+        recv_files(cfg.synched_files, devices),
     )?;
     Ok(())
 }

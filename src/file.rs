@@ -1,7 +1,7 @@
 use crate::{Device, config::SynchedFile};
 use chrono::Utc;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::SocketAddr,
     path::Path,
     sync::{Arc, RwLock},
@@ -19,20 +19,27 @@ const TCP_PORT: u16 = 8889;
 
 pub async fn recv_files(
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT)).await?;
     loop {
         let (mut socket, _addr) = listener.accept().await?;
+
         let files = synched_files.clone();
-        tokio::spawn(async move { handle_file(&mut socket, files).await });
+        let devices = devices.clone();
+
+        tokio::spawn(async move { handle_file(&mut socket, files, devices).await });
     }
 }
 
 async fn handle_file(
     socket: &mut TcpStream,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
 ) -> std::io::Result<()> {
-    println!("Handling File...");
+    let src_addr = socket.peer_addr()?;
+
+    println!("Handling received file from: {}", src_addr);
 
     // Read file name length (u64)
     let mut name_len_buf = [0u8; 8];
@@ -43,6 +50,15 @@ async fn handle_file(
     let mut file_name_buf = vec![0u8; name_len];
     socket.read_exact(&mut file_name_buf).await?;
     let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
+
+    // Update source device file date
+    if let Ok(mut devices) = devices.write() {
+        if let Some(device) = devices.get_mut(&src_addr) {
+            if let Some(file) = device.synched_files.get_mut(&file_name) {
+                file.last_modified_at = Utc::now();
+            }
+        }
+    }
 
     // Read file size (u64)
     let mut file_size_buf = [0u8; 8];
@@ -65,9 +81,7 @@ async fn handle_file(
 
     println!(
         "Received file: {} ({} bytes) from {}",
-        file_name,
-        file_size,
-        socket.peer_addr()?
+        file_name, file_size, src_addr
     );
     Ok(())
 }
@@ -116,17 +130,17 @@ pub async fn send_file<P: AsRef<Path>>(
 }
 
 pub async fn sync_files(
-    mut sync_rx: Receiver<String>,
+    mut sync_rx: Receiver<SynchedFile>,
     devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
 ) -> io::Result<()> {
-    let mut buffer = HashSet::<String>::new();
+    let mut buffer = HashMap::<String, SynchedFile>::new();
     let mut interval = time::interval(Duration::from_secs(10));
 
     loop {
         tokio::select! {
-            Some(file_name) = sync_rx.recv() => {
-                println!("File name added to buffer: {}", file_name);
-                buffer.insert(file_name);
+            Some(file) = sync_rx.recv() => {
+                println!("File added to buffer: {}", file.name);
+                buffer.insert(file.name.clone(), file);
             }
 
             _ = interval.tick() => {
@@ -139,7 +153,14 @@ pub async fn sync_files(
                 let devices = if let Ok(devices) = devices.read() {
                     devices
                         .values()
-                        .filter(|device| buffer.iter().any(|f| device.synched_files.contains_key(f)))
+                        .filter(|device| {
+                            buffer.values().any(|f| {
+                                device.synched_files
+                                    .get(&f.name)
+                                    .map(|found| found.last_modified_at < f.last_modified_at)
+                                    .unwrap_or(false)
+                            })
+                        })
                         .cloned()
                         .collect::<Vec<_>>()
                 } else {
@@ -147,10 +168,10 @@ pub async fn sync_files(
                 };
 
                 for device in devices {
-                    for file_name in &buffer {
-                        if device.synched_files.contains_key(file_name) {
-                            if let Err(err) = send_file(&format!("/synche-files/{}", file_name), device.addr).await {
-                                eprintln!("Error synching file `{}`: {}", file_name, err);
+                    for file in buffer.values() {
+                        if device.synched_files.get(&file.name).map(|f| f.last_modified_at < file.last_modified_at).unwrap_or(false) {
+                            if let Err(err) = send_file(&format!("synche-files/{}", &file.name), device.addr).await {
+                                eprintln!("Error synching file `{}`: {}", &file.name, err);
                             }
                         }
                     }
