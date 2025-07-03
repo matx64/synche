@@ -1,10 +1,10 @@
 use crate::config::SynchedFile;
-use chrono::Utc;
 use notify::{Config, Error, Event, RecommendedWatcher, Watcher};
 use std::{
     collections::HashMap,
     path::Path,
     sync::{Arc, RwLock},
+    time::SystemTime,
 };
 use tokio::{
     io,
@@ -73,7 +73,10 @@ impl FileWatcher {
             let file = match self.synched_files.write() {
                 Ok(mut files) => {
                     if let Some(file) = files.get_mut(file_name) {
-                        file.last_modified_at = Utc::now();
+                        file.last_modified_at = path
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .unwrap_or(SystemTime::now());
                         Some(file.clone())
                     } else {
                         None

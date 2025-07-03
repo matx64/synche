@@ -137,7 +137,7 @@ impl PresenceHandler {
         };
 
         for file in files_to_send {
-            if send_file(format!("synche-files/{}", file), other)
+            if send_file(&format!("synche-files/{}", file), other)
                 .await
                 .is_err()
             {

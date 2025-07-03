@@ -1,10 +1,10 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::{self},
     path::Path,
     sync::{Arc, RwLock},
+    time::SystemTime,
 };
 
 pub struct Config {
@@ -14,7 +14,7 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SynchedFile {
     pub name: String,
-    pub last_modified_at: DateTime<Utc>,
+    pub last_modified_at: SystemTime,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,10 +36,10 @@ pub fn init() -> Config {
 
         if let Ok(metadata) = fs::metadata(&path) {
             if metadata.is_file() {
-                if let Ok(modified_time) = metadata.modified() {
+                if let Ok(last_modified_at) = metadata.modified() {
                     existing_files.push(SynchedFile {
                         name: file.name.clone(),
-                        last_modified_at: modified_time.into(),
+                        last_modified_at,
                     });
                 }
             }
