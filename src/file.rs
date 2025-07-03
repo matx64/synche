@@ -1,10 +1,10 @@
 use crate::{Device, config::SynchedFile};
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::Path,
     sync::{Arc, RwLock},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, UNIX_EPOCH},
 };
 use tokio::{
     fs::File,
@@ -18,7 +18,7 @@ const TCP_PORT: u16 = 8889;
 
 pub async fn recv_files(
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+    devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT)).await?;
     loop {
@@ -34,9 +34,15 @@ pub async fn recv_files(
 async fn handle_file(
     socket: &mut TcpStream,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+    devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
 ) -> std::io::Result<()> {
     let src_addr = socket.peer_addr()?;
+
+    if let Ok(devices) = devices.read() {
+        if !devices.contains_key(&src_addr.ip()) {
+            return Ok(());
+        }
+    }
 
     println!("Handling received file from: {}", src_addr);
 
@@ -66,12 +72,8 @@ async fn handle_file(
 
     let last_modified_date = UNIX_EPOCH + Duration::from_secs(timestamp);
 
-    // Save file
-    let mut file = File::create(&format!("synche-files/{}", file_name)).await?;
-    file.write_all(&file_buf).await?;
-
     if let Ok(mut devices) = devices.write() {
-        if let Some(device) = devices.get_mut(&src_addr) {
+        if let Some(device) = devices.get_mut(&src_addr.ip()) {
             if let Some(file) = device.synched_files.get_mut(&file_name) {
                 file.last_modified_at = last_modified_date;
             }
@@ -84,6 +86,10 @@ async fn handle_file(
         }
     }
 
+    // Save file
+    let mut file = File::create(&format!("synche-files/{}", file_name)).await?;
+    file.write_all(&file_buf).await?;
+
     println!(
         "Received file: {} ({} bytes) from {}",
         file_name, file_size, src_addr
@@ -91,8 +97,11 @@ async fn handle_file(
     Ok(())
 }
 
-pub async fn send_file(path: &str, mut target_addr: SocketAddr) -> std::io::Result<()> {
-    let path = Path::new(path);
+pub async fn send_file(
+    synched_file: &SynchedFile,
+    mut target_addr: SocketAddr,
+) -> std::io::Result<()> {
+    let path = Path::new("synche-files").join(&synched_file.name);
     let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
     println!("Sending file {} to {}", file_name, target_addr);
@@ -102,10 +111,12 @@ pub async fn send_file(path: &str, mut target_addr: SocketAddr) -> std::io::Resu
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).await?;
 
-    // Get metadata & mod time
-    let metadata = file.metadata().await?;
-    let modified = metadata.modified().unwrap_or(SystemTime::now());
-    let timestamp = modified.duration_since(UNIX_EPOCH).unwrap().as_secs();
+    // Get last modified at
+    let last_modified_at = synched_file
+        .last_modified_at
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 
     // Connect to target device's TCP server
     target_addr.set_port(TCP_PORT);
@@ -127,7 +138,7 @@ pub async fn send_file(path: &str, mut target_addr: SocketAddr) -> std::io::Resu
     stream.write_all(&buffer).await?;
 
     // Send last modification date
-    stream.write_all(&timestamp.to_be_bytes()).await?;
+    stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
     println!(
         "Sent file: {} ({} bytes) to {}",
@@ -138,7 +149,7 @@ pub async fn send_file(path: &str, mut target_addr: SocketAddr) -> std::io::Resu
 
 pub async fn sync_files(
     mut sync_rx: Receiver<SynchedFile>,
-    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+    devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
 ) -> io::Result<()> {
     let mut buffer = HashMap::<String, SynchedFile>::new();
     let mut interval = time::interval(Duration::from_secs(10));
@@ -177,7 +188,7 @@ pub async fn sync_files(
                 for device in devices {
                     for file in buffer.values() {
                         if device.synched_files.get(&file.name).map(|f| f.last_modified_at < file.last_modified_at).unwrap_or(false) {
-                            if let Err(err) = send_file(&format!("synche-files/{}", &file.name), device.addr).await {
+                            if let Err(err) = send_file(file, device.addr).await {
                                 eprintln!("Error synching file `{}`: {}", &file.name, err);
                             }
                         }

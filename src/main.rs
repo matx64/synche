@@ -11,7 +11,7 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, RwLock},
     time::SystemTime,
 };
@@ -39,7 +39,7 @@ async fn main() -> io::Result<()> {
     let cfg = config::init();
 
     let (sync_tx, sync_rx) = mpsc::channel::<SynchedFile>(100);
-    let devices = Arc::new(RwLock::new(HashMap::<SocketAddr, Device>::new()));
+    let devices = Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new()));
 
     let presence_handler = PresenceHandler::new(devices.clone(), cfg.synched_files.clone()).await;
     let mut file_watcher = FileWatcher::new(sync_tx, cfg.synched_files.clone());

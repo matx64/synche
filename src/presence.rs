@@ -14,13 +14,13 @@ const DEVICE_TIMEOUT_SECS: u64 = 15;
 
 pub struct PresenceHandler {
     socket: Arc<UdpSocket>,
-    devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+    devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
 }
 
 impl PresenceHandler {
     pub async fn new(
-        devices: Arc<RwLock<HashMap<SocketAddr, Device>>>,
+        devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
         synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
     ) -> Self {
         let bind_addr = format!("0.0.0.0:{}", BROADCAST_PORT);
@@ -89,7 +89,7 @@ impl PresenceHandler {
             let sync_devices = match self.devices.write() {
                 Ok(mut devices) => {
                     let inserted = devices
-                        .insert(src_addr, Device::new(src_addr, device_synched_files))
+                        .insert(src_addr.ip(), Device::new(src_addr, device_synched_files))
                         .is_none();
                     if inserted {
                         println!("Device connected: {}", src_addr);
@@ -110,7 +110,7 @@ impl PresenceHandler {
 
     async fn sync_devices(&self, other: SocketAddr) {
         let other_device = if let Ok(devices) = self.devices.read() {
-            if let Some(device) = devices.get(&other) {
+            if let Some(device) = devices.get(&other.ip()) {
                 device.clone()
             } else {
                 return;
@@ -128,20 +128,17 @@ impl PresenceHandler {
                         .synched_files
                         .get(&f.name)
                         .filter(|d| d.last_modified_at < f.last_modified_at)
-                        .map(|_| f.name.clone())
+                        .cloned()
                 })
-                .collect::<Vec<String>>()
+                .collect::<Vec<SynchedFile>>()
         } else {
             eprintln!("Failed to read synched files");
             return;
         };
 
         for file in files_to_send {
-            if send_file(&format!("synche-files/{}", file), other)
-                .await
-                .is_err()
-            {
-                eprintln!("Failed to send file {} to {}", file, other);
+            if send_file(&file, other).await.is_err() {
+                eprintln!("Failed to send file {} to {}", file.name, other);
             }
         }
     }
@@ -153,22 +150,23 @@ impl PresenceHandler {
         );
 
         loop {
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            match self.devices.write() {
+                Ok(mut devices) => {
+                    devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > DEVICE_TIMEOUT_SECS));
 
-            let mut devices = match self.devices.write() {
-                Ok(devices) => devices,
+                    if !devices.is_empty() {
+                        println!(
+                            "Connected Synche devices: {:?}",
+                            devices.keys().collect::<Vec<_>>()
+                        );
+                    } else {
+                        println!("No Synche devices connected.");
+                    }
+                }
                 Err(_) => continue,
             };
-            devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > DEVICE_TIMEOUT_SECS));
 
-            if !devices.is_empty() {
-                println!(
-                    "Connected Synche devices: {:?}",
-                    devices.keys().collect::<Vec<_>>()
-                );
-            } else {
-                println!("No Synche devices connected.");
-            }
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
     }
 
