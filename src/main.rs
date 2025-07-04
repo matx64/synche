@@ -1,12 +1,13 @@
 mod config;
 mod file;
 mod presence;
+mod sync;
 mod watcher;
 
 use crate::{
     config::SynchedFile,
-    file::{recv_files, sync_files},
     presence::PresenceHandler,
+    sync::{recv_files, sync_files},
     watcher::FileWatcher,
 };
 use std::{
