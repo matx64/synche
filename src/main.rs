@@ -26,10 +26,10 @@ struct Device {
 }
 
 impl Device {
-    pub fn new(addr: SocketAddr, synched_files: HashMap<String, SynchedFile>) -> Self {
+    pub fn new(addr: SocketAddr, synched_files: Option<HashMap<String, SynchedFile>>) -> Self {
         Self {
             addr,
-            synched_files,
+            synched_files: synched_files.unwrap_or_default(),
             last_seen: SystemTime::now(),
         }
     }

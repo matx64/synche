@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
     sync::{Arc, RwLock},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{io, net::UdpSocket};
 
@@ -16,6 +16,7 @@ pub struct PresenceHandler {
     socket: Arc<UdpSocket>,
     devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+    send_serialized_files: Arc<RwLock<bool>>,
 }
 
 impl PresenceHandler {
@@ -32,6 +33,7 @@ impl PresenceHandler {
             socket,
             devices,
             synched_files,
+            send_serialized_files: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -45,12 +47,18 @@ impl PresenceHandler {
                 return Err(io::Error::other("Failed to send presence 3 times"));
             }
 
-            let msg = match self.serialize_files() {
-                Ok(json) => json,
-                Err(e) => {
-                    eprintln!("Failed to serialize files: {}", e);
-                    retries += 1;
-                    continue;
+            let send_serialized_files = self.send_serialized_files.read().is_ok_and(|val| *val);
+
+            let msg = if !send_serialized_files {
+                "ping"
+            } else {
+                &match self.serialize_files() {
+                    Ok(json) => json,
+                    Err(e) => {
+                        eprintln!("Failed to serialize files: {}", e);
+                        retries += 1;
+                        continue;
+                    }
                 }
             };
 
@@ -58,6 +66,11 @@ impl PresenceHandler {
                 eprintln!("Error sending presence: {}", e);
                 retries += 1;
             } else {
+                if send_serialized_files {
+                    if let Ok(mut val) = self.send_serialized_files.write() {
+                        *val = false;
+                    }
+                }
                 retries = 0;
             }
 
@@ -72,34 +85,50 @@ impl PresenceHandler {
         let mut buf = [0; 1024];
         loop {
             let (size, src_addr) = socket.recv_from(&mut buf).await?;
+            let ip = src_addr.ip();
 
-            if self.is_host(&ifas, src_addr.ip()) {
+            if self.is_host(&ifas, ip) {
                 continue;
             }
 
-            let device_synched_files =
-                match self.deserialize_files(&String::from_utf8_lossy(&buf[..size])) {
-                    Ok(map) => map,
-                    Err(err) => {
-                        eprintln!("Failed to deserialize msg from {}: {}", src_addr, err);
-                        continue;
-                    }
-                };
+            let msg = String::from_utf8_lossy(&buf[..size]);
 
-            let sync_devices = match self.devices.write() {
-                Ok(mut devices) => {
-                    let inserted = devices
-                        .insert(src_addr.ip(), Device::new(src_addr, device_synched_files))
-                        .is_none();
-                    if inserted {
-                        println!("Device connected: {}", src_addr);
+            if msg == "ping" {
+                if let Ok(mut devices) = self.devices.write() {
+                    if let Some(device) = devices.get_mut(&ip) {
+                        device.last_seen = SystemTime::now();
+                    } else {
+                        devices.insert(ip, Device::new(src_addr, None));
+
+                        if let Ok(mut val) = self.send_serialized_files.write() {
+                            *val = true;
+                        }
                     }
-                    inserted
                 }
+                continue;
+            }
+
+            let device_synched_files = match self.deserialize_files(&msg) {
+                Ok(map) => map,
                 Err(err) => {
-                    eprintln!("Devices write error: {}", err);
-                    false
+                    eprintln!("Failed to deserialize msg from {}: {}", src_addr, err);
+                    continue;
                 }
+            };
+
+            let sync_devices = if let Ok(mut devices) = self.devices.write() {
+                if devices
+                    .insert(ip, Device::new(src_addr, Some(device_synched_files)))
+                    .is_none()
+                {
+                    println!("Device connected: {}", src_addr);
+                    if let Ok(mut val) = self.send_serialized_files.write() {
+                        *val = true;
+                    }
+                }
+                true
+            } else {
+                false
             };
 
             if sync_devices {
