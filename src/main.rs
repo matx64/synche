@@ -1,13 +1,15 @@
 mod config;
 mod file;
+mod handshake;
 mod presence;
 mod sync;
 mod watcher;
 
 use crate::{
     config::SynchedFile,
+    handshake::HandshakeHandler,
     presence::PresenceHandler,
-    sync::{recv_files, sync_files},
+    sync::{recv_data, sync_files},
     watcher::FileWatcher,
 };
 use std::{
@@ -23,6 +25,7 @@ struct Device {
     addr: SocketAddr,
     synched_files: HashMap<String, SynchedFile>,
     last_seen: SystemTime,
+    handshake_hash: Option<u64>,
 }
 
 impl Device {
@@ -31,6 +34,7 @@ impl Device {
             addr,
             synched_files: synched_files.unwrap_or_default(),
             last_seen: SystemTime::now(),
+            handshake_hash: None,
         }
     }
 }
@@ -42,7 +46,11 @@ async fn main() -> io::Result<()> {
     let (sync_tx, sync_rx) = mpsc::channel::<SynchedFile>(100);
     let devices = Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new()));
 
-    let presence_handler = PresenceHandler::new(devices.clone(), cfg.synched_files.clone()).await;
+    let handshake_handler = Arc::new(HandshakeHandler::new(
+        devices.clone(),
+        cfg.synched_files.clone(),
+    ));
+    let presence_handler = PresenceHandler::new(handshake_handler.clone(), devices.clone()).await;
     let mut file_watcher = FileWatcher::new(sync_tx, cfg.synched_files.clone());
 
     tokio::try_join!(
@@ -51,7 +59,7 @@ async fn main() -> io::Result<()> {
         presence_handler.recv_presence(),
         file_watcher.watch(),
         sync_files(sync_rx, devices.clone()),
-        recv_files(cfg.synched_files, devices),
+        recv_data(handshake_handler, cfg.synched_files, devices),
     )?;
     Ok(())
 }

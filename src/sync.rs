@@ -2,16 +2,18 @@ use crate::{
     Device,
     config::SynchedFile,
     file::{read_file, send_file},
+    handshake::HandshakeHandler,
 };
 use std::{
     collections::HashMap,
+    io::ErrorKind,
     net::IpAddr,
     sync::{Arc, RwLock},
     time::Duration,
 };
 use tokio::{
     fs::File,
-    io::{self, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::mpsc::Receiver,
     time,
@@ -19,31 +21,51 @@ use tokio::{
 
 const TCP_PORT: u16 = 8889;
 
-pub async fn recv_files(
+#[repr(u8)]
+pub enum SyncDataKind {
+    Handshake = 0,
+    File = 1,
+}
+
+pub async fn recv_data(
+    handshake_handler: Arc<HandshakeHandler>,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
     devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT)).await?;
     loop {
-        let (mut socket, _addr) = listener.accept().await?;
+        let (mut stream, _addr) = listener.accept().await?;
 
-        let files = synched_files.clone();
-        let devices = devices.clone();
+        let mut kind_buf = [0u8; 1];
+        stream.read_exact(&mut kind_buf).await?;
+        let kind = SyncDataKind::try_from(kind_buf[0])?;
 
-        tokio::spawn(async move { handle_file(&mut socket, files, devices).await });
+        match kind {
+            SyncDataKind::File => {
+                handle_file(&mut stream, synched_files.clone(), devices.clone()).await?;
+            }
+            SyncDataKind::Handshake => {
+                handshake_handler.read_handshake(&mut stream).await?;
+            }
+        };
+
+        // let files = synched_files.clone();
+        // let devices = devices.clone();
+
+        // tokio::spawn(async move { handle_file(&mut stream, files, devices).await });
     }
 }
 
 async fn handle_file(
-    socket: &mut TcpStream,
+    stream: &mut TcpStream,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
     devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
 ) -> std::io::Result<()> {
-    let src_addr = socket.peer_addr()?;
+    let src_addr = stream.peer_addr()?;
 
     println!("Handling received file from: {}", src_addr);
 
-    let recv_file = read_file(socket).await?;
+    let recv_file = read_file(stream).await?;
 
     if let Ok(mut devices) = devices.write() {
         if let Some(device) = devices.get_mut(&src_addr.ip()) {
@@ -120,6 +142,21 @@ pub async fn sync_files(
 
                 buffer.clear();
             }
+        }
+    }
+}
+
+impl TryFrom<u8> for SyncDataKind {
+    type Error = io::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(SyncDataKind::Handshake),
+            1 => Ok(SyncDataKind::File),
+            _ => Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "Invalid SyncDataKind value",
+            )),
         }
     }
 }

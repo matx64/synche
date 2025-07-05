@@ -1,8 +1,8 @@
-use crate::{Device, config::SynchedFile, file::send_file};
+use crate::{Device, config::SynchedFile, handshake::HandshakeHandler};
 use local_ip_address::list_afinet_netifas;
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     sync::{Arc, RwLock},
     time::{Duration, SystemTime},
 };
@@ -14,15 +14,14 @@ const DEVICE_TIMEOUT_SECS: u64 = 15;
 
 pub struct PresenceHandler {
     socket: Arc<UdpSocket>,
+    handshake_handler: Arc<HandshakeHandler>,
     devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
-    synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    send_serialized_files: Arc<RwLock<bool>>,
 }
 
 impl PresenceHandler {
     pub async fn new(
+        handshake_handler: Arc<HandshakeHandler>,
         devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
-        synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
     ) -> Self {
         let bind_addr = format!("0.0.0.0:{}", BROADCAST_PORT);
 
@@ -31,9 +30,8 @@ impl PresenceHandler {
 
         Self {
             socket,
+            handshake_handler,
             devices,
-            synched_files,
-            send_serialized_files: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -43,34 +41,14 @@ impl PresenceHandler {
         let mut retries: usize = 0;
 
         loop {
-            if retries >= 3 {
-                return Err(io::Error::other("Failed to send presence 3 times"));
-            }
-
-            let send_serialized_files = self.send_serialized_files.read().is_ok_and(|val| *val);
-
-            let msg = if !send_serialized_files {
-                "ping"
-            } else {
-                &match self.serialize_files() {
-                    Ok(json) => json,
-                    Err(e) => {
-                        eprintln!("Failed to serialize files: {}", e);
-                        retries += 1;
-                        continue;
-                    }
-                }
-            };
-
-            if let Err(e) = socket.send_to(msg.as_bytes(), &broadcast_addr).await {
+            if let Err(e) = socket.send_to("ping".as_bytes(), &broadcast_addr).await {
                 eprintln!("Error sending presence: {}", e);
                 retries += 1;
-            } else {
-                if send_serialized_files {
-                    if let Ok(mut val) = self.send_serialized_files.write() {
-                        *val = false;
-                    }
+
+                if retries >= 3 {
+                    return Err(io::Error::other("Failed to send presence 3 times"));
                 }
+            } else {
                 retries = 0;
             }
 
@@ -87,87 +65,24 @@ impl PresenceHandler {
             let (size, src_addr) = socket.recv_from(&mut buf).await?;
             let ip = src_addr.ip();
 
-            if self.is_host(&ifas, ip) {
-                continue;
-            }
-
             let msg = String::from_utf8_lossy(&buf[..size]);
-
-            if msg == "ping" {
-                if let Ok(mut devices) = self.devices.write() {
-                    if let Some(device) = devices.get_mut(&ip) {
-                        device.last_seen = SystemTime::now();
-                    } else {
-                        devices.insert(ip, Device::new(src_addr, None));
-
-                        if let Ok(mut val) = self.send_serialized_files.write() {
-                            *val = true;
-                        }
-                    }
-                }
+            if self.is_host(&ifas, ip) || msg != "ping" {
                 continue;
             }
 
-            let device_synched_files = match self.deserialize_files(&msg) {
-                Ok(map) => map,
-                Err(err) => {
-                    eprintln!("Failed to deserialize msg from {}: {}", src_addr, err);
-                    continue;
+            let send_handshake = self.devices.write().is_ok_and(|mut devices| {
+                if let Some(device) = devices.get_mut(&ip) {
+                    device.last_seen = SystemTime::now();
+                    false
+                } else {
+                    println!("Device connected: {}", ip);
+                    devices.insert(ip, Device::new(src_addr, None));
+                    true
                 }
-            };
+            });
 
-            let sync_devices = if let Ok(mut devices) = self.devices.write() {
-                if devices
-                    .insert(ip, Device::new(src_addr, Some(device_synched_files)))
-                    .is_none()
-                {
-                    println!("Device connected: {}", src_addr);
-                    if let Ok(mut val) = self.send_serialized_files.write() {
-                        *val = true;
-                    }
-                }
-                true
-            } else {
-                false
-            };
-
-            if sync_devices {
-                self.sync_devices(src_addr).await;
-            }
-        }
-    }
-
-    async fn sync_devices(&self, other: SocketAddr) {
-        let other_device = if let Ok(devices) = self.devices.read() {
-            if let Some(device) = devices.get(&other.ip()) {
-                device.clone()
-            } else {
-                return;
-            }
-        } else {
-            eprintln!("Failed to read devices");
-            return;
-        };
-
-        let files_to_send = if let Ok(files) = self.synched_files.read() {
-            files
-                .values()
-                .filter_map(|f| {
-                    other_device
-                        .synched_files
-                        .get(&f.name)
-                        .filter(|d| d.last_modified_at < f.last_modified_at)
-                        .cloned()
-                })
-                .collect::<Vec<SynchedFile>>()
-        } else {
-            eprintln!("Failed to read synched files");
-            return;
-        };
-
-        for file in files_to_send {
-            if send_file(&file, other).await.is_err() {
-                eprintln!("Failed to send file {} to {}", file.name, other);
+            if send_handshake {
+                self.handshake_handler.send_handshake(src_addr).await?;
             }
         }
     }
@@ -201,28 +116,5 @@ impl PresenceHandler {
 
     fn is_host(&self, ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
         ifas.iter().any(|ifa| ifa.1 == addr)
-    }
-
-    fn serialize_files(&self) -> Result<String, String> {
-        match self.synched_files.read() {
-            Ok(files) => {
-                let vec = files.values().collect::<Vec<_>>();
-                match serde_json::to_string(&vec) {
-                    Ok(json) => Ok(json),
-                    Err(err) => Err(err.to_string()),
-                }
-            }
-            Err(err) => Err(err.to_string()),
-        }
-    }
-
-    fn deserialize_files(&self, msg: &str) -> Result<HashMap<String, SynchedFile>, String> {
-        match serde_json::from_str::<Vec<SynchedFile>>(msg) {
-            Ok(files) => Ok(files
-                .into_iter()
-                .map(|f| (f.name.clone(), f))
-                .collect::<HashMap<String, SynchedFile>>()),
-            Err(err) => Err(err.to_string()),
-        }
     }
 }
