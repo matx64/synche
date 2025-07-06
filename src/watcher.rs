@@ -1,14 +1,7 @@
-use crate::config::SynchedFile;
+use crate::{config::AppState, models::file::SynchedFile};
 use notify::{Config, Error, Event, RecommendedWatcher, Watcher};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Read,
-    path::Path,
-    sync::{Arc, RwLock},
-    time::SystemTime,
-};
+use std::{fs::File, io::Read, path::Path, sync::Arc, time::SystemTime};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
@@ -16,17 +9,14 @@ use tokio::{
 use tracing::{error, info};
 
 pub struct FileWatcher {
+    state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
     sync_tx: Sender<SynchedFile>,
-    synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
 }
 
 impl FileWatcher {
-    pub fn new(
-        sync_tx: Sender<SynchedFile>,
-        synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    ) -> Self {
+    pub fn new(state: Arc<AppState>, sync_tx: Sender<SynchedFile>) -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(100);
 
         let watcher = RecommendedWatcher::new(
@@ -38,10 +28,10 @@ impl FileWatcher {
         .unwrap();
 
         Self {
+            state,
             watcher,
             watch_rx,
             sync_tx,
-            synched_files,
         }
     }
 
@@ -101,7 +91,7 @@ impl FileWatcher {
 
             let on_disk_modified = metadata.modified().unwrap_or(SystemTime::now());
 
-            let should_update = if let Ok(files) = self.synched_files.read() {
+            let should_update = if let Ok(files) = self.state.synched_files.read() {
                 if let Some(file) = files.get(file_name) {
                     on_disk_modified > file.last_modified_at || hash != file.hash
                 } else {
@@ -118,7 +108,7 @@ impl FileWatcher {
                     last_modified_at: on_disk_modified,
                     hash,
                 };
-                if let Ok(mut files) = self.synched_files.write() {
+                if let Ok(mut files) = self.state.synched_files.write() {
                     files.insert(file_name, file.clone());
                 }
                 if let Err(err) = self.sync_tx.send(file).await {

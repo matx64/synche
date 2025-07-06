@@ -1,4 +1,4 @@
-use crate::config::SynchedFile;
+use crate::models::file::SynchedFile;
 use sha2::{Digest, Sha256};
 use std::{
     net::SocketAddr,

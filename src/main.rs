@@ -1,63 +1,37 @@
 mod config;
 mod file;
 mod handshake;
+mod models;
 mod presence;
 mod sync;
 mod watcher;
 
 use crate::{
-    config::SynchedFile,
-    handshake::HandshakeHandler,
-    presence::PresenceHandler,
-    sync::{recv_data, sync_files},
-    watcher::FileWatcher,
+    handshake::HandshakeService, models::file::SynchedFile, presence::PresenceService,
+    sync::SyncService, watcher::FileWatcher,
 };
-use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
-    sync::{Arc, RwLock},
-    time::SystemTime,
-};
+use std::sync::Arc;
 use tokio::{io, sync::mpsc};
-
-#[derive(Debug, Clone)]
-struct Device {
-    addr: SocketAddr,
-    synched_files: HashMap<String, SynchedFile>,
-    last_seen: SystemTime,
-}
-
-impl Device {
-    pub fn new(addr: SocketAddr, synched_files: Option<HashMap<String, SynchedFile>>) -> Self {
-        Self {
-            addr,
-            synched_files: synched_files.unwrap_or_default(),
-            last_seen: SystemTime::now(),
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let cfg = config::init();
+    let state = Arc::new(config::init());
 
     let (sync_tx, sync_rx) = mpsc::channel::<SynchedFile>(100);
-    let devices = Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new()));
 
-    let handshake_handler = Arc::new(HandshakeHandler::new(
-        devices.clone(),
-        cfg.synched_files.clone(),
-    ));
-    let presence_handler = PresenceHandler::new(handshake_handler.clone(), devices.clone()).await;
-    let mut file_watcher = FileWatcher::new(sync_tx, cfg.synched_files.clone());
+    let mut file_watcher = FileWatcher::new(state.clone(), sync_tx);
+
+    let handshake_service = Arc::new(HandshakeService::new(state.clone()));
+    let presence_service = PresenceService::new(state.clone(), handshake_service.clone()).await;
+    let sync_service = SyncService::new(state, handshake_service);
 
     tokio::try_join!(
-        presence_handler.watch_devices(),
-        presence_handler.send_presence(),
-        presence_handler.recv_presence(),
         file_watcher.watch(),
-        sync_files(sync_rx, devices.clone()),
-        recv_data(handshake_handler, cfg.synched_files, devices),
+        presence_service.watch_devices(),
+        presence_service.send_presence(),
+        presence_service.recv_presence(),
+        sync_service.recv_data(),
+        sync_service.sync_files(sync_rx),
     )?;
     Ok(())
 }

@@ -1,31 +1,31 @@
-use serde::{Deserialize, Serialize};
+use crate::models::{
+    device::Device,
+    file::{ConfigSynchedFile, SynchedFile},
+};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs::{self},
     io::Read,
+    net::IpAddr,
     path::Path,
     sync::{Arc, RwLock},
-    time::SystemTime,
 };
 
-pub struct Config {
+pub struct AppState {
     pub synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+    pub devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
+    pub constants: AppConstants,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SynchedFile {
-    pub name: String,
-    pub last_modified_at: SystemTime,
-    pub hash: String,
+pub struct AppConstants {
+    pub tcp_port: u16,
+    pub broadcast_port: u16,
+    pub broadcast_interval_secs: u64,
+    pub device_timeout_secs: u64,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ConfigSynchedFile {
-    pub name: String,
-}
-
-pub fn init() -> Config {
+pub fn init() -> AppState {
     let cfg_path = ".cfg.json";
     let files_dir = "synche-files";
 
@@ -34,8 +34,15 @@ pub fn init() -> Config {
 
     tracing_subscriber::fmt::init();
 
-    Config {
+    AppState {
         synched_files: Arc::new(RwLock::new(build_synched_files(files, files_dir))),
+        devices: Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new())),
+        constants: AppConstants {
+            tcp_port: 8889,
+            broadcast_port: 8888,
+            broadcast_interval_secs: 5,
+            device_timeout_secs: 15,
+        },
     }
 }
 

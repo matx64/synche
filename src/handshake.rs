@@ -1,32 +1,23 @@
-use crate::{Device, config::SynchedFile, file::send_file, sync::SyncDataKind};
-use std::{
-    collections::HashMap,
-    io::ErrorKind,
-    net::{IpAddr, SocketAddr},
-    sync::{Arc, RwLock},
+use crate::{
+    config::AppState,
+    file::send_file,
+    models::{device::Device, file::SynchedFile},
+    sync::SyncDataKind,
 };
+use std::{collections::HashMap, io::ErrorKind, net::SocketAddr, sync::Arc};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 use tracing::{error, info};
 
-const TCP_PORT: u16 = 8889;
-
-pub struct HandshakeHandler {
-    devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
-    synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
+pub struct HandshakeService {
+    state: Arc<AppState>,
 }
 
-impl HandshakeHandler {
-    pub fn new(
-        devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
-        synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    ) -> Self {
-        Self {
-            devices,
-            synched_files,
-        }
+impl HandshakeService {
+    pub fn new(state: Arc<AppState>) -> Self {
+        Self { state }
     }
 
     pub async fn send_handshake(
@@ -34,7 +25,7 @@ impl HandshakeHandler {
         mut target_addr: SocketAddr,
         is_request: bool,
     ) -> io::Result<()> {
-        target_addr.set_port(TCP_PORT);
+        target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
 
         let contents = match self.serialize_files() {
@@ -76,7 +67,7 @@ impl HandshakeHandler {
 
         let synched_files = self.deserialize_files(&content)?;
 
-        if let Ok(mut devices) = self.devices.write() {
+        if let Ok(mut devices) = self.state.devices.write() {
             if devices
                 .insert(ip, Device::new(src_addr, Some(synched_files)))
                 .is_none()
@@ -95,7 +86,7 @@ impl HandshakeHandler {
     }
 
     async fn sync_devices(&self, other: SocketAddr) {
-        let other_device = if let Ok(devices) = self.devices.read() {
+        let other_device = if let Ok(devices) = self.state.devices.read() {
             if let Some(device) = devices.get(&other.ip()) {
                 device.clone()
             } else {
@@ -106,7 +97,7 @@ impl HandshakeHandler {
             return;
         };
 
-        let files_to_send = if let Ok(files) = self.synched_files.read() {
+        let files_to_send = if let Ok(files) = self.state.synched_files.read() {
             files
                 .values()
                 .filter_map(|f| {
@@ -130,7 +121,7 @@ impl HandshakeHandler {
     }
 
     fn serialize_files(&self) -> Result<String, String> {
-        match self.synched_files.read() {
+        match self.state.synched_files.read() {
             Ok(files) => {
                 let vec = files.values().collect::<Vec<_>>();
                 match serde_json::to_string(&vec) {

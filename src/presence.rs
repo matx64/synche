@@ -1,44 +1,36 @@
-use crate::{Device, handshake::HandshakeHandler};
+use crate::{config::AppState, handshake::HandshakeService, models::device::Device};
 use local_ip_address::{list_afinet_netifas, local_ip};
 use std::{
-    collections::HashMap,
     net::IpAddr,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::{io, net::UdpSocket};
 use tracing::{error, info};
 
-const BROADCAST_PORT: u16 = 8888;
-const BROADCAST_INTERVAL_SECS: u64 = 5;
-const DEVICE_TIMEOUT_SECS: u64 = 15;
-
-pub struct PresenceHandler {
+pub struct PresenceService {
+    state: Arc<AppState>,
     socket: Arc<UdpSocket>,
-    handshake_handler: Arc<HandshakeHandler>,
-    devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
+    handshake_handler: Arc<HandshakeService>,
 }
 
-impl PresenceHandler {
-    pub async fn new(
-        handshake_handler: Arc<HandshakeHandler>,
-        devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
-    ) -> Self {
-        let bind_addr = format!("0.0.0.0:{}", BROADCAST_PORT);
+impl PresenceService {
+    pub async fn new(state: Arc<AppState>, handshake_handler: Arc<HandshakeService>) -> Self {
+        let bind_addr = format!("0.0.0.0:{}", state.constants.broadcast_port);
 
         let socket = Arc::new(UdpSocket::bind(&bind_addr).await.unwrap());
         socket.set_broadcast(true).unwrap();
 
         Self {
+            state,
             socket,
             handshake_handler,
-            devices,
         }
     }
 
     pub async fn send_presence(&self) -> io::Result<()> {
         let socket = self.socket.clone();
-        let broadcast_addr = format!("255.255.255.255:{}", BROADCAST_PORT);
+        let broadcast_addr = format!("255.255.255.255:{}", self.state.constants.broadcast_port);
         let mut retries: usize = 0;
 
         loop {
@@ -53,7 +45,10 @@ impl PresenceHandler {
                 retries = 0;
             }
 
-            tokio::time::sleep(Duration::from_secs(BROADCAST_INTERVAL_SECS)).await;
+            tokio::time::sleep(Duration::from_secs(
+                self.state.constants.broadcast_interval_secs,
+            ))
+            .await;
         }
     }
 
@@ -72,7 +67,7 @@ impl PresenceHandler {
                 continue;
             }
 
-            let send_handshake = self.devices.write().is_ok_and(|mut devices| {
+            let send_handshake = self.state.devices.write().is_ok_and(|mut devices| {
                 if let Some(device) = devices.get_mut(&src_ip) {
                     device.last_seen = SystemTime::now();
                     false
@@ -96,13 +91,13 @@ impl PresenceHandler {
     pub async fn watch_devices(&self) -> io::Result<()> {
         info!(
             "🚀 Synche running on port {}. Press Ctrl+C to stop.",
-            BROADCAST_PORT
+            self.state.constants.broadcast_port
         );
 
         loop {
-            match self.devices.write() {
+            match self.state.devices.write() {
                 Ok(mut devices) => {
-                    devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > DEVICE_TIMEOUT_SECS));
+                    devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > self.state.constants.device_timeout_secs));
 
                     if !devices.is_empty() {
                         info!(
