@@ -65,8 +65,6 @@ impl FileWatcher {
                 continue;
             };
 
-            info!("File changed: {}", file_name);
-
             // Read file content and compute hash
             let mut file = match File::open(&path) {
                 Ok(f) => f,

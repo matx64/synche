@@ -33,10 +33,12 @@ impl FileService {
         synched_file: &SynchedFile,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
+        let target_ip = target_addr.ip();
+
         let path = Path::new(&self.state.constants.files_dir).join(&synched_file.name);
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
-        info!("Sending file {} to {}", file_name, target_addr);
+        info!("Sending file {} to {}", file_name, target_ip);
 
         // Read file content
         let mut file = File::open(path).await?;
@@ -80,7 +82,7 @@ impl FileService {
         stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
         if let Ok(mut devices) = self.state.devices.write() {
-            if let Some(device) = devices.get_mut(&target_addr.ip()) {
+            if let Some(device) = devices.get_mut(&target_ip) {
                 device
                     .synched_files
                     .insert(synched_file.name.to_owned(), synched_file.to_owned());
@@ -89,7 +91,7 @@ impl FileService {
 
         info!(
             "Sent file: {} ({} bytes) to {}",
-            file_name, file_size, target_addr
+            file_name, file_size, target_ip
         );
         Ok(())
     }
