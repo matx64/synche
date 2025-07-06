@@ -1,6 +1,9 @@
 use crate::{
     config::AppState,
-    models::file::{ReceivedFile, SynchedFile},
+    models::{
+        file::{ReceivedFile, SynchedFile},
+        sync::SyncDataKind,
+    },
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -50,6 +53,9 @@ impl FileService {
         // Connect to target device's TCP server
         target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
+
+        // Send data kind
+        stream.write_all(&[SyncDataKind::File as u8]).await?;
 
         // Send file name length (u64)
         stream

@@ -48,6 +48,8 @@ impl HandshakeService {
         let content_b = contents.as_bytes();
         let content_len = content_b.len() as u32;
 
+        info!("Sending {} to {}", kind, target_addr.ip());
+
         stream.write_all(&[kind as u8]).await?;
         stream.write_all(&content_len.to_be_bytes()).await?;
         stream.write_all(content_b).await?;
@@ -58,6 +60,14 @@ impl HandshakeService {
     pub async fn read_handshake(&self, stream: &mut TcpStream, is_request: bool) -> io::Result<()> {
         let src_addr = stream.peer_addr()?;
         let ip = src_addr.ip();
+
+        let kind = if is_request {
+            SyncDataKind::HandshakeRequest
+        } else {
+            SyncDataKind::HandshakeResponse
+        };
+
+        info!("Received {} from {}", kind, ip);
 
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
@@ -99,6 +109,8 @@ impl HandshakeService {
             error!("Failed to read devices");
             return;
         };
+
+        info!("Synching device: {}", other.ip());
 
         let files_to_send = if let Ok(files) = self.state.synched_files.read() {
             files
