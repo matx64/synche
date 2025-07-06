@@ -1,10 +1,10 @@
 use crate::{
     config::AppState,
-    file::{read_file, send_file},
+    file::FileService,
     handshake::HandshakeService,
-    models::file::SynchedFile,
+    models::{file::SynchedFile, sync::SyncDataKind},
 };
-use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
 use tokio::{
     fs::File,
     io::{self, AsyncReadExt, AsyncWriteExt},
@@ -16,27 +16,27 @@ use tracing::{error, info};
 
 pub struct SyncService {
     state: Arc<AppState>,
-    handshake_handler: Arc<HandshakeService>,
-}
-
-#[repr(u8)]
-pub enum SyncDataKind {
-    HandshakeRequest = 0,
-    HandshakeResponse = 1,
-    File = 2,
+    file_service: Arc<FileService>,
+    handshake_service: Arc<HandshakeService>,
 }
 
 impl SyncService {
-    pub fn new(state: Arc<AppState>, handshake_handler: Arc<HandshakeService>) -> Self {
+    pub fn new(
+        state: Arc<AppState>,
+        file_service: Arc<FileService>,
+        handshake_service: Arc<HandshakeService>,
+    ) -> Self {
         Self {
             state,
-            handshake_handler,
+            file_service,
+            handshake_service,
         }
     }
 
     pub async fn recv_data(&self) -> std::io::Result<()> {
         let listener =
             TcpListener::bind(format!("0.0.0.0:{}", self.state.constants.tcp_port)).await?;
+
         loop {
             let (mut stream, _addr) = listener.accept().await?;
 
@@ -49,12 +49,12 @@ impl SyncService {
                     self.handle_file(&mut stream).await?;
                 }
                 SyncDataKind::HandshakeRequest => {
-                    self.handshake_handler
+                    self.handshake_service
                         .read_handshake(&mut stream, true)
                         .await?;
                 }
                 SyncDataKind::HandshakeResponse => {
-                    self.handshake_handler
+                    self.handshake_service
                         .read_handshake(&mut stream, false)
                         .await?;
                 }
@@ -67,7 +67,7 @@ impl SyncService {
 
         info!("Handling received file from: {}", src_addr);
 
-        let recv_file = read_file(stream).await?;
+        let recv_file = self.file_service.read_file(stream).await?;
 
         if let Ok(mut devices) = self.state.devices.write() {
             if let Some(device) = devices.get_mut(&src_addr.ip()) {
@@ -84,7 +84,8 @@ impl SyncService {
         }
 
         // Save file
-        let mut file = File::create(&format!("synche-files/{}", recv_file.name)).await?;
+        let path = Path::new(&self.state.constants.files_dir).join(&recv_file.name);
+        let mut file = File::create(path).await?;
         file.write_all(&recv_file.contents).await?;
 
         info!(
@@ -132,7 +133,7 @@ impl SyncService {
                     for device in devices {
                         for file in buffer.values() {
                             if device.synched_files.get(&file.name).map(|f| f.last_modified_at < file.last_modified_at).unwrap_or(false) {
-                                if let Err(err) = send_file(file, device.addr).await {
+                                if let Err(err) = self.file_service.send_file(file, device.addr).await {
                                     error!("Error synching file `{}`: {}", &file.name, err);
                                 }
                             }
@@ -142,22 +143,6 @@ impl SyncService {
                     buffer.clear();
                 }
             }
-        }
-    }
-}
-
-impl TryFrom<u8> for SyncDataKind {
-    type Error = io::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(SyncDataKind::HandshakeRequest),
-            1 => Ok(SyncDataKind::HandshakeResponse),
-            2 => Ok(SyncDataKind::File),
-            _ => Err(io::Error::new(
-                ErrorKind::InvalidData,
-                "Invalid SyncDataKind value",
-            )),
         }
     }
 }

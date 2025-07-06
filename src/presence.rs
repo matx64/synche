@@ -11,11 +11,11 @@ use tracing::{error, info};
 pub struct PresenceService {
     state: Arc<AppState>,
     socket: Arc<UdpSocket>,
-    handshake_handler: Arc<HandshakeService>,
+    handshake_service: Arc<HandshakeService>,
 }
 
 impl PresenceService {
-    pub async fn new(state: Arc<AppState>, handshake_handler: Arc<HandshakeService>) -> Self {
+    pub async fn new(state: Arc<AppState>, handshake_service: Arc<HandshakeService>) -> Self {
         let bind_addr = format!("0.0.0.0:{}", state.constants.broadcast_port);
 
         let socket = Arc::new(UdpSocket::bind(&bind_addr).await.unwrap());
@@ -24,7 +24,7 @@ impl PresenceService {
         Self {
             state,
             socket,
-            handshake_handler,
+            handshake_service,
         }
     }
 
@@ -81,7 +81,7 @@ impl PresenceService {
             });
 
             if send_handshake {
-                self.handshake_handler
+                self.handshake_service
                     .send_handshake(src_addr, true)
                     .await?;
             }

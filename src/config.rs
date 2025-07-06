@@ -19,6 +19,7 @@ pub struct AppState {
 }
 
 pub struct AppConstants {
+    pub files_dir: String,
     pub tcp_port: u16,
     pub broadcast_port: u16,
     pub broadcast_interval_secs: u64,
@@ -38,6 +39,7 @@ pub fn init() -> AppState {
         synched_files: Arc::new(RwLock::new(build_synched_files(files, files_dir))),
         devices: Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new())),
         constants: AppConstants {
+            files_dir: files_dir.to_owned(),
             tcp_port: 8889,
             broadcast_port: 8888,
             broadcast_interval_secs: 5,

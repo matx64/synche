@@ -36,7 +36,7 @@ impl FileWatcher {
     }
 
     pub async fn watch(&mut self) -> io::Result<()> {
-        let path = Path::new("synche-files");
+        let path = Path::new(&self.state.constants.files_dir);
         self.watcher
             .watch(path, notify::RecursiveMode::Recursive)
             .unwrap();

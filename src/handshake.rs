@@ -1,8 +1,7 @@
 use crate::{
     config::AppState,
-    file::send_file,
-    models::{device::Device, file::SynchedFile},
-    sync::SyncDataKind,
+    file::FileService,
+    models::{device::Device, file::SynchedFile, sync::SyncDataKind},
 };
 use std::{collections::HashMap, io::ErrorKind, net::SocketAddr, sync::Arc};
 use tokio::{
@@ -13,11 +12,15 @@ use tracing::{error, info};
 
 pub struct HandshakeService {
     state: Arc<AppState>,
+    file_service: Arc<FileService>,
 }
 
 impl HandshakeService {
-    pub fn new(state: Arc<AppState>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<AppState>, file_service: Arc<FileService>) -> Self {
+        Self {
+            state,
+            file_service,
+        }
     }
 
     pub async fn send_handshake(
@@ -114,7 +117,7 @@ impl HandshakeService {
         };
 
         for file in files_to_send {
-            if send_file(&file, other).await.is_err() {
+            if self.file_service.send_file(&file, other).await.is_err() {
                 error!("Failed to send file {} to {}", file.name, other);
             }
         }
