@@ -25,7 +25,6 @@ struct Device {
     addr: SocketAddr,
     synched_files: HashMap<String, SynchedFile>,
     last_seen: SystemTime,
-    handshake_hash: Option<u64>,
 }
 
 impl Device {
@@ -34,7 +33,6 @@ impl Device {
             addr,
             synched_files: synched_files.unwrap_or_default(),
             last_seen: SystemTime::now(),
-            handshake_hash: None,
         }
     }
 }

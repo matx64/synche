@@ -1,5 +1,5 @@
-use crate::{Device, config::SynchedFile, handshake::HandshakeHandler};
-use local_ip_address::list_afinet_netifas;
+use crate::{Device, handshake::HandshakeHandler};
+use local_ip_address::{list_afinet_netifas, local_ip};
 use std::{
     collections::HashMap,
     net::IpAddr,
@@ -58,31 +58,36 @@ impl PresenceHandler {
 
     pub async fn recv_presence(&self) -> io::Result<()> {
         let socket = self.socket.clone();
+        let local_ip = local_ip().unwrap();
         let ifas = list_afinet_netifas().unwrap();
 
         let mut buf = [0; 1024];
         loop {
             let (size, src_addr) = socket.recv_from(&mut buf).await?;
-            let ip = src_addr.ip();
+            let src_ip = src_addr.ip();
 
             let msg = String::from_utf8_lossy(&buf[..size]);
-            if self.is_host(&ifas, ip) || msg != "ping" {
+            if self.is_host(&ifas, src_ip) || msg != "ping" {
                 continue;
             }
 
             let send_handshake = self.devices.write().is_ok_and(|mut devices| {
-                if let Some(device) = devices.get_mut(&ip) {
+                if let Some(device) = devices.get_mut(&src_ip) {
                     device.last_seen = SystemTime::now();
                     false
                 } else {
-                    println!("Device connected: {}", ip);
-                    devices.insert(ip, Device::new(src_addr, None));
-                    true
+                    println!("Device connected: {}", src_ip);
+                    devices.insert(src_ip, Device::new(src_addr, None));
+
+                    // start handshake only if local ip < source ip
+                    local_ip < src_ip
                 }
             });
 
             if send_handshake {
-                self.handshake_handler.send_handshake(src_addr).await?;
+                self.handshake_handler
+                    .send_handshake(src_addr, true)
+                    .await?;
             }
         }
     }

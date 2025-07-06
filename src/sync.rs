@@ -23,8 +23,9 @@ const TCP_PORT: u16 = 8889;
 
 #[repr(u8)]
 pub enum SyncDataKind {
-    Handshake = 0,
-    File = 1,
+    HandshakeRequest = 0,
+    HandshakeResponse = 1,
+    File = 2,
 }
 
 pub async fn recv_data(
@@ -44,8 +45,11 @@ pub async fn recv_data(
             SyncDataKind::File => {
                 handle_file(&mut stream, synched_files.clone(), devices.clone()).await?;
             }
-            SyncDataKind::Handshake => {
-                handshake_handler.read_handshake(&mut stream).await?;
+            SyncDataKind::HandshakeRequest => {
+                handshake_handler.read_handshake(&mut stream, true).await?;
+            }
+            SyncDataKind::HandshakeResponse => {
+                handshake_handler.read_handshake(&mut stream, false).await?;
             }
         };
 
@@ -151,8 +155,9 @@ impl TryFrom<u8> for SyncDataKind {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(SyncDataKind::Handshake),
-            1 => Ok(SyncDataKind::File),
+            0 => Ok(SyncDataKind::HandshakeRequest),
+            1 => Ok(SyncDataKind::HandshakeResponse),
+            2 => Ok(SyncDataKind::File),
             _ => Err(io::Error::new(
                 ErrorKind::InvalidData,
                 "Invalid SyncDataKind value",

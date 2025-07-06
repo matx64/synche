@@ -1,11 +1,9 @@
 use crate::{Device, config::SynchedFile, file::send_file, sync::SyncDataKind};
 use std::{
     collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
     io::ErrorKind,
     net::{IpAddr, SocketAddr},
     sync::{Arc, RwLock},
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
@@ -17,7 +15,6 @@ const TCP_PORT: u16 = 8889;
 pub struct HandshakeHandler {
     devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
     synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    hash: u64,
 }
 
 impl HandshakeHandler {
@@ -28,11 +25,14 @@ impl HandshakeHandler {
         Self {
             devices,
             synched_files,
-            hash: Self::handshake_hash(),
         }
     }
 
-    pub async fn send_handshake(&self, mut target_addr: SocketAddr) -> io::Result<()> {
+    pub async fn send_handshake(
+        &self,
+        mut target_addr: SocketAddr,
+        is_request: bool,
+    ) -> io::Result<()> {
         target_addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(target_addr).await?;
 
@@ -44,25 +44,25 @@ impl HandshakeHandler {
             }
         };
 
-        let kind = SyncDataKind::Handshake as u8;
-        let hash = self.hash.to_be_bytes();
+        let kind = if is_request {
+            SyncDataKind::HandshakeRequest
+        } else {
+            SyncDataKind::HandshakeResponse
+        };
+
         let content_b = contents.as_bytes();
         let content_len = content_b.len() as u32;
 
-        stream.write_all(&[kind]).await?;
-        stream.write_all(&hash).await?;
+        stream.write_all(&[kind as u8]).await?;
         stream.write_all(&content_len.to_be_bytes()).await?;
         stream.write_all(content_b).await?;
 
         Ok(())
     }
 
-    pub async fn read_handshake(&self, stream: &mut TcpStream) -> io::Result<()> {
+    pub async fn read_handshake(&self, stream: &mut TcpStream, is_request: bool) -> io::Result<()> {
         let src_addr = stream.peer_addr()?;
-
-        let mut hash_buf = [0u8; 8];
-        stream.read_exact(&mut hash_buf).await?;
-        let handshake_hash = u64::from_be_bytes(hash_buf);
+        let ip = src_addr.ip();
 
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
@@ -75,26 +75,17 @@ impl HandshakeHandler {
 
         let synched_files = self.deserialize_files(&content)?;
 
-        let send_handshake = if let Ok(mut devices) = self.devices.write() {
-            if let Some(device) = devices.get_mut(&src_addr.ip()) {
-                device.synched_files = synched_files;
-
-                match device.handshake_hash {
-                    Some(hash) if hash != handshake_hash => {
-                        device.handshake_hash = Some(handshake_hash);
-                        true
-                    }
-                    _ => false,
-                }
-            } else {
-                true
+        if let Ok(mut devices) = self.devices.write() {
+            if devices
+                .insert(ip, Device::new(src_addr, Some(synched_files)))
+                .is_none()
+            {
+                println!("Device connected: {}", ip);
             }
-        } else {
-            false
-        };
+        }
 
-        if send_handshake {
-            self.send_handshake(src_addr).await?;
+        if is_request {
+            self.send_handshake(src_addr, false).await?;
         }
 
         self.sync_devices(src_addr).await;
@@ -158,15 +149,5 @@ impl HandshakeHandler {
                 .collect::<HashMap<String, SynchedFile>>()),
             Err(err) => Err(io::Error::new(ErrorKind::InvalidData, err)),
         }
-    }
-
-    fn handshake_hash() -> u64 {
-        let boot_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let mut hasher = DefaultHasher::new();
-        boot_time.hash(&mut hasher);
-        hasher.finish()
     }
 }
