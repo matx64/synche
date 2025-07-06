@@ -38,11 +38,13 @@ impl SyncService {
             TcpListener::bind(format!("0.0.0.0:{}", self.state.constants.tcp_port)).await?;
 
         loop {
-            let (mut stream, _addr) = listener.accept().await?;
+            let (mut stream, addr) = listener.accept().await?;
 
             let mut kind_buf = [0u8; 1];
             stream.read_exact(&mut kind_buf).await?;
+
             let kind = SyncDataKind::try_from(kind_buf[0])?;
+            info!("Received {} from {}", kind, addr.ip());
 
             match kind {
                 SyncDataKind::File => {
@@ -63,24 +65,26 @@ impl SyncService {
     }
 
     async fn handle_file(&self, stream: &mut TcpStream) -> std::io::Result<()> {
-        let src_addr = stream.peer_addr()?;
-
-        info!("Handling received file from: {}", src_addr);
+        let src_ip = stream.peer_addr()?.ip();
 
         let recv_file = self.file_service.read_file(stream).await?;
 
+        let synched_file = SynchedFile {
+            name: recv_file.name.clone(),
+            hash: recv_file.hash.clone(),
+            last_modified_at: recv_file.last_modified_at,
+        };
+
         if let Ok(mut devices) = self.state.devices.write() {
-            if let Some(device) = devices.get_mut(&src_addr.ip()) {
-                if let Some(file) = device.synched_files.get_mut(&recv_file.name) {
-                    file.last_modified_at = recv_file.last_modified_at;
-                }
+            if let Some(device) = devices.get_mut(&src_ip) {
+                device
+                    .synched_files
+                    .insert(synched_file.name.clone(), synched_file.clone());
             }
         }
 
         if let Ok(mut files) = self.state.synched_files.write() {
-            if let Some(local_file) = files.get_mut(&recv_file.name) {
-                local_file.last_modified_at = recv_file.last_modified_at;
-            }
+            files.insert(synched_file.name.clone(), synched_file);
         }
 
         // Save file
@@ -89,8 +93,8 @@ impl SyncService {
         file.write_all(&recv_file.contents).await?;
 
         info!(
-            "Received file: {} ({} bytes) from {}",
-            recv_file.name, recv_file.size, src_addr
+            "Successfully handled file: {} ({} bytes) from {}",
+            recv_file.name, recv_file.size, src_ip
         );
         Ok(())
     }
@@ -120,7 +124,7 @@ impl SyncService {
                                 buffer.values().any(|f| {
                                     device.synched_files
                                         .get(&f.name)
-                                        .map(|found| found.last_modified_at < f.last_modified_at)
+                                        .map(|device_file| device_file.hash != f.hash && device_file.last_modified_at < f.last_modified_at)
                                         .unwrap_or(false)
                                 })
                             })
@@ -132,7 +136,7 @@ impl SyncService {
 
                     for device in devices {
                         for file in buffer.values() {
-                            if device.synched_files.get(&file.name).map(|f| f.last_modified_at < file.last_modified_at).unwrap_or(false) {
+                            if device.synched_files.get(&file.name).map(|f| f.hash != file.hash && f.last_modified_at < file.last_modified_at).unwrap_or(false) {
                                 if let Err(err) = self.file_service.send_file(file, device.addr).await {
                                     error!("Error synching file `{}`: {}", &file.name, err);
                                 }

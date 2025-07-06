@@ -61,14 +61,6 @@ impl HandshakeService {
         let src_addr = stream.peer_addr()?;
         let ip = src_addr.ip();
 
-        let kind = if is_request {
-            SyncDataKind::HandshakeRequest
-        } else {
-            SyncDataKind::HandshakeResponse
-        };
-
-        info!("Received {} from {}", kind, ip);
-
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
         let len_buf = u32::from_be_bytes(len_buf) as usize;
@@ -99,8 +91,9 @@ impl HandshakeService {
     }
 
     async fn sync_devices(&self, other: SocketAddr) {
+        let ip = other.ip();
         let other_device = if let Ok(devices) = self.state.devices.read() {
-            if let Some(device) = devices.get(&other.ip()) {
+            if let Some(device) = devices.get(&ip) {
                 device.clone()
             } else {
                 return;
@@ -110,7 +103,7 @@ impl HandshakeService {
             return;
         };
 
-        info!("Synching device: {}", other.ip());
+        info!("Synching device: {}", ip);
 
         let files_to_send = if let Ok(files) = self.state.synched_files.read() {
             files
@@ -119,7 +112,7 @@ impl HandshakeService {
                     other_device
                         .synched_files
                         .get(&f.name)
-                        .filter(|d| d.last_modified_at < f.last_modified_at)
+                        .filter(|d| d.hash != f.hash && d.last_modified_at < f.last_modified_at)
                         .cloned()
                 })
                 .collect::<Vec<SynchedFile>>()
@@ -129,8 +122,8 @@ impl HandshakeService {
         };
 
         for file in files_to_send {
-            if self.file_service.send_file(&file, other).await.is_err() {
-                error!("Failed to send file {} to {}", file.name, other);
+            if let Err(err) = self.file_service.send_file(&file, other).await {
+                error!("Failed to send file {} to {}: {}", file.name, other, err);
             }
         }
     }

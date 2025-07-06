@@ -41,7 +41,10 @@ impl FileWatcher {
             .watch(path, notify::RecursiveMode::Recursive)
             .unwrap();
 
-        info!("Watching for file changes...");
+        info!(
+            "Watching for file changes in /{}",
+            self.state.constants.files_dir
+        );
 
         while let Some(res) = self.watch_rx.recv().await {
             match res {
@@ -93,12 +96,12 @@ impl FileWatcher {
 
             let should_update = if let Ok(files) = self.state.synched_files.read() {
                 if let Some(file) = files.get(file_name) {
-                    on_disk_modified > file.last_modified_at || hash != file.hash
+                    hash != file.hash && file.last_modified_at < on_disk_modified
                 } else {
-                    true
+                    false
                 }
             } else {
-                true
+                false
             };
 
             if should_update {

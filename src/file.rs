@@ -79,6 +79,14 @@ impl FileService {
         // Send last modification date
         stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
+        if let Ok(mut devices) = self.state.devices.write() {
+            if let Some(device) = devices.get_mut(&target_addr.ip()) {
+                device
+                    .synched_files
+                    .insert(synched_file.name.to_owned(), synched_file.to_owned());
+            }
+        }
+
         info!(
             "Sent file: {} ({} bytes) to {}",
             file_name, file_size, target_addr
