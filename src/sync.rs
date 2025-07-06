@@ -18,6 +18,7 @@ use tokio::{
     sync::mpsc::Receiver,
     time,
 };
+use tracing::{error, info};
 
 const TCP_PORT: u16 = 8889;
 
@@ -67,7 +68,7 @@ async fn handle_file(
 ) -> std::io::Result<()> {
     let src_addr = stream.peer_addr()?;
 
-    println!("Handling received file from: {}", src_addr);
+    info!("Handling received file from: {}", src_addr);
 
     let recv_file = read_file(stream).await?;
 
@@ -89,7 +90,7 @@ async fn handle_file(
     let mut file = File::create(&format!("synche-files/{}", recv_file.name)).await?;
     file.write_all(&recv_file.contents).await?;
 
-    println!(
+    info!(
         "Received file: {} ({} bytes) from {}",
         recv_file.name, recv_file.size, src_addr
     );
@@ -106,7 +107,7 @@ pub async fn sync_files(
     loop {
         tokio::select! {
             Some(file) = sync_rx.recv() => {
-                println!("File added to buffer: {}", file.name);
+                info!("File added to buffer: {}", file.name);
                 buffer.insert(file.name.clone(), file);
             }
 
@@ -115,7 +116,7 @@ pub async fn sync_files(
                     continue;
                 }
 
-                println!("Synching files: {:?}", buffer);
+                info!("Synching files: {:?}", buffer);
 
                 let devices = if let Ok(devices) = devices.read() {
                     devices
@@ -138,7 +139,7 @@ pub async fn sync_files(
                     for file in buffer.values() {
                         if device.synched_files.get(&file.name).map(|f| f.last_modified_at < file.last_modified_at).unwrap_or(false) {
                             if let Err(err) = send_file(file, device.addr).await {
-                                eprintln!("Error synching file `{}`: {}", &file.name, err);
+                                error!("Error synching file `{}`: {}", &file.name, err);
                             }
                         }
                     }

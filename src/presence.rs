@@ -7,6 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::{io, net::UdpSocket};
+use tracing::{error, info};
 
 const BROADCAST_PORT: u16 = 8888;
 const BROADCAST_INTERVAL_SECS: u64 = 5;
@@ -42,7 +43,7 @@ impl PresenceHandler {
 
         loop {
             if let Err(e) = socket.send_to("ping".as_bytes(), &broadcast_addr).await {
-                eprintln!("Error sending presence: {}", e);
+                error!("Error sending presence: {}", e);
                 retries += 1;
 
                 if retries >= 3 {
@@ -76,7 +77,7 @@ impl PresenceHandler {
                     device.last_seen = SystemTime::now();
                     false
                 } else {
-                    println!("Device connected: {}", src_ip);
+                    info!("Device connected: {}", src_ip);
                     devices.insert(src_ip, Device::new(src_addr, None));
 
                     // start handshake only if local ip < source ip
@@ -93,7 +94,7 @@ impl PresenceHandler {
     }
 
     pub async fn watch_devices(&self) -> io::Result<()> {
-        println!(
+        info!(
             "🚀 Synche running on port {}. Press Ctrl+C to stop.",
             BROADCAST_PORT
         );
@@ -104,12 +105,12 @@ impl PresenceHandler {
                     devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > DEVICE_TIMEOUT_SECS));
 
                     if !devices.is_empty() {
-                        println!(
+                        info!(
                             "Connected Synche devices: {:?}",
                             devices.keys().collect::<Vec<_>>()
                         );
                     } else {
-                        println!("No Synche devices connected.");
+                        info!("No Synche devices connected.");
                     }
                 }
                 Err(_) => continue,

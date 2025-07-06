@@ -10,6 +10,7 @@ use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
+use tracing::info;
 
 const TCP_PORT: u16 = 8889;
 
@@ -28,7 +29,7 @@ pub async fn send_file(
     let path = Path::new("synche-files").join(&synched_file.name);
     let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
-    println!("Sending file {} to {}", file_name, target_addr);
+    info!("Sending file {} to {}", file_name, target_addr);
 
     // Read file content
     let mut file = File::open(path).await?;
@@ -68,7 +69,7 @@ pub async fn send_file(
     // Send last modification date
     stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
-    println!(
+    info!(
         "Sent file: {} ({} bytes) to {}",
         file_name, file_size, target_addr
     );

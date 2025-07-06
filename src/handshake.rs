@@ -9,6 +9,7 @@ use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
+use tracing::{error, info};
 
 const TCP_PORT: u16 = 8889;
 
@@ -39,7 +40,7 @@ impl HandshakeHandler {
         let contents = match self.serialize_files() {
             Ok(json) => json,
             Err(err) => {
-                eprintln!("Failed to serialize files: {}", err);
+                error!("Failed to serialize files: {}", err);
                 return Err(io::Error::other(err));
             }
         };
@@ -80,7 +81,7 @@ impl HandshakeHandler {
                 .insert(ip, Device::new(src_addr, Some(synched_files)))
                 .is_none()
             {
-                println!("Device connected: {}", ip);
+                info!("Device connected: {}", ip);
             }
         }
 
@@ -101,7 +102,7 @@ impl HandshakeHandler {
                 return;
             }
         } else {
-            eprintln!("Failed to read devices");
+            error!("Failed to read devices");
             return;
         };
 
@@ -117,13 +118,13 @@ impl HandshakeHandler {
                 })
                 .collect::<Vec<SynchedFile>>()
         } else {
-            eprintln!("Failed to read synched files");
+            error!("Failed to read synched files");
             return;
         };
 
         for file in files_to_send {
             if send_file(&file, other).await.is_err() {
-                eprintln!("Failed to send file {} to {}", file.name, other);
+                error!("Failed to send file {} to {}", file.name, other);
             }
         }
     }

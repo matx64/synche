@@ -13,6 +13,7 @@ use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
 };
+use tracing::{error, info};
 
 pub struct FileWatcher {
     watcher: RecommendedWatcher,
@@ -50,14 +51,14 @@ impl FileWatcher {
             .watch(path, notify::RecursiveMode::Recursive)
             .unwrap();
 
-        println!("Watching for file changes...");
+        info!("Watching for file changes...");
 
         while let Some(res) = self.watch_rx.recv().await {
             match res {
                 Ok(event) if event.kind.is_modify() => self.handle_event(event).await,
                 Ok(_) => {}
                 Err(err) => {
-                    eprintln!("Watch error: {}", err);
+                    error!("Watch error: {}", err);
                 }
             }
         }
@@ -67,24 +68,24 @@ impl FileWatcher {
     async fn handle_event(&self, e: Event) {
         for path in e.paths {
             let Some(file_name) = path.file_name().and_then(|f| f.to_str()) else {
-                println!("Couldn't extract file name from path: {:?}", path);
+                info!("Couldn't extract file name from path: {:?}", path);
                 continue;
             };
 
-            println!("File changed: {}", file_name);
+            info!("File changed: {}", file_name);
 
             // Read file content and compute hash
             let mut file = match File::open(&path) {
                 Ok(f) => f,
                 Err(err) => {
-                    eprintln!("Failed to open file {}: {}", file_name, err);
+                    error!("Failed to open file {}: {}", file_name, err);
                     continue;
                 }
             };
 
             let mut content = Vec::new();
             if let Err(err) = file.read_to_end(&mut content) {
-                eprintln!("Failed to read file {}: {}", file_name, err);
+                error!("Failed to read file {}: {}", file_name, err);
                 continue;
             };
 
@@ -93,7 +94,7 @@ impl FileWatcher {
             let metadata = match path.metadata() {
                 Ok(m) => m,
                 Err(err) => {
-                    eprintln!("Failed to get metadata for {}: {}", file_name, err);
+                    error!("Failed to get metadata for {}: {}", file_name, err);
                     continue;
                 }
             };
@@ -121,7 +122,7 @@ impl FileWatcher {
                     files.insert(file_name, file.clone());
                 }
                 if let Err(err) = self.sync_tx.send(file).await {
-                    eprintln!("sync_tx send error: {}", err);
+                    error!("sync_tx send error: {}", err);
                 }
             }
         }
