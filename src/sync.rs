@@ -4,10 +4,9 @@ use crate::{
     handshake::HandshakeService,
     models::{file::SynchedFile, sync::SyncDataKind},
 };
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
-    fs::File,
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncReadExt},
     net::{TcpListener, TcpStream},
     sync::mpsc::Receiver,
     time,
@@ -88,10 +87,7 @@ impl SyncService {
             files.insert(synched_file.name.clone(), synched_file);
         }
 
-        // Save file
-        let path = Path::new(&self.state.constants.files_dir).join(&recv_file.name);
-        let mut file = File::create(path).await?;
-        file.write_all(&recv_file.contents).await?;
+        self.file_service.save_file(&recv_file).await?;
 
         info!(
             "Successfully handled file: {} ({} bytes) from {}",

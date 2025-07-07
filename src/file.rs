@@ -5,15 +5,15 @@ use crate::{
         sync::SyncDataKind,
     },
 };
+use filetime::FileTime;
 use sha2::{Digest, Sha256};
 use std::{
     net::SocketAddr,
-    path::Path,
     sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::{
-    fs::File,
+    fs::{self, File},
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
@@ -35,7 +35,7 @@ impl FileService {
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
-        let path = Path::new(&self.state.constants.files_dir).join(&synched_file.name);
+        let path = self.state.constants.files_dir.join(&synched_file.name);
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
         info!("Sending file {} to {}", file_name, target_ip);
@@ -143,5 +143,19 @@ impl FileService {
             hash: received_hash,
             last_modified_at,
         })
+    }
+
+    pub async fn save_file(&self, file: &ReceivedFile) -> io::Result<()> {
+        let original_path = self.state.constants.files_dir.join(&file.name);
+        let tmp_path = self.state.constants.tmp_dir.join(&file.name);
+
+        let mut tmp_file = File::create(&tmp_path).await?;
+        tmp_file.write_all(&file.contents).await?;
+        tmp_file.flush().await?;
+
+        let mtime = FileTime::from_system_time(file.last_modified_at);
+        filetime::set_file_mtime(&tmp_path, mtime)?;
+
+        fs::rename(&tmp_path, &original_path).await
     }
 }

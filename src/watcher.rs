@@ -1,13 +1,7 @@
 use crate::{config::AppState, models::file::SynchedFile};
 use notify::{Config, Error, Event, EventKind, RecommendedWatcher, Watcher};
 use sha2::{Digest, Sha256};
-use std::{
-    fs::File,
-    io::Read,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::SystemTime,
-};
+use std::{fs::File, io::Read, path::PathBuf, sync::Arc, time::SystemTime};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
@@ -42,15 +36,12 @@ impl FileWatcher {
     }
 
     pub async fn watch(&mut self) -> io::Result<()> {
-        let path = Path::new(&self.state.constants.files_dir);
+        let path = self.state.constants.files_dir.to_owned();
         self.watcher
-            .watch(path, notify::RecursiveMode::Recursive)
+            .watch(&path, notify::RecursiveMode::Recursive)
             .unwrap();
 
-        info!(
-            "Watching for file changes in /{}",
-            self.state.constants.files_dir
-        );
+        info!("Watching for file changes in /{}", path.to_string_lossy());
 
         while let Some(res) = self.watch_rx.recv().await {
             match res {

@@ -3,14 +3,13 @@ use crate::models::{
     file::{ConfigSynchedFile, SynchedFile},
 };
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 use std::{
     collections::HashMap,
     fs::{self},
     io::Read,
     net::IpAddr,
-    path::Path,
     sync::{Arc, RwLock},
-    time::SystemTime,
 };
 
 pub struct AppState {
@@ -20,7 +19,8 @@ pub struct AppState {
 }
 
 pub struct AppConstants {
-    pub files_dir: String,
+    pub files_dir: PathBuf,
+    pub tmp_dir: PathBuf,
     pub tcp_port: u16,
     pub broadcast_port: u16,
     pub broadcast_interval_secs: u64,
@@ -32,15 +32,16 @@ pub fn init() -> AppState {
     let files_dir = "synche-files";
 
     let files = load_config_file(cfg_path);
-    fs::create_dir_all(files_dir).unwrap();
+    let (files_dir, tmp_dir) = create_dirs(files_dir);
 
     tracing_subscriber::fmt::init();
 
     AppState {
-        synched_files: Arc::new(RwLock::new(build_synched_files(files, files_dir))),
+        synched_files: Arc::new(RwLock::new(build_synched_files(files, &files_dir))),
         devices: Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new())),
         constants: AppConstants {
             files_dir: files_dir.to_owned(),
+            tmp_dir: tmp_dir.to_owned(),
             tcp_port: 8889,
             broadcast_port: 8888,
             broadcast_interval_secs: 5,
@@ -54,11 +55,21 @@ fn load_config_file(path: &str) -> Vec<ConfigSynchedFile> {
     serde_json::from_str(&contents).expect("Failed to parse config file")
 }
 
-fn build_synched_files(files: Vec<ConfigSynchedFile>, dir: &str) -> HashMap<String, SynchedFile> {
+fn create_dirs(files_dir: &str) -> (PathBuf, PathBuf) {
+    let tmp_dir = std::env::temp_dir().join(files_dir);
+    let files_dir = PathBuf::new().join(files_dir);
+
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::create_dir_all(&files_dir).unwrap();
+
+    (files_dir, tmp_dir)
+}
+
+fn build_synched_files(files: Vec<ConfigSynchedFile>, dir: &Path) -> HashMap<String, SynchedFile> {
     let mut result = HashMap::new();
 
     for file in files {
-        let path = Path::new(dir).join(&file.name);
+        let path = dir.join(&file.name);
 
         if !path.exists() {
             result.insert(file.name.clone(), SynchedFile::absent(&file.name));
