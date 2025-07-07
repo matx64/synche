@@ -71,6 +71,7 @@ impl SyncService {
 
         let synched_file = SynchedFile {
             name: recv_file.name.clone(),
+            exists: true,
             hash: recv_file.hash.clone(),
             last_modified_at: recv_file.last_modified_at,
         };

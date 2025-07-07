@@ -1,12 +1,18 @@
 use crate::{config::AppState, models::file::SynchedFile};
-use notify::{Config, Error, Event, RecommendedWatcher, Watcher};
+use notify::{Config, Error, Event, EventKind, RecommendedWatcher, Watcher};
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, path::Path, sync::Arc, time::SystemTime};
+use std::{
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::SystemTime,
+};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct FileWatcher {
     state: Arc<AppState>,
@@ -48,7 +54,14 @@ impl FileWatcher {
 
         while let Some(res) = self.watch_rx.recv().await {
             match res {
-                Ok(event) if event.kind.is_modify() => self.handle_event(event).await,
+                Ok(event)
+                    if matches!(
+                        event.kind,
+                        EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Create(_)
+                    ) =>
+                {
+                    self.handle_event(event).await
+                }
                 Ok(_) => {}
                 Err(err) => {
                     error!("Watch error: {}", err);
@@ -61,51 +74,41 @@ impl FileWatcher {
     async fn handle_event(&self, e: Event) {
         for path in e.paths {
             let Some(file_name) = path.file_name().and_then(|f| f.to_str()) else {
-                info!("Couldn't extract file name from path: {:?}", path);
+                warn!("Couldn't extract file name from path: {:?}", path);
                 continue;
             };
 
-            // Read file content and compute hash
-            let mut file = match File::open(&path) {
-                Ok(f) => f,
-                Err(err) => {
-                    error!("Failed to open file {}: {}", file_name, err);
-                    continue;
-                }
-            };
-
-            let mut content = Vec::new();
-            if let Err(err) = file.read_to_end(&mut content) {
-                error!("Failed to read file {}: {}", file_name, err);
-                continue;
-            };
-
-            let hash = format!("{:x}", Sha256::digest(&content));
-
-            let metadata = match path.metadata() {
-                Ok(m) => m,
-                Err(err) => {
-                    error!("Failed to get metadata for {}: {}", file_name, err);
-                    continue;
-                }
-            };
-
-            let on_disk_modified = metadata.modified().unwrap_or(SystemTime::now());
-
-            let should_update = if let Ok(files) = self.state.synched_files.read() {
+            // check if is a synched file
+            let synched_file = if let Ok(files) = self.state.synched_files.read() {
                 if let Some(file) = files.get(file_name) {
-                    hash != file.hash && file.last_modified_at < on_disk_modified
+                    file.clone()
                 } else {
-                    false
+                    continue;
                 }
             } else {
-                false
+                continue;
             };
 
-            if should_update {
+            if !path.exists() {
+                if let Ok(mut files) = self.state.synched_files.write() {
+                    files.insert(file_name.to_owned(), SynchedFile::absent(file_name));
+                }
+                continue;
+            }
+
+            let (hash, on_disk_modified) = match self.get_file_data(&path) {
+                Ok(data) => data,
+                Err(err) => {
+                    error!("Failed to get file data: {}", err);
+                    continue;
+                }
+            };
+
+            if synched_file.hash != hash && synched_file.last_modified_at < on_disk_modified {
                 let file_name = file_name.to_owned();
                 let file = SynchedFile {
                     name: file_name.clone(),
+                    exists: true,
                     last_modified_at: on_disk_modified,
                     hash,
                 };
@@ -117,5 +120,17 @@ impl FileWatcher {
                 }
             }
         }
+    }
+
+    fn get_file_data(&self, path: &PathBuf) -> io::Result<(String, SystemTime)> {
+        let mut file = File::open(path)?;
+
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)?;
+
+        let hash = format!("{:x}", Sha256::digest(&content));
+        let on_disk_modified = path.metadata()?.modified().unwrap_or(SystemTime::now());
+
+        Ok((hash, on_disk_modified))
     }
 }

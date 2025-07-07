@@ -10,6 +10,7 @@ use std::{
     net::IpAddr,
     path::Path,
     sync::{Arc, RwLock},
+    time::SystemTime,
 };
 
 pub struct AppState {
@@ -59,6 +60,11 @@ fn build_synched_files(files: Vec<ConfigSynchedFile>, dir: &str) -> HashMap<Stri
     for file in files {
         let path = Path::new(dir).join(&file.name);
 
+        if !path.exists() {
+            result.insert(file.name.clone(), SynchedFile::absent(&file.name));
+            continue;
+        }
+
         if let Ok(metadata) = fs::metadata(&path) {
             if metadata.is_file() {
                 if let Ok(last_modified_at) = metadata.modified() {
@@ -70,6 +76,7 @@ fn build_synched_files(files: Vec<ConfigSynchedFile>, dir: &str) -> HashMap<Stri
                         file.name.clone(),
                         SynchedFile {
                             name: file.name,
+                            exists: true,
                             hash: format!("{:x}", Sha256::digest(content)),
                             last_modified_at,
                         },

@@ -57,7 +57,7 @@ impl PresenceService {
         let local_ip = local_ip().unwrap();
         let ifas = list_afinet_netifas().unwrap();
 
-        let mut buf = [0; 1024];
+        let mut buf = [0u8; 8];
         loop {
             let (size, src_addr) = socket.recv_from(&mut buf).await?;
             let src_ip = src_addr.ip();
@@ -95,20 +95,17 @@ impl PresenceService {
         );
 
         loop {
-            match self.state.devices.write() {
-                Ok(mut devices) => {
-                    devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > self.state.constants.device_timeout_secs));
+            if let Ok(mut devices) = self.state.devices.write() {
+                devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > self.state.constants.device_timeout_secs));
 
-                    if !devices.is_empty() {
-                        info!(
-                            "Connected Synche devices: {:?}",
-                            devices.keys().collect::<Vec<_>>()
-                        );
-                    } else {
-                        info!("No Synche devices connected.");
-                    }
+                if !devices.is_empty() {
+                    info!(
+                        "Connected Synche devices: {:?}",
+                        devices.keys().collect::<Vec<_>>()
+                    );
+                } else {
+                    info!("No Synche devices connected.");
                 }
-                Err(_) => continue,
             };
 
             tokio::time::sleep(Duration::from_secs(10)).await;
