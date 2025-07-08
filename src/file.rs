@@ -149,12 +149,20 @@ impl FileService {
         let original_path = self.state.constants.files_dir.join(&file.name);
         let tmp_path = self.state.constants.tmp_dir.join(&file.name);
 
+        if let Some(parent) = tmp_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
         let mut tmp_file = File::create(&tmp_path).await?;
         tmp_file.write_all(&file.contents).await?;
         tmp_file.flush().await?;
 
         let mtime = FileTime::from_system_time(file.last_modified_at);
         filetime::set_file_mtime(&tmp_path, mtime)?;
+
+        if let Some(parent) = original_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
 
         fs::rename(&tmp_path, &original_path).await
     }

@@ -10,6 +10,7 @@ pub struct ConfigSynchedFile {
 pub struct SynchedFile {
     pub name: String,
     pub exists: bool,
+    pub is_dir: bool,
     pub hash: String,
     pub last_modified_at: SystemTime,
 }
@@ -23,10 +24,11 @@ pub struct ReceivedFile {
 }
 
 impl SynchedFile {
-    pub fn absent(name: &str) -> Self {
+    pub fn absent(name: &str, is_dir: bool) -> Self {
         Self {
             name: name.to_owned(),
             exists: false,
+            is_dir,
             hash: String::new(),
             last_modified_at: SystemTime::now(),
         }

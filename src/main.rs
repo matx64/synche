@@ -4,6 +4,7 @@ mod handshake;
 mod models;
 mod presence;
 mod sync;
+mod utils;
 mod watcher;
 
 use crate::{

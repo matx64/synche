@@ -1,16 +1,18 @@
-use crate::models::{
-    device::Device,
-    file::{ConfigSynchedFile, SynchedFile},
+use crate::{
+    models::{
+        device::Device,
+        file::{ConfigSynchedFile, SynchedFile},
+    },
+    utils::fs::{get_file_data, get_last_modified_date, get_relative_path},
 };
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::{
     collections::HashMap,
     fs::{self},
-    io::Read,
     net::IpAddr,
     sync::{Arc, RwLock},
 };
+use tracing::info;
 
 pub struct AppState {
     pub synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
@@ -68,31 +70,45 @@ fn create_dirs(files_dir: &str) -> (PathBuf, PathBuf) {
 fn build_synched_files(files: Vec<ConfigSynchedFile>, dir: &Path) -> HashMap<String, SynchedFile> {
     let mut result = HashMap::new();
 
+    let abs_base_path = dir.canonicalize().unwrap();
+
     for file in files {
         let path = dir.join(&file.name);
+        let relative_path = get_relative_path(&path, &abs_base_path).unwrap();
+
+        info!("Config file relative path: {}", relative_path);
 
         if !path.exists() {
-            result.insert(file.name.clone(), SynchedFile::absent(&file.name));
+            result.insert(
+                relative_path.clone(),
+                SynchedFile::absent(&relative_path, path.is_dir()),
+            );
             continue;
         }
 
-        if let Ok(metadata) = fs::metadata(&path) {
-            if metadata.is_file() {
-                if let Ok(last_modified_at) = metadata.modified() {
-                    let mut f = fs::File::open(&path).unwrap();
-                    let mut content = Vec::new();
-                    f.read_to_end(&mut content).unwrap();
-
-                    result.insert(
-                        file.name.clone(),
-                        SynchedFile {
-                            name: file.name,
-                            exists: true,
-                            hash: format!("{:x}", Sha256::digest(content)),
-                            last_modified_at,
-                        },
-                    );
-                }
+        if path.is_dir() {
+            result.insert(
+                relative_path.clone(),
+                SynchedFile {
+                    name: relative_path,
+                    exists: true,
+                    is_dir: true,
+                    hash: String::new(),
+                    last_modified_at: get_last_modified_date(&path).unwrap(),
+                },
+            );
+        } else if path.is_file() {
+            if let Ok((hash, last_modified_at)) = get_file_data(&path) {
+                result.insert(
+                    relative_path.clone(),
+                    SynchedFile {
+                        name: relative_path,
+                        exists: true,
+                        is_dir: false,
+                        hash,
+                        last_modified_at,
+                    },
+                );
             }
         }
     }

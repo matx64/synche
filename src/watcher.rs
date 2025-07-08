@@ -1,18 +1,26 @@
-use crate::{config::AppState, models::file::SynchedFile};
+use crate::{
+    config::AppState,
+    models::file::SynchedFile,
+    utils::fs::{get_file_data, get_relative_path},
+};
 use notify::{Config, Error, Event, EventKind, RecommendedWatcher, Watcher};
-use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, path::PathBuf, sync::Arc, time::SystemTime};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::SystemTime,
+};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
 };
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 pub struct FileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
     sync_tx: Sender<SynchedFile>,
+    absolute_base_path: PathBuf,
 }
 
 impl FileWatcher {
@@ -28,6 +36,7 @@ impl FileWatcher {
         .unwrap();
 
         Self {
+            absolute_base_path: state.constants.files_dir.canonicalize().unwrap(),
             state,
             watcher,
             watch_rx,
@@ -64,30 +73,27 @@ impl FileWatcher {
 
     async fn handle_event(&self, e: Event) {
         for path in e.paths {
-            let Some(file_name) = path.file_name().and_then(|f| f.to_str()) else {
-                warn!("Couldn't extract file name from path: {:?}", path);
+            let Ok(relative_path) = get_relative_path(&path, &self.absolute_base_path) else {
                 continue;
             };
 
-            // check if is a synched file
-            let synched_file = if let Ok(files) = self.state.synched_files.read() {
-                if let Some(file) = files.get(file_name) {
-                    file.clone()
-                } else {
-                    continue;
-                }
-            } else {
+            info!("File changed: {}", relative_path);
+
+            let Some(synched_file) = self.get_synched_entry(&relative_path) else {
                 continue;
             };
 
             if !path.exists() {
-                if let Ok(mut files) = self.state.synched_files.write() {
-                    files.insert(file_name.to_owned(), SynchedFile::absent(file_name));
-                }
+                self.handle_entry_deletion(&synched_file);
                 continue;
             }
 
-            let (hash, on_disk_modified) = match self.get_file_data(&path) {
+            if path.is_dir() {
+                self.update_dir_date(&path, synched_file);
+                continue;
+            }
+
+            let (hash, on_disk_modified) = match get_file_data(&path) {
                 Ok(data) => data,
                 Err(err) => {
                     error!("Failed to get file data: {}", err);
@@ -96,16 +102,18 @@ impl FileWatcher {
             };
 
             if synched_file.hash != hash && synched_file.last_modified_at < on_disk_modified {
-                let file_name = file_name.to_owned();
                 let file = SynchedFile {
-                    name: file_name.clone(),
+                    name: relative_path.clone(),
                     exists: true,
+                    is_dir: false,
                     last_modified_at: on_disk_modified,
                     hash,
                 };
+
                 if let Ok(mut files) = self.state.synched_files.write() {
-                    files.insert(file_name, file.clone());
+                    files.insert(relative_path, file.clone());
                 }
+
                 if let Err(err) = self.sync_tx.send(file).await {
                     error!("sync_tx send error: {}", err);
                 }
@@ -113,15 +121,44 @@ impl FileWatcher {
         }
     }
 
-    fn get_file_data(&self, path: &PathBuf) -> io::Result<(String, SystemTime)> {
-        let mut file = File::open(path)?;
+    fn get_synched_entry(&self, name: &str) -> Option<SynchedFile> {
+        match self.state.synched_files.read() {
+            Ok(files) => files.get(name).cloned(),
+            Err(_) => None,
+        }
+    }
 
-        let mut content = Vec::new();
-        file.read_to_end(&mut content)?;
+    fn handle_entry_deletion(&self, entry: &SynchedFile) {
+        if let Ok(mut files) = self.state.synched_files.write() {
+            if entry.is_dir {
+                let start = &format!("{}/", entry.name);
+                for file in files.values_mut() {
+                    if file.name.starts_with(start) {
+                        *file = SynchedFile::absent(&file.name, file.is_dir);
+                    }
+                }
+            }
+            files.insert(
+                entry.name.clone(),
+                SynchedFile::absent(&entry.name, entry.is_dir),
+            );
+        }
+    }
 
-        let hash = format!("{:x}", Sha256::digest(&content));
-        let on_disk_modified = path.metadata()?.modified().unwrap_or(SystemTime::now());
+    fn update_dir_date(&self, path: &Path, entry: SynchedFile) {
+        let last_modified_at = path
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::now());
 
-        Ok((hash, on_disk_modified))
+        if let Ok(mut files) = self.state.synched_files.write() {
+            files.insert(
+                entry.name.clone(),
+                SynchedFile {
+                    last_modified_at,
+                    ..entry
+                },
+            );
+        }
     }
 }
