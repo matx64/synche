@@ -1,8 +1,4 @@
-use crate::{
-    config::AppState,
-    models::{peer::Peer, sync::SyncDataKind},
-    services::handshake::HandshakeService,
-};
+use crate::{config::AppState, models::sync::SyncDataKind, services::handshake::HandshakeService};
 use local_ip_address::{list_afinet_netifas, local_ip};
 use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, net::UdpSocket};
@@ -67,11 +63,8 @@ impl PresenceService {
                 continue;
             }
 
-            let send_handshake = self
-                .state
-                .peer_manager
-                .insert_or_update(Peer::new(src_addr, None))
-                && local_ip < src_ip;
+            let send_handshake =
+                self.state.peer_manager.insert_or_update(src_addr) && local_ip < src_ip;
 
             if send_handshake {
                 self.handshake_service

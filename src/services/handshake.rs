@@ -61,7 +61,7 @@ impl HandshakeService {
 
         self.state
             .peer_manager
-            .insert_or_update(Peer::new(src_addr, Some(entries)));
+            .insert(Peer::new(src_addr, Some(entries)));
 
         if is_request {
             self.send_handshake(src_addr, SyncDataKind::HandshakeResponse)

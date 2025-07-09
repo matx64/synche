@@ -3,8 +3,8 @@ use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
     sync::RwLock,
+    time::SystemTime,
 };
-use tracing::info;
 
 pub struct PeerManager {
     peers: RwLock<HashMap<IpAddr, Peer>>,
@@ -26,14 +26,23 @@ impl PeerManager {
             .unwrap_or_default()
     }
 
-    pub fn insert_or_update(&self, peer: Peer) -> bool {
-        let ip = peer.addr.ip();
+    pub fn insert(&self, peer: Peer) {
+        if let Ok(mut peers) = self.peers.write() {
+            peers.insert(peer.addr.ip(), peer);
+        }
+    }
+
+    pub fn insert_or_update(&self, addr: SocketAddr) -> bool {
+        let ip = addr.ip();
+
         self.peers.write().is_ok_and(|mut peers| {
-            let inserted = peers.insert(ip, peer).is_none();
-            if inserted {
-                info!("Peer connected: {}", ip);
+            if let Some(peer) = peers.get_mut(&ip) {
+                peer.last_seen = SystemTime::now();
+                false
+            } else {
+                peers.insert(ip, Peer::new(addr, None));
+                true
             }
-            inserted
         })
     }
 
