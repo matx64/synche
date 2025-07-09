@@ -1,4 +1,8 @@
-use crate::{config::AppState, models::peer::Peer, services::handshake::HandshakeService};
+use crate::{
+    config::AppState,
+    models::{peer::Peer, sync::SyncDataKind},
+    services::handshake::HandshakeService,
+};
 use local_ip_address::{list_afinet_netifas, local_ip};
 use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, net::UdpSocket};
@@ -71,7 +75,7 @@ impl PresenceService {
 
             if send_handshake {
                 self.handshake_service
-                    .send_handshake(src_addr, true)
+                    .send_handshake(src_addr, SyncDataKind::HandshakeRequest)
                     .await?;
             }
         }
@@ -84,10 +88,7 @@ impl PresenceService {
         );
 
         loop {
-            info!(
-                "Connected Synche peers: {}",
-                self.state.peer_manager.retain()
-            );
+            info!("Connected Peers: {:?}", self.state.peer_manager.retain());
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
     }

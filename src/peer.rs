@@ -70,7 +70,7 @@ impl PeerManager {
         result
     }
 
-    pub fn retain(&self) -> String {
+    pub fn retain(&self) -> Vec<String> {
         self.peers
             .write()
             .map(|mut peers| {
@@ -81,11 +81,7 @@ impl PeerManager {
                         .unwrap_or(true)
                 });
 
-                peers
-                    .keys()
-                    .map(|k| k.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                peers.keys().map(|k| k.to_string()).collect::<Vec<_>>()
             })
             .unwrap_or_default()
     }

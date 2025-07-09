@@ -36,9 +36,8 @@ impl FileService {
         let target_ip = target_addr.ip();
 
         let path = self.state.constants.entries_dir.join(&entry.name);
-        let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
-        info!("Sending file {} to {}", file_name, target_ip);
+        info!("Sending file {} to {}", entry.name, target_ip);
 
         // Read file content
         let mut file = File::open(path).await?;
@@ -61,11 +60,11 @@ impl FileService {
 
         // Send file name length (u64)
         stream
-            .write_all(&u64::to_be_bytes(file_name.len() as u64))
+            .write_all(&u64::to_be_bytes(entry.name.len() as u64))
             .await?;
 
         // Send file name
-        stream.write_all(file_name.as_bytes()).await?;
+        stream.write_all(entry.name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
         let hash_bytes = hex::decode(&entry.hash).unwrap();
@@ -87,7 +86,7 @@ impl FileService {
 
         info!(
             "Sent file: {} ({} bytes) to {}",
-            file_name, file_size, target_ip
+            entry.name, file_size, target_ip
         );
         Ok(())
     }

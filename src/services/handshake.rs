@@ -26,18 +26,12 @@ impl HandshakeService {
     pub async fn send_handshake(
         &self,
         mut target_addr: SocketAddr,
-        is_request: bool,
+        kind: SyncDataKind,
     ) -> io::Result<()> {
         target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
 
         let contents = self.state.entry_manager.serialize()?;
-
-        let kind = if is_request {
-            SyncDataKind::HandshakeRequest
-        } else {
-            SyncDataKind::HandshakeResponse
-        };
 
         let content_b = contents.as_bytes();
         let content_len = content_b.len() as u32;
@@ -70,7 +64,8 @@ impl HandshakeService {
             .insert_or_update(Peer::new(src_addr, Some(entries)));
 
         if is_request {
-            self.send_handshake(src_addr, false).await?;
+            self.send_handshake(src_addr, SyncDataKind::HandshakeResponse)
+                .await?;
         }
 
         self.sync_peers(src_addr).await;
@@ -78,8 +73,8 @@ impl HandshakeService {
         Ok(())
     }
 
-    async fn sync_peers(&self, other: SocketAddr) {
-        let ip = other.ip();
+    async fn sync_peers(&self, target_addr: SocketAddr) {
+        let ip = target_addr.ip();
 
         let Some(peer) = self.state.peer_manager.get(&ip) else {
             return;
@@ -90,8 +85,8 @@ impl HandshakeService {
         let files_to_send = self.state.entry_manager.get_files_to_send(&peer);
 
         for file in files_to_send {
-            if let Err(err) = self.file_service.send_file(file, other).await {
-                error!("Failed to send file {} to {}: {}", file.name, other, err);
+            if let Err(err) = self.file_service.send_file(&file, target_addr).await {
+                error!("Failed to send file {} to {}: {}", file.name, ip, err);
             }
         }
     }

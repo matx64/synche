@@ -26,7 +26,7 @@ impl EntryManager {
             .unwrap_or_default()
     }
 
-    pub fn get_files_to_send<'a>(&self, peer: &'a Peer) -> Vec<&'a Entry> {
+    pub fn get_files_to_send(&self, peer: &Peer) -> Vec<Entry> {
         let mut result = Vec::new();
 
         if let Ok(entries) = self.entries.read() {
@@ -37,7 +37,7 @@ impl EntryManager {
                         && peer_entry.hash != entry.hash
                         && peer_entry.last_modified_at < entry.last_modified_at
                     {
-                        result.push(peer_entry);
+                        result.push(entry.to_owned());
                     }
                 }
             }
