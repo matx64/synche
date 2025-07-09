@@ -36,7 +36,7 @@ impl FileWatcher {
         .unwrap();
 
         Self {
-            absolute_base_path: state.constants.files_dir.canonicalize().unwrap(),
+            absolute_base_path: state.constants.entries_dir.canonicalize().unwrap(),
             state,
             watcher,
             watch_rx,
@@ -45,12 +45,12 @@ impl FileWatcher {
     }
 
     pub async fn watch(&mut self) -> io::Result<()> {
-        let path = self.state.constants.files_dir.to_owned();
+        let path = self.state.constants.entries_dir.to_owned();
         self.watcher
             .watch(&path, notify::RecursiveMode::Recursive)
             .unwrap();
 
-        info!("Watching for file changes in /{}", path.to_string_lossy());
+        info!("Watching for entry changes in /{}", path.to_string_lossy());
 
         while let Some(res) = self.watch_rx.recv().await {
             match res {
@@ -77,12 +77,12 @@ impl FileWatcher {
                 continue;
             };
 
-            let Some(entry) = self.state.entry_service.get(&relative_path) else {
+            let Some(entry) = self.state.entry_manager.get(&relative_path) else {
                 continue;
             };
 
             if !path.exists() {
-                self.state.entry_service.handle_deletion(&entry);
+                self.state.entry_manager.handle_deletion(&entry);
                 continue;
             }
 
@@ -108,7 +108,7 @@ impl FileWatcher {
                     hash,
                 };
 
-                self.state.entry_service.insert(file.clone());
+                self.state.entry_manager.insert(file.clone());
 
                 if let Err(err) = self.sync_tx.send(file).await {
                     error!("sync_tx send error: {}", err);
@@ -123,7 +123,7 @@ impl FileWatcher {
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::now());
 
-        self.state.entry_service.insert(Entry {
+        self.state.entry_manager.insert(Entry {
             last_modified_at,
             ..entry
         });

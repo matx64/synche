@@ -1,16 +1,17 @@
 mod config;
 mod entry;
-mod file;
-mod handshake;
 mod models;
-mod presence;
-mod sync;
+mod services;
 mod utils;
 mod watcher;
 
 use crate::{
-    file::FileService, handshake::HandshakeService, models::entry::Entry,
-    presence::PresenceService, sync::SyncService, watcher::FileWatcher,
+    models::entry::Entry,
+    services::{
+        file::FileService, handshake::HandshakeService, presence::PresenceService,
+        sync::SyncService,
+    },
+    watcher::FileWatcher,
 };
 use std::sync::Arc;
 use tokio::{io, sync::mpsc};

@@ -1,13 +1,12 @@
 use crate::models::{device::Device, entry::Entry};
 use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
 use tokio::io;
-use tracing::error;
 
-pub struct EntryService {
+pub struct EntryManager {
     entries: RwLock<HashMap<String, Entry>>,
 }
 
-impl EntryService {
+impl EntryManager {
     pub fn new(entries: HashMap<String, Entry>) -> Self {
         Self {
             entries: RwLock::new(entries),
@@ -23,10 +22,7 @@ impl EntryService {
     pub fn get(&self, name: &str) -> Option<Entry> {
         match self.entries.read() {
             Ok(entries) => entries.get(name).cloned(),
-            Err(e) => {
-                error!("Read entries error: {}", e);
-                None
-            }
+            _ => None,
         }
     }
 

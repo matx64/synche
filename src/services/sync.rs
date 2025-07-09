@@ -1,8 +1,7 @@
 use crate::{
     config::AppState,
-    file::FileService,
-    handshake::HandshakeService,
     models::{entry::Entry, sync::SyncDataKind},
+    services::{file::FileService, handshake::HandshakeService},
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
@@ -84,7 +83,7 @@ impl SyncService {
             }
         }
 
-        self.state.entry_service.insert(entry);
+        self.state.entry_manager.insert(entry);
 
         self.file_service.save_file(&file).await?;
 

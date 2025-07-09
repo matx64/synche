@@ -1,5 +1,5 @@
 use crate::{
-    entry::EntryService,
+    entry::EntryManager,
     models::{
         device::Device,
         entry::{ConfigEntry, Entry},
@@ -19,13 +19,13 @@ use std::{
 use walkdir::WalkDir;
 
 pub struct AppState {
-    pub entry_service: EntryService,
+    pub entry_manager: EntryManager,
     pub devices: RwLock<HashMap<IpAddr, Device>>,
     pub constants: AppConstants,
 }
 
 pub struct AppConstants {
-    pub files_dir: PathBuf,
+    pub entries_dir: PathBuf,
     pub tmp_dir: PathBuf,
     pub tcp_port: u16,
     pub broadcast_port: u16,
@@ -35,20 +35,20 @@ pub struct AppConstants {
 
 pub fn init() -> AppState {
     let cfg_path = ".cfg.json";
-    let files_dir = "synche-files";
+    let entries_dir = "synche-files";
 
-    let files = load_config_file(cfg_path);
-    let (files_dir, tmp_dir) = create_dirs(files_dir);
+    let entries = load_config_file(cfg_path);
+    let (entries_dir, tmp_dir) = create_dirs(entries_dir);
 
     tracing_subscriber::fmt::init();
 
-    let synched_entries = build_synched_files(files, &files_dir).unwrap();
+    let entries = build_entries(entries, &entries_dir).unwrap();
 
     AppState {
-        entry_service: EntryService::new(synched_entries),
+        entry_manager: EntryManager::new(entries),
         devices: RwLock::new(HashMap::<IpAddr, Device>::new()),
         constants: AppConstants {
-            files_dir: files_dir.to_owned(),
+            entries_dir: entries_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
             tcp_port: 8889,
             broadcast_port: 8888,
@@ -63,26 +63,29 @@ fn load_config_file(path: &str) -> Vec<ConfigEntry> {
     serde_json::from_str(&contents).expect("Failed to parse config file")
 }
 
-fn create_dirs(files_dir: &str) -> (PathBuf, PathBuf) {
-    let tmp_dir = std::env::temp_dir().join(files_dir);
-    let files_dir = PathBuf::new().join(files_dir);
+fn create_dirs(entries_dir: &str) -> (PathBuf, PathBuf) {
+    let tmp_dir = std::env::temp_dir().join(entries_dir);
+    let entries_dir = PathBuf::new().join(entries_dir);
 
     fs::create_dir_all(&tmp_dir).unwrap();
-    fs::create_dir_all(&files_dir).unwrap();
+    fs::create_dir_all(&entries_dir).unwrap();
 
-    (files_dir, tmp_dir)
+    (entries_dir, tmp_dir)
 }
 
-fn build_synched_files(files: Vec<ConfigEntry>, dir: &Path) -> io::Result<HashMap<String, Entry>> {
+fn build_entries(entries: Vec<ConfigEntry>, dir: &Path) -> io::Result<HashMap<String, Entry>> {
     let mut result = HashMap::new();
 
     let abs_base_path = dir.canonicalize()?;
 
-    for file in files {
-        let path = dir.join(&file.name);
+    for entry in entries {
+        let path = dir.join(&entry.name);
 
         if !path.exists() {
-            result.insert(file.name.clone(), Entry::absent(&file.name, path.is_dir()));
+            result.insert(
+                entry.name.clone(),
+                Entry::absent(&entry.name, path.is_dir()),
+            );
             continue;
         }
 

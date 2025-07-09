@@ -30,12 +30,12 @@ impl FileService {
 
     pub async fn send_file(
         &self,
-        synched_file: &Entry,
+        entry: &Entry,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
-        let path = self.state.constants.files_dir.join(&synched_file.name);
+        let path = self.state.constants.entries_dir.join(&entry.name);
         let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
         info!("Sending file {} to {}", file_name, target_ip);
@@ -46,7 +46,7 @@ impl FileService {
         file.read_to_end(&mut buffer).await?;
 
         // Get last modified at
-        let last_modified_at = synched_file
+        let last_modified_at = entry
             .last_modified_at
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -68,7 +68,7 @@ impl FileService {
         stream.write_all(file_name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
-        let hash_bytes = hex::decode(&synched_file.hash).unwrap();
+        let hash_bytes = hex::decode(&entry.hash).unwrap();
         stream.write_all(&hash_bytes).await?;
 
         // Send file size (u64)
@@ -85,7 +85,7 @@ impl FileService {
             if let Some(device) = devices.get_mut(&target_ip) {
                 device
                     .synched_files
-                    .insert(synched_file.name.to_owned(), synched_file.to_owned());
+                    .insert(entry.name.to_owned(), entry.to_owned());
             }
         }
 
@@ -146,7 +146,7 @@ impl FileService {
     }
 
     pub async fn save_file(&self, file: &ReceivedFile) -> io::Result<()> {
-        let original_path = self.state.constants.files_dir.join(&file.name);
+        let original_path = self.state.constants.entries_dir.join(&file.name);
         let tmp_path = self.state.constants.tmp_dir.join(&file.name);
 
         if let Some(parent) = tmp_path.parent() {

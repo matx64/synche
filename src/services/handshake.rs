@@ -1,7 +1,7 @@
 use crate::{
     config::AppState,
-    file::FileService,
     models::{device::Device, sync::SyncDataKind},
+    services::file::FileService,
 };
 use std::{io::ErrorKind, net::SocketAddr, sync::Arc};
 use tokio::{
@@ -31,7 +31,7 @@ impl HandshakeService {
         target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
 
-        let contents = self.state.entry_service.serialize()?;
+        let contents = self.state.entry_manager.serialize()?;
 
         let kind = if is_request {
             SyncDataKind::HandshakeRequest
@@ -64,11 +64,11 @@ impl HandshakeService {
         let content = String::from_utf8(content_buf)
             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
 
-        let synched_files = self.state.entry_service.deserialize(&content)?;
+        let entries = self.state.entry_manager.deserialize(&content)?;
 
         if let Ok(mut devices) = self.state.devices.write() {
             if devices
-                .insert(ip, Device::new(src_addr, Some(synched_files)))
+                .insert(ip, Device::new(src_addr, Some(entries)))
                 .is_none()
             {
                 info!("Device connected: {}", ip);
@@ -99,7 +99,7 @@ impl HandshakeService {
 
         info!("Synching device: {}", ip);
 
-        let files_to_send = self.state.entry_service.to_send(&other_device);
+        let files_to_send = self.state.entry_manager.to_send(&other_device);
 
         for file in files_to_send {
             if let Err(err) = self.file_service.send_file(&file, other).await {

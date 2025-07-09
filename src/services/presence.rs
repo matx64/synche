@@ -1,4 +1,4 @@
-use crate::{config::AppState, handshake::HandshakeService, models::device::Device};
+use crate::{config::AppState, models::device::Device, services::handshake::HandshakeService};
 use local_ip_address::{list_afinet_netifas, local_ip};
 use std::{
     net::IpAddr,
