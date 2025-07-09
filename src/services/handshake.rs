@@ -87,10 +87,10 @@ impl HandshakeService {
 
         info!("Synching peer: {}", ip);
 
-        let files_to_send = self.state.entry_manager.to_send(&peer);
+        let files_to_send = self.state.entry_manager.get_files_to_send(&peer);
 
         for file in files_to_send {
-            if let Err(err) = self.file_service.send_file(&file, other).await {
+            if let Err(err) = self.file_service.send_file(file, other).await {
                 error!("Failed to send file {} to {}: {}", file.name, other, err);
             }
         }

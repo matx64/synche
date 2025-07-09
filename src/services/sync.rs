@@ -105,14 +105,12 @@ impl SyncService {
 
                     info!("Synching files: {:?}", buffer);
 
-                    let peers = self.state.peer_manager.find_peers_to_sync(&buffer);
+                    let sync_map = self.state.peer_manager.build_sync_map(&buffer);
 
-                    for peer in peers {
-                        for file in buffer.values() {
-                            if peer.entries.get(&file.name).map(|peer_file| peer_file.hash != file.hash && peer_file.last_modified_at < file.last_modified_at).unwrap_or(false) {
-                                if let Err(err) = self.file_service.send_file(file, peer.addr).await {
-                                    error!("Error synching file `{}`: {}", &file.name, err);
-                                }
+                    for (addr, files) in sync_map {
+                        for file in files {
+                            if let Err(err) = self.file_service.send_file(file, addr).await {
+                                error!("Error synching file `{}`: {}", &file.name, err);
                             }
                         }
                     }

@@ -20,27 +20,30 @@ impl EntryManager {
     }
 
     pub fn get(&self, name: &str) -> Option<Entry> {
-        match self.entries.read() {
-            Ok(entries) => entries.get(name).cloned(),
-            _ => None,
-        }
-    }
-
-    pub fn to_send(&self, peer: &Peer) -> Vec<Entry> {
         self.entries
             .read()
-            .map(|entries| {
-                entries
-                    .values()
-                    .filter_map(|e| {
-                        peer.entries
-                            .get(&e.name)
-                            .filter(|d| d.hash != e.hash && d.last_modified_at < e.last_modified_at)
-                            .cloned()
-                    })
-                    .collect::<_>()
-            })
+            .map(|entries| entries.get(name).cloned())
             .unwrap_or_default()
+    }
+
+    pub fn get_files_to_send<'a>(&self, peer: &'a Peer) -> Vec<&'a Entry> {
+        let mut result = Vec::new();
+
+        if let Ok(entries) = self.entries.read() {
+            for entry in entries.values() {
+                if let Some(peer_entry) = peer.entries.get(&entry.name) {
+                    if !entry.is_dir
+                        && !peer_entry.is_dir
+                        && peer_entry.hash != entry.hash
+                        && peer_entry.last_modified_at < entry.last_modified_at
+                    {
+                        result.push(peer_entry);
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     pub fn handle_deletion(&self, deleted: &Entry) {
