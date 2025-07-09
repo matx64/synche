@@ -1,6 +1,7 @@
 mod config;
 mod entry;
 mod models;
+mod peer;
 mod services;
 mod utils;
 mod watcher;
@@ -31,7 +32,7 @@ async fn main() -> io::Result<()> {
 
     tokio::try_join!(
         file_watcher.watch(),
-        presence_service.watch_devices(),
+        presence_service.watch_peers(),
         presence_service.send_presence(),
         presence_service.recv_presence(),
         sync_service.recv_data(),

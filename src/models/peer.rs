@@ -2,17 +2,17 @@ use crate::models::entry::Entry;
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 
 #[derive(Debug, Clone)]
-pub struct Device {
+pub struct Peer {
     pub addr: SocketAddr,
-    pub synched_files: HashMap<String, Entry>,
+    pub entries: HashMap<String, Entry>,
     pub last_seen: SystemTime,
 }
 
-impl Device {
-    pub fn new(addr: SocketAddr, synched_files: Option<HashMap<String, Entry>>) -> Self {
+impl Peer {
+    pub fn new(addr: SocketAddr, entries: Option<HashMap<String, Entry>>) -> Self {
         Self {
             addr,
-            synched_files: synched_files.unwrap_or_default(),
+            entries: entries.unwrap_or_default(),
             last_seen: SystemTime::now(),
         }
     }

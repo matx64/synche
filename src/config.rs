@@ -1,16 +1,12 @@
 use crate::{
     entry::EntryManager,
-    models::{
-        device::Device,
-        entry::{ConfigEntry, Entry},
-    },
+    models::entry::{ConfigEntry, Entry},
+    peer::PeerManager,
     utils::fs::{get_file_data, get_last_modified_date, get_relative_path},
 };
 use std::{
     collections::HashMap,
     fs::{self},
-    net::IpAddr,
-    sync::RwLock,
 };
 use std::{
     io,
@@ -20,7 +16,7 @@ use walkdir::WalkDir;
 
 pub struct AppState {
     pub entry_manager: EntryManager,
-    pub devices: RwLock<HashMap<IpAddr, Device>>,
+    pub peer_manager: PeerManager,
     pub constants: AppConstants,
 }
 
@@ -30,7 +26,6 @@ pub struct AppConstants {
     pub tcp_port: u16,
     pub broadcast_port: u16,
     pub broadcast_interval_secs: u64,
-    pub device_timeout_secs: u64,
 }
 
 pub fn init() -> AppState {
@@ -46,14 +41,13 @@ pub fn init() -> AppState {
 
     AppState {
         entry_manager: EntryManager::new(entries),
-        devices: RwLock::new(HashMap::<IpAddr, Device>::new()),
+        peer_manager: PeerManager::new(),
         constants: AppConstants {
             entries_dir: entries_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
             tcp_port: 8889,
             broadcast_port: 8888,
             broadcast_interval_secs: 5,
-            device_timeout_secs: 15,
         },
     }
 }

@@ -75,14 +75,7 @@ impl SyncService {
             last_modified_at: file.last_modified_at,
         };
 
-        if let Ok(mut devices) = self.state.devices.write() {
-            if let Some(device) = devices.get_mut(&src_ip) {
-                device
-                    .synched_files
-                    .insert(entry.name.clone(), entry.clone());
-            }
-        }
-
+        self.state.peer_manager.insert_entry(&src_ip, entry.clone());
         self.state.entry_manager.insert(entry);
 
         self.file_service.save_file(&file).await?;
@@ -112,27 +105,12 @@ impl SyncService {
 
                     info!("Synching files: {:?}", buffer);
 
-                    let devices = if let Ok(devices) = self.state.devices.read() {
-                        devices
-                            .values()
-                            .filter(|device| {
-                                buffer.values().any(|f| {
-                                    device.synched_files
-                                        .get(&f.name)
-                                        .map(|device_file| device_file.hash != f.hash && device_file.last_modified_at < f.last_modified_at)
-                                        .unwrap_or(false)
-                                })
-                            })
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    } else {
-                        continue;
-                    };
+                    let peers = self.state.peer_manager.find_peers_to_sync(&buffer);
 
-                    for device in devices {
+                    for peer in peers {
                         for file in buffer.values() {
-                            if device.synched_files.get(&file.name).map(|f| f.hash != file.hash && f.last_modified_at < file.last_modified_at).unwrap_or(false) {
-                                if let Err(err) = self.file_service.send_file(file, device.addr).await {
+                            if peer.entries.get(&file.name).map(|peer_file| peer_file.hash != file.hash && peer_file.last_modified_at < file.last_modified_at).unwrap_or(false) {
+                                if let Err(err) = self.file_service.send_file(file, peer.addr).await {
                                     error!("Error synching file `{}`: {}", &file.name, err);
                                 }
                             }

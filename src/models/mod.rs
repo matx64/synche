@@ -1,3 +1,3 @@
-pub mod device;
 pub mod entry;
+pub mod peer;
 pub mod sync;

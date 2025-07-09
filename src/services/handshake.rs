@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::{device::Device, sync::SyncDataKind},
+    models::{peer::Peer, sync::SyncDataKind},
     services::file::FileService,
 };
 use std::{io::ErrorKind, net::SocketAddr, sync::Arc};
@@ -53,7 +53,6 @@ impl HandshakeService {
 
     pub async fn read_handshake(&self, stream: &mut TcpStream, is_request: bool) -> io::Result<()> {
         let src_addr = stream.peer_addr()?;
-        let ip = src_addr.ip();
 
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
@@ -66,40 +65,29 @@ impl HandshakeService {
 
         let entries = self.state.entry_manager.deserialize(&content)?;
 
-        if let Ok(mut devices) = self.state.devices.write() {
-            if devices
-                .insert(ip, Device::new(src_addr, Some(entries)))
-                .is_none()
-            {
-                info!("Device connected: {}", ip);
-            }
-        }
+        self.state
+            .peer_manager
+            .insert_or_update(Peer::new(src_addr, Some(entries)));
 
         if is_request {
             self.send_handshake(src_addr, false).await?;
         }
 
-        self.sync_devices(src_addr).await;
+        self.sync_peers(src_addr).await;
 
         Ok(())
     }
 
-    async fn sync_devices(&self, other: SocketAddr) {
+    async fn sync_peers(&self, other: SocketAddr) {
         let ip = other.ip();
-        let other_device = if let Ok(devices) = self.state.devices.read() {
-            if let Some(device) = devices.get(&ip) {
-                device.clone()
-            } else {
-                return;
-            }
-        } else {
-            error!("Failed to read devices");
+
+        let Some(peer) = self.state.peer_manager.get(&ip) else {
             return;
         };
 
-        info!("Synching device: {}", ip);
+        info!("Synching peer: {}", ip);
 
-        let files_to_send = self.state.entry_manager.to_send(&other_device);
+        let files_to_send = self.state.entry_manager.to_send(&peer);
 
         for file in files_to_send {
             if let Err(err) = self.file_service.send_file(&file, other).await {

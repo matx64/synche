@@ -1,10 +1,6 @@
-use crate::{config::AppState, models::device::Device, services::handshake::HandshakeService};
+use crate::{config::AppState, models::peer::Peer, services::handshake::HandshakeService};
 use local_ip_address::{list_afinet_netifas, local_ip};
-use std::{
-    net::IpAddr,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, net::UdpSocket};
 use tracing::{error, info};
 
@@ -67,18 +63,11 @@ impl PresenceService {
                 continue;
             }
 
-            let send_handshake = self.state.devices.write().is_ok_and(|mut devices| {
-                if let Some(device) = devices.get_mut(&src_ip) {
-                    device.last_seen = SystemTime::now();
-                    false
-                } else {
-                    info!("Device connected: {}", src_ip);
-                    devices.insert(src_ip, Device::new(src_addr, None));
-
-                    // start handshake only if local ip < source ip
-                    local_ip < src_ip
-                }
-            });
+            let send_handshake = self
+                .state
+                .peer_manager
+                .insert_or_update(Peer::new(src_addr, None))
+                && local_ip < src_ip;
 
             if send_handshake {
                 self.handshake_service
@@ -88,26 +77,17 @@ impl PresenceService {
         }
     }
 
-    pub async fn watch_devices(&self) -> io::Result<()> {
+    pub async fn watch_peers(&self) -> io::Result<()> {
         info!(
             "🚀 Synche running on port {}. Press Ctrl+C to stop.",
             self.state.constants.broadcast_port
         );
 
         loop {
-            if let Ok(mut devices) = self.state.devices.write() {
-                devices.retain(|_, device| !matches!(device.last_seen.elapsed(), Ok(elapsed) if elapsed.as_secs() > self.state.constants.device_timeout_secs));
-
-                if !devices.is_empty() {
-                    info!(
-                        "Connected Synche devices: {:?}",
-                        devices.keys().collect::<Vec<_>>()
-                    );
-                } else {
-                    info!("No Synche devices connected.");
-                }
-            };
-
+            info!(
+                "Connected Synche peers: {}",
+                self.state.peer_manager.retain()
+            );
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
     }

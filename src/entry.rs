@@ -1,4 +1,4 @@
-use crate::models::{device::Device, entry::Entry};
+use crate::models::{entry::Entry, peer::Peer};
 use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
 use tokio::io;
 
@@ -26,14 +26,14 @@ impl EntryManager {
         }
     }
 
-    pub fn to_send(&self, peer: &Device) -> Vec<Entry> {
+    pub fn to_send(&self, peer: &Peer) -> Vec<Entry> {
         self.entries
             .read()
             .map(|entries| {
                 entries
                     .values()
                     .filter_map(|e| {
-                        peer.synched_files
+                        peer.entries
                             .get(&e.name)
                             .filter(|d| d.hash != e.hash && d.last_modified_at < e.last_modified_at)
                             .cloned()

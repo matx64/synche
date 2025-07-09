@@ -52,7 +52,7 @@ impl FileService {
             .unwrap()
             .as_secs();
 
-        // Connect to target device's TCP server
+        // Connect to target peer's TCP server
         target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
 
@@ -81,13 +81,9 @@ impl FileService {
         // Send last modification date
         stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
-        if let Ok(mut devices) = self.state.devices.write() {
-            if let Some(device) = devices.get_mut(&target_ip) {
-                device
-                    .synched_files
-                    .insert(entry.name.to_owned(), entry.to_owned());
-            }
-        }
+        self.state
+            .peer_manager
+            .insert_entry(&target_ip, entry.to_owned());
 
         info!(
             "Sent file: {} ({} bytes) to {}",
