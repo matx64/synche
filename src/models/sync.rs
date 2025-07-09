@@ -1,5 +1,13 @@
-use std::io::ErrorKind;
+use std::{io::ErrorKind, time::SystemTime};
 use tokio::io::Error;
+
+pub struct ReceivedFile {
+    pub name: String,
+    pub size: u64,
+    pub contents: Vec<u8>,
+    pub hash: String,
+    pub last_modified_at: SystemTime,
+}
 
 #[repr(u8)]
 pub enum SyncDataKind {

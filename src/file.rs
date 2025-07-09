@@ -1,8 +1,8 @@
 use crate::{
     config::AppState,
     models::{
-        file::{ReceivedFile, SynchedFile},
-        sync::SyncDataKind,
+        entry::Entry,
+        sync::{ReceivedFile, SyncDataKind},
     },
 };
 use filetime::FileTime;
@@ -30,7 +30,7 @@ impl FileService {
 
     pub async fn send_file(
         &self,
-        synched_file: &SynchedFile,
+        synched_file: &Entry,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();

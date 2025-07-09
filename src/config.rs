@@ -1,7 +1,8 @@
 use crate::{
+    entry::EntryService,
     models::{
         device::Device,
-        file::{ConfigSynchedFile, SynchedFile},
+        entry::{ConfigEntry, Entry},
     },
     utils::fs::{get_file_data, get_last_modified_date, get_relative_path},
 };
@@ -9,7 +10,7 @@ use std::{
     collections::HashMap,
     fs::{self},
     net::IpAddr,
-    sync::{Arc, RwLock},
+    sync::RwLock,
 };
 use std::{
     io,
@@ -18,8 +19,8 @@ use std::{
 use walkdir::WalkDir;
 
 pub struct AppState {
-    pub synched_files: Arc<RwLock<HashMap<String, SynchedFile>>>,
-    pub devices: Arc<RwLock<HashMap<IpAddr, Device>>>,
+    pub entry_service: EntryService,
+    pub devices: RwLock<HashMap<IpAddr, Device>>,
     pub constants: AppConstants,
 }
 
@@ -44,8 +45,8 @@ pub fn init() -> AppState {
     let synched_entries = build_synched_files(files, &files_dir).unwrap();
 
     AppState {
-        synched_files: Arc::new(RwLock::new(synched_entries)),
-        devices: Arc::new(RwLock::new(HashMap::<IpAddr, Device>::new())),
+        entry_service: EntryService::new(synched_entries),
+        devices: RwLock::new(HashMap::<IpAddr, Device>::new()),
         constants: AppConstants {
             files_dir: files_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
@@ -57,7 +58,7 @@ pub fn init() -> AppState {
     }
 }
 
-fn load_config_file(path: &str) -> Vec<ConfigSynchedFile> {
+fn load_config_file(path: &str) -> Vec<ConfigEntry> {
     let contents = fs::read_to_string(path).expect("Failed to read config file");
     serde_json::from_str(&contents).expect("Failed to parse config file")
 }
@@ -72,10 +73,7 @@ fn create_dirs(files_dir: &str) -> (PathBuf, PathBuf) {
     (files_dir, tmp_dir)
 }
 
-fn build_synched_files(
-    files: Vec<ConfigSynchedFile>,
-    dir: &Path,
-) -> io::Result<HashMap<String, SynchedFile>> {
+fn build_synched_files(files: Vec<ConfigEntry>, dir: &Path) -> io::Result<HashMap<String, Entry>> {
     let mut result = HashMap::new();
 
     let abs_base_path = dir.canonicalize()?;
@@ -84,10 +82,7 @@ fn build_synched_files(
         let path = dir.join(&file.name);
 
         if !path.exists() {
-            result.insert(
-                file.name.clone(),
-                SynchedFile::absent(&file.name, path.is_dir()),
-            );
+            result.insert(file.name.clone(), Entry::absent(&file.name, path.is_dir()));
             continue;
         }
 
@@ -106,12 +101,12 @@ fn build_synched_files(
 fn build_file(
     path: &PathBuf,
     relative_path: String,
-    result: &mut HashMap<String, SynchedFile>,
+    result: &mut HashMap<String, Entry>,
 ) -> io::Result<()> {
     let (hash, last_modified_at) = get_file_data(path)?;
     result.insert(
         relative_path.clone(),
-        SynchedFile {
+        Entry {
             name: relative_path,
             exists: true,
             is_dir: false,
@@ -125,7 +120,7 @@ fn build_file(
 fn build_dir(
     dir_path: &PathBuf,
     abs_base_path: &PathBuf,
-    result: &mut HashMap<String, SynchedFile>,
+    result: &mut HashMap<String, Entry>,
 ) -> io::Result<()> {
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
         let path = entry.path();
@@ -134,7 +129,7 @@ fn build_dir(
         if path == dir_path {
             result.insert(
                 relative_path.clone(),
-                SynchedFile {
+                Entry {
                     name: relative_path,
                     exists: true,
                     is_dir: true,

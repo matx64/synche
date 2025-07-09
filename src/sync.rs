@@ -2,7 +2,7 @@ use crate::{
     config::AppState,
     file::FileService,
     handshake::HandshakeService,
-    models::{file::SynchedFile, sync::SyncDataKind},
+    models::{entry::Entry, sync::SyncDataKind},
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
@@ -66,39 +66,37 @@ impl SyncService {
     async fn handle_file(&self, stream: &mut TcpStream) -> std::io::Result<()> {
         let src_ip = stream.peer_addr()?.ip();
 
-        let recv_file = self.file_service.read_file(stream).await?;
+        let file = self.file_service.read_file(stream).await?;
 
-        let synched_file = SynchedFile {
-            name: recv_file.name.clone(),
+        let entry = Entry {
+            name: file.name.clone(),
             exists: true,
             is_dir: false,
-            hash: recv_file.hash.clone(),
-            last_modified_at: recv_file.last_modified_at,
+            hash: file.hash.clone(),
+            last_modified_at: file.last_modified_at,
         };
 
         if let Ok(mut devices) = self.state.devices.write() {
             if let Some(device) = devices.get_mut(&src_ip) {
                 device
                     .synched_files
-                    .insert(synched_file.name.clone(), synched_file.clone());
+                    .insert(entry.name.clone(), entry.clone());
             }
         }
 
-        if let Ok(mut files) = self.state.synched_files.write() {
-            files.insert(synched_file.name.clone(), synched_file);
-        }
+        self.state.entry_service.insert(entry);
 
-        self.file_service.save_file(&recv_file).await?;
+        self.file_service.save_file(&file).await?;
 
         info!(
             "Successfully handled file: {} ({} bytes) from {}",
-            recv_file.name, recv_file.size, src_ip
+            file.name, file.size, src_ip
         );
         Ok(())
     }
 
-    pub async fn sync_files(&self, mut sync_rx: Receiver<SynchedFile>) -> io::Result<()> {
-        let mut buffer = HashMap::<String, SynchedFile>::new();
+    pub async fn sync_files(&self, mut sync_rx: Receiver<Entry>) -> io::Result<()> {
+        let mut buffer = HashMap::<String, Entry>::new();
         let mut interval = time::interval(Duration::from_secs(10));
 
         loop {

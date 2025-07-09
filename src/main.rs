@@ -1,4 +1,5 @@
 mod config;
+mod entry;
 mod file;
 mod handshake;
 mod models;
@@ -8,7 +9,7 @@ mod utils;
 mod watcher;
 
 use crate::{
-    file::FileService, handshake::HandshakeService, models::file::SynchedFile,
+    file::FileService, handshake::HandshakeService, models::entry::Entry,
     presence::PresenceService, sync::SyncService, watcher::FileWatcher,
 };
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use tokio::{io, sync::mpsc};
 async fn main() -> io::Result<()> {
     let state = Arc::new(config::init());
 
-    let (sync_tx, sync_rx) = mpsc::channel::<SynchedFile>(100);
+    let (sync_tx, sync_rx) = mpsc::channel::<Entry>(100);
 
     let mut file_watcher = FileWatcher::new(state.clone(), sync_tx);
 
