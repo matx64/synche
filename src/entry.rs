@@ -1,44 +1,46 @@
-use crate::models::{entry::Entry, peer::Peer};
+use crate::models::{
+    entry::{Directory, File},
+    peer::{Peer, PeerSyncData},
+};
 use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
 use tokio::io;
 
 pub struct EntryManager {
-    entries: RwLock<HashMap<String, Entry>>,
+    directories: RwLock<HashMap<String, Directory>>,
+    files: RwLock<HashMap<String, File>>,
 }
 
 impl EntryManager {
-    pub fn new(entries: HashMap<String, Entry>) -> Self {
+    pub fn new(directories: HashMap<String, Directory>, files: HashMap<String, File>) -> Self {
         Self {
-            entries: RwLock::new(entries),
+            directories: RwLock::new(directories),
+            files: RwLock::new(files),
         }
     }
 
-    pub fn insert(&self, entry: Entry) {
-        if let Ok(mut entries) = self.entries.write() {
-            entries.insert(entry.name.clone(), entry);
+    pub fn insert(&self, entry: File) {
+        if let Ok(mut files) = self.files.write() {
+            files.insert(entry.name.clone(), entry);
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<Entry> {
-        self.entries
+    pub fn get(&self, name: &str) -> Option<File> {
+        self.files
             .read()
-            .map(|entries| entries.get(name).cloned())
+            .map(|files| files.get(name).cloned())
             .unwrap_or_default()
     }
 
-    pub fn get_files_to_send(&self, peer: &Peer) -> Vec<Entry> {
+    pub fn get_files_to_send(&self, peer: &Peer) -> Vec<File> {
         let mut result = Vec::new();
 
-        if let Ok(entries) = self.entries.read() {
-            for entry in entries.values() {
-                if let Some(peer_entry) = peer.entries.get(&entry.name) {
-                    if entry.exists
-                        && !entry.is_dir
-                        && !peer_entry.is_dir
-                        && peer_entry.hash != entry.hash
-                        && peer_entry.last_modified_at < entry.last_modified_at
+        if let Ok(files) = self.files.read() {
+            for file in files.values() {
+                if let Some(peer_file) = peer.files.get(&file.name) {
+                    if peer_file.hash != file.hash
+                        && peer_file.last_modified_at < file.last_modified_at
                     {
-                        result.push(entry.to_owned());
+                        result.push(file.to_owned());
                     }
                 }
             }
@@ -47,44 +49,46 @@ impl EntryManager {
         result
     }
 
-    pub fn handle_deletion(&self, deleted: &Entry) {
-        if let Ok(mut entries) = self.entries.write() {
-            if deleted.is_dir {
-                let start = &format!("{}/", deleted.name);
+    pub fn handle_deletion(&self, deleted: &File) {
+        todo!()
+        // if let Ok(mut files) = self.files.write() {
+        //     if deleted.is_dir {
+        //         let start = &format!("{}/", deleted.name);
 
-                for entry in entries.values_mut() {
-                    if entry.name.starts_with(start) {
-                        *entry = Entry::absent(&entry.name, entry.is_dir);
-                    }
-                }
-            }
-            entries.insert(
-                deleted.name.clone(),
-                Entry::absent(&deleted.name, deleted.is_dir),
-            );
-        }
+        //         for entry in files.values_mut() {
+        //             if entry.name.starts_with(start) {
+        //                 *entry = File::absent(&entry.name, entry.is_dir);
+        //             }
+        //         }
+        //     }
+        //     files.insert(
+        //         deleted.name.clone(),
+        //         File::absent(&deleted.name, deleted.is_dir),
+        //     );
+        // }
     }
 
     pub fn serialize(&self) -> io::Result<String> {
-        match self.entries.read() {
-            Ok(entries) => {
-                let vec = entries.values().collect::<Vec<_>>();
-                match serde_json::to_string(&vec) {
-                    Ok(json) => Ok(json),
-                    Err(err) => Err(io::Error::other(err.to_string())),
-                }
+        let directories = match self.directories.read() {
+            Ok(dirs) => dirs.values().cloned().collect::<Vec<_>>(),
+            Err(err) => {
+                return Err(io::Error::other(err.to_string()));
             }
-            Err(err) => Err(io::Error::other(err.to_string())),
-        }
+        };
+
+        let files = match self.files.read() {
+            Ok(files) => files.values().cloned().collect::<Vec<_>>(),
+            Err(err) => {
+                return Err(io::Error::other(err.to_string()));
+            }
+        };
+
+        serde_json::to_string(&PeerSyncData { directories, files })
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 
-    pub fn deserialize(&self, msg: &str) -> io::Result<HashMap<String, Entry>> {
-        match serde_json::from_str::<Vec<Entry>>(msg) {
-            Ok(files) => Ok(files
-                .into_iter()
-                .map(|f| (f.name.clone(), f))
-                .collect::<HashMap<String, Entry>>()),
-            Err(err) => Err(io::Error::new(ErrorKind::InvalidData, err)),
-        }
+    pub fn deserialize(&self, msg: &str) -> io::Result<PeerSyncData> {
+        serde_json::from_str::<PeerSyncData>(msg)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 }

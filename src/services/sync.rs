@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::{entry::Entry, sync::SyncDataKind},
+    models::{entry::File, sync::SyncDataKind},
     services::{file::FileService, handshake::HandshakeService},
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -65,30 +65,28 @@ impl SyncService {
     async fn handle_file(&self, stream: &mut TcpStream) -> std::io::Result<()> {
         let src_ip = stream.peer_addr()?.ip();
 
-        let file = self.file_service.read_file(stream).await?;
+        let recv_file = self.file_service.read_file(stream).await?;
 
-        let entry = Entry {
-            name: file.name.clone(),
-            exists: true,
-            is_dir: false,
-            hash: Some(file.hash.clone()),
-            last_modified_at: Some(file.last_modified_at),
+        let file = File {
+            name: recv_file.name.clone(),
+            hash: recv_file.hash.clone(),
+            last_modified_at: recv_file.last_modified_at,
         };
 
-        self.state.peer_manager.insert_entry(&src_ip, entry.clone());
-        self.state.entry_manager.insert(entry);
+        self.state.peer_manager.insert_entry(&src_ip, file.clone());
+        self.state.entry_manager.insert(file);
 
-        self.file_service.save_file(&file).await?;
+        self.file_service.save_file(&recv_file).await?;
 
         info!(
             "Successfully handled file: {} ({} bytes) from {}",
-            file.name, file.size, src_ip
+            recv_file.name, recv_file.size, src_ip
         );
         Ok(())
     }
 
-    pub async fn sync_files(&self, mut sync_rx: Receiver<Entry>) -> io::Result<()> {
-        let mut buffer = HashMap::<String, Entry>::new();
+    pub async fn sync_files(&self, mut sync_rx: Receiver<File>) -> io::Result<()> {
+        let mut buffer = HashMap::<String, File>::new();
         let mut interval = time::interval(Duration::from_secs(10));
 
         loop {

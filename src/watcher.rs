@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::entry::Entry,
+    models::entry::File,
     utils::fs::{get_file_data, get_relative_path},
 };
 use notify::{Config, Error, Event, EventKind, RecommendedWatcher, Watcher};
@@ -19,12 +19,12 @@ pub struct FileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
-    sync_tx: Sender<Entry>,
+    sync_tx: Sender<File>,
     absolute_base_path: PathBuf,
 }
 
 impl FileWatcher {
-    pub fn new(state: Arc<AppState>, sync_tx: Sender<Entry>) -> Self {
+    pub fn new(state: Arc<AppState>, sync_tx: Sender<File>) -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(100);
 
         let watcher = RecommendedWatcher::new(
@@ -36,7 +36,7 @@ impl FileWatcher {
         .unwrap();
 
         Self {
-            absolute_base_path: state.constants.entries_dir.canonicalize().unwrap(),
+            absolute_base_path: state.constants.base_dir.canonicalize().unwrap(),
             state,
             watcher,
             watch_rx,
@@ -45,7 +45,7 @@ impl FileWatcher {
     }
 
     pub async fn watch(&mut self) -> io::Result<()> {
-        let path = self.state.constants.entries_dir.to_owned();
+        let path = self.state.constants.base_dir.to_owned();
         self.watcher
             .watch(&path, notify::RecursiveMode::Recursive)
             .unwrap();
@@ -99,13 +99,11 @@ impl FileWatcher {
                 }
             };
 
-            if entry.hash.unwrap() != hash && entry.last_modified_at.unwrap() < on_disk_modified {
-                let file = Entry {
+            if entry.hash != hash && entry.last_modified_at < on_disk_modified {
+                let file = File {
                     name: relative_path.clone(),
-                    exists: true,
-                    is_dir: false,
-                    last_modified_at: Some(on_disk_modified),
-                    hash: Some(hash),
+                    last_modified_at: on_disk_modified,
+                    hash,
                 };
 
                 self.state.entry_manager.insert(file.clone());
@@ -117,15 +115,14 @@ impl FileWatcher {
         }
     }
 
-    fn update_dir(&self, path: &Path, entry: Entry) {
+    fn update_dir(&self, path: &Path, entry: File) {
         let last_modified_at = path
             .metadata()
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::now());
 
-        self.state.entry_manager.insert(Entry {
-            last_modified_at: Some(last_modified_at),
-            exists: true,
+        self.state.entry_manager.insert(File {
+            last_modified_at,
             ..entry
         });
     }

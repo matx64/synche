@@ -57,11 +57,11 @@ impl HandshakeService {
         let content = String::from_utf8(content_buf)
             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
 
-        let entries = self.state.entry_manager.deserialize(&content)?;
+        let sync_data = self.state.entry_manager.deserialize(&content)?;
 
         self.state
             .peer_manager
-            .insert(Peer::new(src_addr, Some(entries)));
+            .insert(Peer::new(src_addr, Some(sync_data)));
 
         if is_request {
             self.send_handshake(src_addr, SyncDataKind::HandshakeResponse)

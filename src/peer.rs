@@ -1,4 +1,4 @@
-use crate::models::{entry::Entry, peer::Peer};
+use crate::models::{entry::File, peer::Peer};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -46,30 +46,28 @@ impl PeerManager {
         })
     }
 
-    pub fn insert_entry(&self, ip: &IpAddr, entry: Entry) {
+    pub fn insert_entry(&self, ip: &IpAddr, entry: File) {
         if let Ok(mut peers) = self.peers.write() {
             if let Some(peer) = peers.get_mut(ip) {
-                peer.entries.insert(entry.name.clone(), entry);
+                peer.files.insert(entry.name.clone(), entry);
             }
         }
     }
 
     pub fn build_sync_map<'a>(
         &self,
-        buffer: &'a HashMap<String, Entry>,
-    ) -> HashMap<SocketAddr, Vec<&'a Entry>> {
+        buffer: &'a HashMap<String, File>,
+    ) -> HashMap<SocketAddr, Vec<&'a File>> {
         let mut result = HashMap::new();
 
         if let Ok(peers) = self.peers.read() {
             for peer in peers.values() {
-                for entry in buffer.values() {
-                    if let Some(peer_entry) = peer.entries.get(&entry.name) {
-                        if !entry.is_dir
-                            && !peer_entry.is_dir
-                            && peer_entry.hash != entry.hash
-                            && peer_entry.last_modified_at < entry.last_modified_at
+                for file in buffer.values() {
+                    if let Some(peer_file) = peer.files.get(&file.name) {
+                        if peer_file.hash != file.hash
+                            && peer_file.last_modified_at < file.last_modified_at
                         {
-                            result.entry(peer.addr).or_insert_with(Vec::new).push(entry);
+                            result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                         }
                     }
                 }

@@ -1,7 +1,7 @@
 use crate::{
     config::AppState,
     models::{
-        entry::Entry,
+        entry::File,
         sync::{ReceivedFile, SyncDataKind},
     },
 };
@@ -13,7 +13,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::{
-    fs::{self, File},
+    fs::{self, File as FsFile},
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
@@ -30,28 +30,23 @@ impl FileService {
 
     pub async fn send_file(
         &self,
-        entry: &Entry,
+        entry: &File,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
-        if !entry.exists || entry.hash.is_none() || entry.last_modified_at.is_none() {
-            return Err(std::io::Error::other("Invalid file to send"));
-        }
-
         let target_ip = target_addr.ip();
 
-        let path = self.state.constants.entries_dir.join(&entry.name);
+        let path = self.state.constants.base_dir.join(&entry.name);
 
         info!("Sending file {} to {}", entry.name, target_ip);
 
         // Read file content
-        let mut file = File::open(path).await?;
+        let mut file = FsFile::open(path).await?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).await?;
 
         // Get last modified at
         let last_modified_at = entry
             .last_modified_at
-            .unwrap()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
@@ -72,7 +67,7 @@ impl FileService {
         stream.write_all(entry.name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
-        let hash_bytes = hex::decode(&entry.hash.clone().unwrap()).unwrap();
+        let hash_bytes = hex::decode(&entry.hash.clone()).unwrap();
         stream.write_all(&hash_bytes).await?;
 
         // Send file size (u64)
@@ -146,14 +141,14 @@ impl FileService {
     }
 
     pub async fn save_file(&self, file: &ReceivedFile) -> io::Result<()> {
-        let original_path = self.state.constants.entries_dir.join(&file.name);
+        let original_path = self.state.constants.base_dir.join(&file.name);
         let tmp_path = self.state.constants.tmp_dir.join(&file.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
-        let mut tmp_file = File::create(&tmp_path).await?;
+        let mut tmp_file = FsFile::create(&tmp_path).await?;
         tmp_file.write_all(&file.contents).await?;
         tmp_file.flush().await?;
 

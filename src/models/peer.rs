@@ -1,19 +1,45 @@
-use crate::models::entry::Entry;
+use crate::models::entry::{Directory, File};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 
 #[derive(Debug, Clone)]
 pub struct Peer {
     pub addr: SocketAddr,
-    pub entries: HashMap<String, Entry>,
+    pub directories: HashMap<String, Directory>,
+    pub files: HashMap<String, File>,
     pub last_seen: SystemTime,
 }
 
 impl Peer {
-    pub fn new(addr: SocketAddr, entries: Option<HashMap<String, Entry>>) -> Self {
+    pub fn new(addr: SocketAddr, data: Option<PeerSyncData>) -> Self {
+        let (directories, files) = data.map_or_else(
+            || (HashMap::new(), HashMap::new()),
+            |data| {
+                let directories = data
+                    .directories
+                    .into_iter()
+                    .map(|d| (d.name.clone(), d))
+                    .collect();
+                let files = data
+                    .files
+                    .into_iter()
+                    .map(|f| (f.name.clone(), f))
+                    .collect();
+                (directories, files)
+            },
+        );
+
         Self {
             addr,
-            entries: entries.unwrap_or_default(),
+            directories,
+            files,
             last_seen: SystemTime::now(),
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PeerSyncData {
+    pub directories: Vec<Directory>,
+    pub files: Vec<File>,
 }
