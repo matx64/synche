@@ -32,7 +32,8 @@ impl EntryManager {
         if let Ok(entries) = self.entries.read() {
             for entry in entries.values() {
                 if let Some(peer_entry) = peer.entries.get(&entry.name) {
-                    if !entry.is_dir
+                    if entry.exists
+                        && !entry.is_dir
                         && !peer_entry.is_dir
                         && peer_entry.hash != entry.hash
                         && peer_entry.last_modified_at < entry.last_modified_at

@@ -6,8 +6,8 @@ pub struct Entry {
     pub name: String,
     pub exists: bool,
     pub is_dir: bool,
-    pub hash: String,
-    pub last_modified_at: SystemTime,
+    pub hash: Option<String>,
+    pub last_modified_at: Option<SystemTime>,
 }
 
 impl Entry {
@@ -16,8 +16,8 @@ impl Entry {
             name: name.to_owned(),
             exists: false,
             is_dir,
-            hash: String::new(),
-            last_modified_at: SystemTime::now(),
+            hash: None,
+            last_modified_at: None,
         }
     }
 }

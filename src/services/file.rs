@@ -33,6 +33,10 @@ impl FileService {
         entry: &Entry,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
+        if !entry.exists || entry.hash.is_none() || entry.last_modified_at.is_none() {
+            return Err(std::io::Error::other("Invalid file to send"));
+        }
+
         let target_ip = target_addr.ip();
 
         let path = self.state.constants.entries_dir.join(&entry.name);
@@ -47,6 +51,7 @@ impl FileService {
         // Get last modified at
         let last_modified_at = entry
             .last_modified_at
+            .unwrap()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
@@ -67,7 +72,7 @@ impl FileService {
         stream.write_all(entry.name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
-        let hash_bytes = hex::decode(&entry.hash).unwrap();
+        let hash_bytes = hex::decode(&entry.hash.clone().unwrap()).unwrap();
         stream.write_all(&hash_bytes).await?;
 
         // Send file size (u64)

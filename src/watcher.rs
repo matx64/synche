@@ -99,13 +99,13 @@ impl FileWatcher {
                 }
             };
 
-            if entry.hash != hash && entry.last_modified_at < on_disk_modified {
+            if entry.hash.unwrap() != hash && entry.last_modified_at.unwrap() < on_disk_modified {
                 let file = Entry {
                     name: relative_path.clone(),
                     exists: true,
                     is_dir: false,
-                    last_modified_at: on_disk_modified,
-                    hash,
+                    last_modified_at: Some(on_disk_modified),
+                    hash: Some(hash),
                 };
 
                 self.state.entry_manager.insert(file.clone());
@@ -124,7 +124,7 @@ impl FileWatcher {
             .unwrap_or(SystemTime::now());
 
         self.state.entry_manager.insert(Entry {
-            last_modified_at,
+            last_modified_at: Some(last_modified_at),
             ..entry
         });
     }

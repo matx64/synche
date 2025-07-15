@@ -107,8 +107,8 @@ fn build_file(
             name: relative_path,
             exists: true,
             is_dir: false,
-            hash,
-            last_modified_at,
+            hash: Some(hash),
+            last_modified_at: Some(last_modified_at),
         },
     );
     Ok(())
@@ -130,8 +130,8 @@ fn build_dir(
                     name: relative_path,
                     exists: true,
                     is_dir: true,
-                    hash: String::new(),
-                    last_modified_at: get_last_modified_date(path)?,
+                    hash: None,
+                    last_modified_at: Some(get_last_modified_date(path)?),
                 },
             );
             continue;

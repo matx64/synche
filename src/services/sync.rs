@@ -71,8 +71,8 @@ impl SyncService {
             name: file.name.clone(),
             exists: true,
             is_dir: false,
-            hash: file.hash.clone(),
-            last_modified_at: file.last_modified_at,
+            hash: Some(file.hash.clone()),
+            last_modified_at: Some(file.last_modified_at),
         };
 
         self.state.peer_manager.insert_entry(&src_ip, entry.clone());
