@@ -87,7 +87,7 @@ impl FileWatcher {
             }
 
             if path.is_dir() {
-                self.update_dir_date(&path, entry);
+                self.update_dir(&path, entry);
                 continue;
             }
 
@@ -117,7 +117,7 @@ impl FileWatcher {
         }
     }
 
-    fn update_dir_date(&self, path: &Path, entry: Entry) {
+    fn update_dir(&self, path: &Path, entry: Entry) {
         let last_modified_at = path
             .metadata()
             .and_then(|m| m.modified())
@@ -125,6 +125,7 @@ impl FileWatcher {
 
         self.state.entry_manager.insert(Entry {
             last_modified_at: Some(last_modified_at),
+            exists: true,
             ..entry
         });
     }
