@@ -49,6 +49,8 @@ impl EntryManager {
                     {
                         result.push(file.to_owned());
                     }
+                } else if peer.directories.contains_key(&file.get_dir()) {
+                    result.push(file.to_owned());
                 }
             }
         }

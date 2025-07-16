@@ -77,6 +77,8 @@ impl PeerManager {
                         {
                             result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                         }
+                    } else if peer.directories.contains_key(&file.get_dir()) {
+                        result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                     }
                 }
             }

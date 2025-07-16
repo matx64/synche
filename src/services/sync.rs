@@ -45,9 +45,6 @@ impl SyncService {
             info!("Received {} from {}", kind, addr.ip());
 
             match kind {
-                SyncDataKind::File => {
-                    self.handle_file(&mut stream).await?;
-                }
                 SyncDataKind::HandshakeRequest => {
                     self.handshake_service
                         .read_handshake(&mut stream, true)
@@ -58,31 +55,47 @@ impl SyncService {
                         .read_handshake(&mut stream, false)
                         .await?;
                 }
+                SyncDataKind::FileTransfer => {
+                    self.handle_file_transfer(&mut stream).await?;
+                }
+                SyncDataKind::FileRemoved => {
+                    self.handle_file_removed(&mut stream).await?;
+                }
             };
         }
     }
 
-    async fn handle_file(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+    async fn handle_file_transfer(&self, stream: &mut TcpStream) -> std::io::Result<()> {
         let src_ip = stream.peer_addr()?.ip();
 
         let recv_file = self.file_service.read_file(stream).await?;
 
-        if !recv_file.hash.is_empty() {
-            self.file_service.save_file(&src_ip, &recv_file).await?;
-        } else {
-            self.file_service.remove_file(&src_ip, &recv_file).await?;
-        }
+        self.file_service.save_file(&src_ip, &recv_file).await?;
 
         info!(
-            "Successfully handled file: {} ({} bytes) from {}",
+            "Successfully handled FileTransfer: {} ({} bytes) from {}",
             recv_file.name, recv_file.size, src_ip
+        );
+        Ok(())
+    }
+
+    async fn handle_file_removed(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+        let src_ip = stream.peer_addr()?.ip();
+
+        let filename = self.file_service.read_file_removed(stream).await?;
+
+        self.file_service.remove_file(&src_ip, &filename).await?;
+
+        info!(
+            "Successfully removed file: {} | Origin: {}",
+            filename, src_ip
         );
         Ok(())
     }
 
     pub async fn sync_files(&self, mut sync_rx: Receiver<File>) -> io::Result<()> {
         let mut buffer = HashMap::<String, File>::new();
-        let mut interval = time::interval(Duration::from_secs(10));
+        let mut interval = time::interval(Duration::from_secs(5));
 
         loop {
             tokio::select! {
@@ -102,8 +115,14 @@ impl SyncService {
 
                     for (addr, files) in sync_map {
                         for file in files {
-                            if let Err(err) = self.file_service.send_file(file, addr).await {
-                                error!("Error synching file `{}`: {}", &file.name, err);
+                            if !file.hash.is_empty() {
+                                if let Err(err) = self.file_service.send_file(file, addr).await {
+                                    error!("Error synching file `{}`: {}", &file.name, err);
+                                }
+                            } else {
+                                if let Err(err) = self.file_service.send_file_removed(file, addr).await {
+                                    error!("Error synching file `{}`: {}", &file.name, err);
+                                }
                             }
                         }
                     }

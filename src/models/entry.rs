@@ -17,3 +17,9 @@ pub struct File {
     pub hash: String,
     pub last_modified_at: SystemTime,
 }
+
+impl File {
+    pub fn get_dir(&self) -> String {
+        self.name.split("/").next().unwrap_or_default().to_owned()
+    }
+}

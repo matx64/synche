@@ -13,7 +13,8 @@ pub struct ReceivedFile {
 pub enum SyncDataKind {
     HandshakeRequest = 0,
     HandshakeResponse = 1,
-    File = 2,
+    FileTransfer = 2,
+    FileRemoved = 3,
 }
 
 impl std::fmt::Display for SyncDataKind {
@@ -21,19 +22,20 @@ impl std::fmt::Display for SyncDataKind {
         match self {
             Self::HandshakeRequest => write!(f, "HandshakeRequest"),
             Self::HandshakeResponse => write!(f, "HandshakeResponse"),
-            Self::File => write!(f, "File"),
+            Self::FileTransfer => write!(f, "FileTransfer"),
+            Self::FileRemoved => write!(f, "FileRemoved"),
         }
     }
 }
 
 impl TryFrom<u8> for SyncDataKind {
     type Error = Error;
-
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(SyncDataKind::HandshakeRequest),
             1 => Ok(SyncDataKind::HandshakeResponse),
-            2 => Ok(SyncDataKind::File),
+            2 => Ok(SyncDataKind::FileTransfer),
+            3 => Ok(SyncDataKind::FileRemoved),
             _ => Err(Error::new(
                 ErrorKind::InvalidData,
                 "Invalid SyncDataKind value",
