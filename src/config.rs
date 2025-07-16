@@ -79,9 +79,10 @@ fn build_entries(
     for dir in directories {
         let path = base_dir.join(&dir.name);
 
-        dirs.insert(dir.name.clone(), Directory { name: dir.name });
+        fs::create_dir_all(&path).unwrap();
 
         if path.is_dir() {
+            dirs.insert(dir.name.clone(), Directory { name: dir.name });
             build_dir(&path, &abs_base_path, &mut files)?;
         }
     }

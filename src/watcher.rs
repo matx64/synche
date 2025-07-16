@@ -46,9 +46,11 @@ impl FileWatcher {
     pub async fn watch(&mut self) -> io::Result<()> {
         for dir in self.state.entry_manager.dirs() {
             let path = self.state.constants.base_dir.join(&dir);
+
             self.watcher
                 .watch(&path, notify::RecursiveMode::Recursive)
                 .unwrap();
+
             info!("Watching for file changes in /{}", dir);
         }
 
