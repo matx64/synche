@@ -1,4 +1,8 @@
-use crate::{config::AppState, models::sync::SyncDataKind, services::handshake::HandshakeService};
+use crate::{
+    config::AppState,
+    models::sync::{HandshakeSyncKind, SyncKind},
+    services::handshake::HandshakeService,
+};
 use local_ip_address::{list_afinet_netifas, local_ip};
 use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, net::UdpSocket};
@@ -68,7 +72,7 @@ impl PresenceService {
 
             if send_handshake {
                 self.handshake_service
-                    .send_handshake(src_addr, SyncDataKind::HandshakeRequest)
+                    .send_handshake(src_addr, SyncKind::Handshake(HandshakeSyncKind::Request))
                     .await?;
             }
         }

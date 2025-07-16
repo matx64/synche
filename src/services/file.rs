@@ -2,7 +2,7 @@ use crate::{
     config::AppState,
     models::{
         entry::File,
-        sync::{ReceivedFile, SyncDataKind},
+        sync::{FileSyncKind, SyncKind},
     },
 };
 use filetime::FileTime;
@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::{
     net::{IpAddr, SocketAddr},
     sync::Arc,
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     fs::{self, File as FsFile},
@@ -19,6 +19,14 @@ use tokio::{
 };
 use tracing::info;
 
+pub struct ReceivedFile {
+    pub name: String,
+    pub size: u64,
+    pub contents: Vec<u8>,
+    pub hash: String,
+    pub last_modified_at: SystemTime,
+}
+
 pub struct FileService {
     state: Arc<AppState>,
 }
@@ -26,6 +34,123 @@ pub struct FileService {
 impl FileService {
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }
+    }
+
+    pub async fn send_metadata(
+        &self,
+        file: &File,
+        mut target_addr: SocketAddr,
+    ) -> std::io::Result<()> {
+        let target_ip = target_addr.ip();
+
+        info!("Sending file metadata {} to {}", file.name, target_ip);
+
+        // Get last modified at
+        let last_modified_at = file
+            .last_modified_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Connect to target peer's TCP server
+        target_addr.set_port(self.state.constants.tcp_port);
+        let mut stream = TcpStream::connect(target_addr).await?;
+
+        // Send data kind
+        stream
+            .write_all(&[SyncKind::File(FileSyncKind::Metadata).as_u8()])
+            .await?;
+
+        // Send file name length (u64)
+        stream
+            .write_all(&u64::to_be_bytes(file.name.len() as u64))
+            .await?;
+
+        // Send file name
+        stream.write_all(file.name.as_bytes()).await?;
+
+        // Send file hash (32 bytes)
+        let hash_bytes = hex::decode(&file.hash.clone()).unwrap();
+        stream.write_all(&hash_bytes).await?;
+
+        // Send last modification date
+        stream.write_all(&last_modified_at.to_be_bytes()).await?;
+
+        info!("Sent file metadata: {} to {}", file.name, target_ip);
+        Ok(())
+    }
+
+    pub async fn read_metadata(&self, stream: &mut TcpStream) -> std::io::Result<File> {
+        // Read file name length (u64)
+        let mut name_len_buf = [0u8; 8];
+        stream.read_exact(&mut name_len_buf).await?;
+        let name_len = u64::from_be_bytes(name_len_buf) as usize;
+
+        // Read file name
+        let mut file_name_buf = vec![0u8; name_len];
+        stream.read_exact(&mut file_name_buf).await?;
+        let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
+
+        // Read file hash (32 bytes)
+        let mut hash_buf = [0u8; 32];
+        stream.read_exact(&mut hash_buf).await?;
+        let received_hash = hex::encode(hash_buf);
+
+        // Read file last modification date
+        let mut timestamp_buf = [0u8; 8];
+        stream.read_exact(&mut timestamp_buf).await?;
+
+        let last_modified_at = UNIX_EPOCH + Duration::from_secs(u64::from_be_bytes(timestamp_buf));
+
+        Ok(File {
+            name: file_name,
+            hash: received_hash,
+            last_modified_at,
+        })
+    }
+
+    pub async fn send_request(
+        &self,
+        file_name: &str,
+        mut target_addr: SocketAddr,
+    ) -> std::io::Result<()> {
+        let target_ip = target_addr.ip();
+
+        info!("Requesting file {} to {}", file_name, target_ip);
+
+        // Connect to target peer's TCP server
+        target_addr.set_port(self.state.constants.tcp_port);
+        let mut stream = TcpStream::connect(target_addr).await?;
+
+        // Send data kind
+        stream
+            .write_all(&[SyncKind::File(FileSyncKind::Transfer).as_u8()])
+            .await?;
+
+        // Send file name length (u64)
+        stream
+            .write_all(&u64::to_be_bytes(file_name.len() as u64))
+            .await?;
+
+        // Send file name
+        stream.write_all(file_name.as_bytes()).await?;
+
+        info!("Sent file request: {} to {}", file_name, target_ip);
+        Ok(())
+    }
+
+    pub async fn read_request(&self, stream: &mut TcpStream) -> std::io::Result<String> {
+        // Read file name length (u64)
+        let mut name_len_buf = [0u8; 8];
+        stream.read_exact(&mut name_len_buf).await?;
+        let name_len = u64::from_be_bytes(name_len_buf) as usize;
+
+        // Read file name
+        let mut file_name_buf = vec![0u8; name_len];
+        stream.read_exact(&mut file_name_buf).await?;
+        let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
+
+        Ok(file_name)
     }
 
     pub async fn send_file(&self, file: &File, mut target_addr: SocketAddr) -> std::io::Result<()> {
@@ -53,7 +178,7 @@ impl FileService {
 
         // Send data kind
         stream
-            .write_all(&[SyncDataKind::FileTransfer as u8])
+            .write_all(&[SyncKind::File(FileSyncKind::Transfer).as_u8()])
             .await?;
 
         // Send file name length (u64)
@@ -77,10 +202,6 @@ impl FileService {
 
         // Send last modification date
         stream.write_all(&last_modified_at.to_be_bytes()).await?;
-
-        self.state
-            .peer_manager
-            .insert_file(&target_ip, file.to_owned());
 
         info!(
             "Sent file: {} ({} bytes) to {}",
@@ -140,47 +261,6 @@ impl FileService {
         })
     }
 
-    pub async fn send_file_removed(
-        &self,
-        file: &File,
-        mut target_addr: SocketAddr,
-    ) -> std::io::Result<()> {
-        let target_ip = target_addr.ip();
-
-        // Connect to target peer's TCP server
-        target_addr.set_port(self.state.constants.tcp_port);
-        let mut stream = TcpStream::connect(target_addr).await?;
-
-        // Send data kind
-        stream.write_all(&[SyncDataKind::FileRemoved as u8]).await?;
-
-        // Send file name length (u64)
-        stream
-            .write_all(&u64::to_be_bytes(file.name.len() as u64))
-            .await?;
-
-        // Send file name
-        stream.write_all(file.name.as_bytes()).await?;
-
-        self.state.peer_manager.remove_file(&target_ip, &file.name);
-
-        Ok(())
-    }
-
-    pub async fn read_file_removed(&self, stream: &mut TcpStream) -> std::io::Result<String> {
-        // Read file name length (u64)
-        let mut name_len_buf = [0u8; 8];
-        stream.read_exact(&mut name_len_buf).await?;
-        let name_len = u64::from_be_bytes(name_len_buf) as usize;
-
-        // Read file name
-        let mut file_name_buf = vec![0u8; name_len];
-        stream.read_exact(&mut file_name_buf).await?;
-        let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
-
-        Ok(file_name)
-    }
-
     pub async fn save_file(&self, src_ip: &IpAddr, recv_file: &ReceivedFile) -> io::Result<()> {
         let file = File {
             name: recv_file.name.clone(),
@@ -212,9 +292,8 @@ impl FileService {
         fs::rename(&tmp_path, &original_path).await
     }
 
-    pub async fn remove_file(&self, src_ip: &IpAddr, filename: &str) {
+    pub async fn remove_file(&self, filename: &str) {
         self.state.entry_manager.remove_file(filename);
-        self.state.peer_manager.remove_file(src_ip, filename);
 
         let path = self.state.constants.base_dir.join(filename);
         let _ = fs::remove_file(path).await;

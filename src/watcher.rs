@@ -1,13 +1,13 @@
 use crate::{
     config::AppState,
-    models::entry::File,
+    models::{entry::File, sync::FileSyncKind},
     utils::fs::{get_file_data, get_relative_path},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, Watcher,
     event::{CreateKind, ModifyKind},
 };
-use std::{path::PathBuf, sync::Arc, time::SystemTime};
+use std::{path::PathBuf, sync::Arc};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
@@ -18,12 +18,12 @@ pub struct FileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
-    sync_tx: Sender<File>,
+    sync_tx: Sender<(FileSyncKind, File)>,
     absolute_base_path: PathBuf,
 }
 
 impl FileWatcher {
-    pub fn new(state: Arc<AppState>, sync_tx: Sender<File>) -> Self {
+    pub fn new(state: Arc<AppState>, sync_tx: Sender<(FileSyncKind, File)>) -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(100);
 
         let watcher = RecommendedWatcher::new(
@@ -105,7 +105,7 @@ impl FileWatcher {
 
                 self.state.entry_manager.insert_file(file.clone());
 
-                self.send_file(file).await;
+                self.send_metadata(file).await;
             }
         }
     }
@@ -132,7 +132,7 @@ impl FileWatcher {
 
             self.state.entry_manager.insert_file(file.clone());
 
-            self.send_file(file).await;
+            self.send_metadata(file).await;
         }
     }
 
@@ -150,23 +150,17 @@ impl FileWatcher {
                 let removed_files = self.state.entry_manager.remove_dir(&relative_path);
 
                 for file in removed_files {
-                    self.send_file(file).await;
+                    self.send_metadata(file).await;
                 }
             } else {
                 self.state.entry_manager.remove_file(&relative_path);
-
-                self.send_file(File {
-                    name: relative_path,
-                    hash: String::new(),
-                    last_modified_at: SystemTime::now(),
-                })
-                .await;
+                self.send_metadata(File::absent(relative_path)).await;
             }
         }
     }
 
-    async fn send_file(&self, file: File) {
-        if let Err(err) = self.sync_tx.send(file).await {
+    async fn send_metadata(&self, file: File) {
+        if let Err(err) = self.sync_tx.send((FileSyncKind::Metadata, file)).await {
             error!("sync_tx send error: {}", err);
         }
     }

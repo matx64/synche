@@ -7,7 +7,7 @@ mod utils;
 mod watcher;
 
 use crate::{
-    models::entry::File,
+    models::{entry::File, sync::FileSyncKind},
     services::{
         file::FileService, handshake::HandshakeService, presence::PresenceService,
         sync::SyncService,
@@ -21,7 +21,7 @@ use tokio::{io, sync::mpsc};
 async fn main() -> io::Result<()> {
     let state = Arc::new(config::init());
 
-    let (sync_tx, sync_rx) = mpsc::channel::<File>(100);
+    let (sync_tx, sync_rx) = mpsc::channel::<(FileSyncKind, File)>(100);
 
     let mut file_watcher = FileWatcher::new(state.clone(), sync_tx);
 

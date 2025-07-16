@@ -1,6 +1,9 @@
 use crate::{
     config::AppState,
-    models::{peer::Peer, sync::SyncDataKind},
+    models::{
+        peer::Peer,
+        sync::{HandshakeSyncKind, SyncKind},
+    },
     services::file::FileService,
 };
 use std::{io::ErrorKind, net::SocketAddr, sync::Arc};
@@ -26,7 +29,7 @@ impl HandshakeService {
     pub async fn send_handshake(
         &self,
         mut target_addr: SocketAddr,
-        kind: SyncDataKind,
+        kind: SyncKind,
     ) -> io::Result<()> {
         target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
@@ -38,14 +41,18 @@ impl HandshakeService {
 
         info!("Sending {} to {}", kind, target_addr.ip());
 
-        stream.write_all(&[kind as u8]).await?;
+        stream.write_all(&[kind.as_u8()]).await?;
         stream.write_all(&content_len.to_be_bytes()).await?;
         stream.write_all(content_b).await?;
 
         Ok(())
     }
 
-    pub async fn read_handshake(&self, stream: &mut TcpStream, is_request: bool) -> io::Result<()> {
+    pub async fn read_handshake(
+        &self,
+        stream: &mut TcpStream,
+        kind: HandshakeSyncKind,
+    ) -> io::Result<()> {
         let src_addr = stream.peer_addr()?;
 
         let mut len_buf = [0u8; 4];
@@ -63,8 +70,8 @@ impl HandshakeService {
             .peer_manager
             .insert(Peer::new(src_addr, Some(sync_data)));
 
-        if is_request {
-            self.send_handshake(src_addr, SyncDataKind::HandshakeResponse)
+        if matches!(kind, HandshakeSyncKind::Request) {
+            self.send_handshake(src_addr, SyncKind::Handshake(HandshakeSyncKind::Response))
                 .await?;
         }
 
