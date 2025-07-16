@@ -84,7 +84,7 @@ impl SyncService {
 
         let filename = self.file_service.read_file_removed(stream).await?;
 
-        self.file_service.remove_file(&src_ip, &filename).await?;
+        self.file_service.remove_file(&src_ip, &filename).await;
 
         info!(
             "Successfully removed file: {} | Origin: {}",

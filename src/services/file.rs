@@ -212,11 +212,11 @@ impl FileService {
         fs::rename(&tmp_path, &original_path).await
     }
 
-    pub async fn remove_file(&self, src_ip: &IpAddr, filename: &str) -> io::Result<()> {
+    pub async fn remove_file(&self, src_ip: &IpAddr, filename: &str) {
         self.state.entry_manager.remove_file(filename);
         self.state.peer_manager.remove_file(src_ip, filename);
 
         let path = self.state.constants.base_dir.join(filename);
-        fs::remove_file(path).await
+        let _ = fs::remove_file(path).await;
     }
 }
