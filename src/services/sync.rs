@@ -67,16 +67,11 @@ impl SyncService {
 
         let recv_file = self.file_service.read_file(stream).await?;
 
-        let file = File {
-            name: recv_file.name.clone(),
-            hash: recv_file.hash.clone(),
-            last_modified_at: recv_file.last_modified_at,
-        };
-
-        self.state.peer_manager.insert_entry(&src_ip, file.clone());
-        self.state.entry_manager.insert(file);
-
-        self.file_service.save_file(&recv_file).await?;
+        if !recv_file.hash.is_empty() {
+            self.file_service.save_file(&src_ip, &recv_file).await?;
+        } else {
+            self.file_service.remove_file(&src_ip, &recv_file).await?;
+        }
 
         info!(
             "Successfully handled file: {} ({} bytes) from {}",

@@ -46,10 +46,18 @@ impl PeerManager {
         })
     }
 
-    pub fn insert_entry(&self, ip: &IpAddr, entry: File) {
+    pub fn insert_file(&self, ip: &IpAddr, file: File) {
         if let Ok(mut peers) = self.peers.write() {
             if let Some(peer) = peers.get_mut(ip) {
-                peer.files.insert(entry.name.clone(), entry);
+                peer.files.insert(file.name.clone(), file);
+            }
+        }
+    }
+
+    pub fn remove_file(&self, ip: &IpAddr, name: &str) {
+        if let Ok(mut peers) = self.peers.write() {
+            if let Some(peer) = peers.get_mut(ip) {
+                peer.files.remove(name);
             }
         }
     }

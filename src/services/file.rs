@@ -8,7 +8,7 @@ use crate::{
 use filetime::FileTime;
 use sha2::{Digest, Sha256};
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
@@ -28,24 +28,20 @@ impl FileService {
         Self { state }
     }
 
-    pub async fn send_file(
-        &self,
-        entry: &File,
-        mut target_addr: SocketAddr,
-    ) -> std::io::Result<()> {
+    pub async fn send_file(&self, file: &File, mut target_addr: SocketAddr) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
-        let path = self.state.constants.base_dir.join(&entry.name);
+        let path = self.state.constants.base_dir.join(&file.name);
 
-        info!("Sending file {} to {}", entry.name, target_ip);
+        info!("Sending file {} to {}", file.name, target_ip);
 
         // Read file content
-        let mut file = FsFile::open(path).await?;
+        let mut fs_file = FsFile::open(path).await?;
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await?;
+        fs_file.read_to_end(&mut buffer).await?;
 
         // Get last modified at
-        let last_modified_at = entry
+        let last_modified_at = file
             .last_modified_at
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -60,14 +56,14 @@ impl FileService {
 
         // Send file name length (u64)
         stream
-            .write_all(&u64::to_be_bytes(entry.name.len() as u64))
+            .write_all(&u64::to_be_bytes(file.name.len() as u64))
             .await?;
 
         // Send file name
-        stream.write_all(entry.name.as_bytes()).await?;
+        stream.write_all(file.name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
-        let hash_bytes = hex::decode(&entry.hash.clone()).unwrap();
+        let hash_bytes = hex::decode(&file.hash.clone()).unwrap();
         stream.write_all(&hash_bytes).await?;
 
         // Send file size (u64)
@@ -82,11 +78,11 @@ impl FileService {
 
         self.state
             .peer_manager
-            .insert_entry(&target_ip, entry.to_owned());
+            .insert_file(&target_ip, file.to_owned());
 
         info!(
             "Sent file: {} ({} bytes) to {}",
-            entry.name, file_size, target_ip
+            file.name, file_size, target_ip
         );
         Ok(())
     }
@@ -117,12 +113,14 @@ impl FileService {
         socket.read_exact(&mut file_buf).await?;
 
         // Compute hash for corruption check
-        let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
-        if computed_hash != received_hash {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Hash mismatch: data corruption detected",
-            ));
+        if !received_hash.is_empty() {
+            let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
+            if computed_hash != received_hash {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Hash mismatch: data corruption detected",
+                ));
+            }
         }
 
         // Read file last modification date
@@ -140,19 +138,28 @@ impl FileService {
         })
     }
 
-    pub async fn save_file(&self, file: &ReceivedFile) -> io::Result<()> {
-        let original_path = self.state.constants.base_dir.join(&file.name);
-        let tmp_path = self.state.constants.tmp_dir.join(&file.name);
+    pub async fn save_file(&self, src_ip: &IpAddr, recv_file: &ReceivedFile) -> io::Result<()> {
+        let file = File {
+            name: recv_file.name.clone(),
+            hash: recv_file.hash.clone(),
+            last_modified_at: recv_file.last_modified_at,
+        };
+
+        self.state.peer_manager.insert_file(src_ip, file.clone());
+        self.state.entry_manager.insert_file(file);
+
+        let original_path = self.state.constants.base_dir.join(&recv_file.name);
+        let tmp_path = self.state.constants.tmp_dir.join(&recv_file.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
         let mut tmp_file = FsFile::create(&tmp_path).await?;
-        tmp_file.write_all(&file.contents).await?;
+        tmp_file.write_all(&recv_file.contents).await?;
         tmp_file.flush().await?;
 
-        let mtime = FileTime::from_system_time(file.last_modified_at);
+        let mtime = FileTime::from_system_time(recv_file.last_modified_at);
         filetime::set_file_mtime(&tmp_path, mtime)?;
 
         if let Some(parent) = original_path.parent() {
@@ -160,5 +167,13 @@ impl FileService {
         }
 
         fs::rename(&tmp_path, &original_path).await
+    }
+
+    pub async fn remove_file(&self, src_ip: &IpAddr, recv_file: &ReceivedFile) -> io::Result<()> {
+        self.state.entry_manager.remove_file(&recv_file.name);
+        self.state.peer_manager.remove_file(src_ip, &recv_file.name);
+
+        let path = self.state.constants.base_dir.join(&recv_file.name);
+        fs::remove_file(path).await
     }
 }

@@ -2,7 +2,7 @@ use crate::models::{
     entry::{Directory, File},
     peer::{Peer, PeerSyncData},
 };
-use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
+use std::{collections::HashMap, io::ErrorKind, sync::RwLock, time::SystemTime};
 use tokio::io;
 
 pub struct EntryManager {
@@ -18,13 +18,20 @@ impl EntryManager {
         }
     }
 
-    pub fn insert(&self, entry: File) {
+    pub fn dirs(&self) -> Vec<String> {
+        self.directories
+            .read()
+            .map(|dirs| dirs.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn insert_file(&self, entry: File) {
         if let Ok(mut files) = self.files.write() {
             files.insert(entry.name.clone(), entry);
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<File> {
+    pub fn get_file(&self, name: &str) -> Option<File> {
         self.files
             .read()
             .map(|files| files.get(name).cloned())
@@ -49,23 +56,35 @@ impl EntryManager {
         result
     }
 
-    pub fn handle_deletion(&self, deleted: &File) {
-        todo!()
-        // if let Ok(mut files) = self.files.write() {
-        //     if deleted.is_dir {
-        //         let start = &format!("{}/", deleted.name);
+    pub fn remove_file(&self, name: &str) {
+        if let Ok(mut files) = self.files.write() {
+            files.remove(name);
+        }
+    }
 
-        //         for entry in files.values_mut() {
-        //             if entry.name.starts_with(start) {
-        //                 *entry = File::absent(&entry.name, entry.is_dir);
-        //             }
-        //         }
-        //     }
-        //     files.insert(
-        //         deleted.name.clone(),
-        //         File::absent(&deleted.name, deleted.is_dir),
-        //     );
-        // }
+    pub fn remove_dir(&self, deleted: &str) -> Vec<File> {
+        let mut removed_files = Vec::new();
+
+        if let Ok(mut files) = self.files.write() {
+            let prefix = format!("{}/", deleted);
+            let to_remove: Vec<String> = files
+                .keys()
+                .filter(|name| name.starts_with(&prefix))
+                .cloned()
+                .collect();
+
+            for name in to_remove {
+                if let Some(file) = files.remove(&name) {
+                    removed_files.push(File {
+                        name: file.name,
+                        hash: String::new(),
+                        last_modified_at: SystemTime::now(),
+                    });
+                }
+            }
+        }
+
+        removed_files
     }
 
     pub fn serialize(&self) -> io::Result<String> {
