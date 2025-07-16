@@ -117,7 +117,7 @@ fn build_file(
     files: &mut HashMap<String, File>,
 ) -> io::Result<()> {
     let (hash, last_modified_at) = get_file_data(path)?;
-    let relative_path = get_relative_path(path, abs_base_path)?;
+    let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
     files.insert(
         relative_path.clone(),

@@ -62,7 +62,6 @@ impl FileWatcher {
     }
 
     async fn handle_event(&self, e: Event) {
-        info!("Event Kind: {:?} /// File: {:?}", e.kind, e.paths);
         match e.kind {
             EventKind::Create(CreateKind::File) => self.handle_creation(e).await,
             EventKind::Modify(ModifyKind::Data(_)) => self.handle_modify(e).await,
@@ -138,7 +137,6 @@ impl FileWatcher {
     async fn handle_removal(&self, e: Event) {
         for path in e.paths {
             let Ok(relative_path) = get_relative_path(&path, &self.absolute_base_path) else {
-                info!("Failed to get relative path: {}", path.to_string_lossy());
                 continue;
             };
 

@@ -6,20 +6,16 @@ use std::{
     time::SystemTime,
 };
 use tokio::io;
-use tracing::warn;
 
-pub fn get_relative_path(path: &Path, prefix: &PathBuf) -> io::Result<String> {
-    match path.canonicalize()?.strip_prefix(prefix) {
-        Ok(relative) => Ok(relative.to_string_lossy().replace("\\", "/").to_owned()),
-        Err(err) => {
-            warn!(
-                "Couldn't extract relative path from path {}: {}",
-                path.display(),
-                err
-            );
-            Err(io::Error::other(err))
-        }
-    }
+pub fn get_relative_path(path: &Path, base: &PathBuf) -> io::Result<String> {
+    let relative = path.strip_prefix(base).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Couldn't extract relative path: {}", err),
+        )
+    })?;
+
+    Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
 pub fn get_file_data(path: &PathBuf) -> io::Result<(String, SystemTime)> {
