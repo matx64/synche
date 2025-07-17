@@ -261,14 +261,14 @@ impl FileService {
         })
     }
 
-    pub async fn save_file(&self, recv_file: &ReceivedFile) -> io::Result<File> {
+    pub async fn save_file(&self, recv_file: &ReceivedFile) -> io::Result<()> {
         let file = File {
             name: recv_file.name.clone(),
             hash: recv_file.hash.clone(),
             last_modified_at: recv_file.last_modified_at,
         };
 
-        self.state.entry_manager.insert_file(file.clone());
+        self.state.entry_manager.insert_file(file);
 
         let original_path = self.state.constants.base_dir.join(&recv_file.name);
         let tmp_path = self.state.constants.tmp_dir.join(&recv_file.name);
@@ -288,14 +288,10 @@ impl FileService {
             fs::create_dir_all(parent).await?;
         }
 
-        fs::rename(&tmp_path, &original_path).await?;
-
-        Ok(file)
+        fs::rename(&tmp_path, &original_path).await
     }
 
     pub async fn remove_file(&self, filename: &str) {
-        self.state.entry_manager.remove_file(filename);
-
         let path = self.state.constants.base_dir.join(filename);
         let _ = fs::remove_file(path).await;
     }

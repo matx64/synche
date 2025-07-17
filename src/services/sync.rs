@@ -1,9 +1,6 @@
 use crate::{
     config::AppState,
-    models::{
-        entry::File,
-        sync::{SyncFileKind, SyncKind},
-    },
+    models::sync::{SyncFileKind, SyncKind},
     services::{file::FileService, handshake::HandshakeService},
 };
 use std::sync::Arc;
@@ -86,9 +83,6 @@ impl SyncService {
                 if local_file.last_modified_at < peer_file.last_modified_at {
                     if is_deleted {
                         self.file_service.remove_file(&peer_file.name).await;
-                        self.file_service
-                            .send_metadata(&File::absent(peer_file.name), src_addr)
-                            .await?;
                     } else if local_file.hash != peer_file.hash {
                         self.file_service
                             .send_request(&peer_file.name, src_addr)
@@ -124,9 +118,7 @@ impl SyncService {
         let src_addr = stream.peer_addr()?;
 
         let recv_file = self.file_service.read_file(stream).await?;
-        let file = self.file_service.save_file(&recv_file).await?;
-
-        self.file_service.send_metadata(&file, src_addr).await?;
+        self.file_service.save_file(&recv_file).await?;
 
         info!(
             "Successfully handled FileTransfer: {} ({} bytes) from {}",
