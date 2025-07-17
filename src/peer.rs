@@ -1,4 +1,4 @@
-use crate::models::{entry::File, peer::Peer, sync::SyncFileKind};
+use crate::models::{entry::File, peer::Peer};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -64,27 +64,21 @@ impl PeerManager {
 
     pub fn build_sync_map<'a>(
         &self,
-        buffer: &'a HashMap<String, (SyncFileKind, File)>,
-    ) -> HashMap<SocketAddr, Vec<(&'a SyncFileKind, &'a File)>> {
+        buffer: &'a HashMap<String, File>,
+    ) -> HashMap<SocketAddr, Vec<&'a File>> {
         let mut result = HashMap::new();
 
         if let Ok(peers) = self.peers.read() {
             for peer in peers.values() {
-                for (kind, file) in buffer.values() {
+                for file in buffer.values() {
                     if let Some(peer_file) = peer.files.get(&file.name) {
                         if peer_file.hash != file.hash
                             && peer_file.last_modified_at < file.last_modified_at
                         {
-                            result
-                                .entry(peer.addr)
-                                .or_insert_with(Vec::new)
-                                .push((kind, file));
+                            result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                         }
                     } else if peer.directories.contains_key(&file.get_dir()) {
-                        result
-                            .entry(peer.addr)
-                            .or_insert_with(Vec::new)
-                            .push((kind, file));
+                        result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                     }
                 }
             }

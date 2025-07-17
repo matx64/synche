@@ -1,16 +1,18 @@
 use crate::{
     config::AppState,
-    models::{entry::File, sync::SyncFileKind},
+    models::entry::File,
+    services::file::FileService,
     utils::fs::{get_file_data, get_relative_path},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, Watcher,
     event::{CreateKind, ModifyKind},
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver, Sender},
+    time,
 };
 use tracing::{error, info};
 
@@ -18,13 +20,20 @@ pub struct FileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
-    sync_tx: Sender<(SyncFileKind, File)>,
+    sync_tx: Sender<File>,
     absolute_base_path: PathBuf,
 }
 
+pub struct FileWatcherSender {
+    state: Arc<AppState>,
+    file_service: Arc<FileService>,
+    sync_rx: Receiver<File>,
+}
+
 impl FileWatcher {
-    pub fn new(state: Arc<AppState>, sync_tx: Sender<(SyncFileKind, File)>) -> Self {
+    pub fn new(state: Arc<AppState>, file_service: Arc<FileService>) -> (Self, FileWatcherSender) {
         let (watch_tx, watch_rx) = mpsc::channel(100);
+        let (sync_tx, sync_rx) = mpsc::channel::<File>(100);
 
         let watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
@@ -34,13 +43,20 @@ impl FileWatcher {
         )
         .unwrap();
 
-        Self {
-            absolute_base_path: state.constants.base_dir.canonicalize().unwrap(),
-            state,
-            watcher,
-            watch_rx,
-            sync_tx,
-        }
+        (
+            Self {
+                state: state.clone(),
+                absolute_base_path: state.constants.base_dir.canonicalize().unwrap(),
+                watcher,
+                watch_rx,
+                sync_tx,
+            },
+            FileWatcherSender {
+                state,
+                file_service,
+                sync_rx,
+            },
+        )
     }
 
     pub async fn watch(&mut self) -> io::Result<()> {
@@ -160,8 +176,42 @@ impl FileWatcher {
     }
 
     async fn send_metadata(&self, file: File) {
-        if let Err(err) = self.sync_tx.send((SyncFileKind::Metadata, file)).await {
+        if let Err(err) = self.sync_tx.send(file).await {
             error!("sync_tx send error: {}", err);
+        }
+    }
+}
+
+impl FileWatcherSender {
+    pub async fn send_changes(&mut self) -> io::Result<()> {
+        let mut buffer = HashMap::<String, File>::new();
+        let mut interval = time::interval(Duration::from_secs(5));
+
+        loop {
+            tokio::select! {
+                Some(file) = self.sync_rx.recv() => {
+                    info!("File added to buffer: {}", file.name);
+                    buffer.insert(file.name.clone(), file);
+                }
+
+                _ = interval.tick() => {
+                    if buffer.is_empty() {
+                        continue;
+                    }
+
+                    info!("Synching files: {:?}", buffer);
+
+                    let sync_map = self.state.peer_manager.build_sync_map(&buffer);
+
+                    for (addr, files) in sync_map {
+                        for file in files {
+                            self.file_service.send_metadata(file, addr).await?;
+                        }
+                    }
+
+                    buffer.clear();
+                }
+            }
         }
     }
 }

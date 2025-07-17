@@ -6,14 +6,12 @@ use crate::{
     },
     services::{file::FileService, handshake::HandshakeService},
 };
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::sync::Arc;
 use tokio::{
-    io::{self, AsyncReadExt},
+    io::AsyncReadExt,
     net::{TcpListener, TcpStream},
-    sync::mpsc::Receiver,
-    time,
 };
-use tracing::{error, info};
+use tracing::info;
 
 pub struct SyncService {
     state: Arc<AppState>,
@@ -138,45 +136,5 @@ impl SyncService {
             src_addr.ip()
         );
         Ok(())
-    }
-
-    pub async fn sync_files(&self, mut sync_rx: Receiver<(SyncFileKind, File)>) -> io::Result<()> {
-        let mut buffer = HashMap::<String, (SyncFileKind, File)>::new();
-        let mut interval = time::interval(Duration::from_secs(5));
-
-        loop {
-            tokio::select! {
-                Some((kind, file)) = sync_rx.recv() => {
-                    info!("File added to buffer: {}", file.name);
-                    buffer.insert(file.name.clone(), (kind, file));
-                }
-
-                _ = interval.tick() => {
-                    if buffer.is_empty() {
-                        continue;
-                    }
-
-                    info!("Synching files: {:?}", buffer);
-
-                    let sync_map = self.state.peer_manager.build_sync_map(&buffer);
-
-                    for (addr, files) in sync_map {
-                        for file in files {
-                            if !file.hash.is_empty() {
-                                if let Err(err) = self.file_service.send_file(file, addr).await {
-                                    error!("Error synching file `{}`: {}", &file.name, err);
-                                }
-                            } else {
-                                if let Err(err) = self.file_service.send_file_removed(file, addr).await {
-                                    error!("Error synching file `{}`: {}", &file.name, err);
-                                }
-                            }
-                        }
-                    }
-
-                    buffer.clear();
-                }
-            }
-        }
     }
 }
