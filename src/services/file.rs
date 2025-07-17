@@ -43,7 +43,7 @@ impl FileService {
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
-        info!("Sending file metadata {} to {}", file.name, target_ip);
+        info!("Sending {} metadata to {}", file.name, target_ip);
 
         // Get last modified at
         let last_modified_at = file
@@ -76,7 +76,7 @@ impl FileService {
         // Send last modification date
         stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
-        info!("Sent file metadata: {} to {}", file.name, target_ip);
+        info!("Successfully sent {} metadata to {}", file.name, target_ip);
         Ok(())
     }
 
@@ -124,7 +124,7 @@ impl FileService {
 
         // Send data kind
         stream
-            .write_all(&[SyncKind::File(SyncFileKind::Transfer).as_u8()])
+            .write_all(&[SyncKind::File(SyncFileKind::Request).as_u8()])
             .await?;
 
         // Send file name length (u64)
@@ -135,7 +135,7 @@ impl FileService {
         // Send file name
         stream.write_all(file_name.as_bytes()).await?;
 
-        info!("Sent file request: {} to {}", file_name, target_ip);
+        info!("Successfully requested file {} to {}", file_name, target_ip);
         Ok(())
     }
 
