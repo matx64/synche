@@ -99,9 +99,8 @@ impl SyncService {
 
             None => {
                 if !is_deleted {
-                    self.state.entry_manager.insert_file(peer_file.clone());
                     self.file_service
-                        .send_metadata(&peer_file, src_addr)
+                        .send_request(&peer_file.name, src_addr)
                         .await?;
                 }
             }

@@ -2,7 +2,7 @@ use crate::models::{
     entry::{Directory, File},
     peer::{Peer, PeerSyncData},
 };
-use std::{collections::HashMap, io::ErrorKind, sync::RwLock, time::SystemTime};
+use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
 use tokio::io;
 
 pub struct EntryManager {
@@ -76,12 +76,8 @@ impl EntryManager {
                 .collect();
 
             for name in to_remove {
-                if let Some(file) = files.remove(&name) {
-                    removed_files.push(File {
-                        name: file.name,
-                        hash: String::new(),
-                        last_modified_at: SystemTime::now(),
-                    });
+                if let Some(_) = files.remove(&name) {
+                    removed_files.push(File::absent(name));
                 }
             }
         }
