@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::sync::{HandshakeSyncKind, SyncKind},
+    models::sync::{SyncHandshakeKind, SyncKind},
     services::handshake::HandshakeService,
 };
 use local_ip_address::{list_afinet_netifas, local_ip};
@@ -72,7 +72,7 @@ impl PresenceService {
 
             if send_handshake {
                 self.handshake_service
-                    .send_handshake(src_addr, SyncKind::Handshake(HandshakeSyncKind::Request))
+                    .send_handshake(src_addr, SyncKind::Handshake(SyncHandshakeKind::Request))
                     .await?;
             }
         }

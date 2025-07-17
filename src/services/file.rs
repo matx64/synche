@@ -2,13 +2,13 @@ use crate::{
     config::AppState,
     models::{
         entry::File,
-        sync::{FileSyncKind, SyncKind},
+        sync::{SyncFileKind, SyncKind},
     },
 };
 use filetime::FileTime;
 use sha2::{Digest, Sha256};
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -58,7 +58,7 @@ impl FileService {
 
         // Send data kind
         stream
-            .write_all(&[SyncKind::File(FileSyncKind::Metadata).as_u8()])
+            .write_all(&[SyncKind::File(SyncFileKind::Metadata).as_u8()])
             .await?;
 
         // Send file name length (u64)
@@ -124,7 +124,7 @@ impl FileService {
 
         // Send data kind
         stream
-            .write_all(&[SyncKind::File(FileSyncKind::Transfer).as_u8()])
+            .write_all(&[SyncKind::File(SyncFileKind::Transfer).as_u8()])
             .await?;
 
         // Send file name length (u64)
@@ -178,7 +178,7 @@ impl FileService {
 
         // Send data kind
         stream
-            .write_all(&[SyncKind::File(FileSyncKind::Transfer).as_u8()])
+            .write_all(&[SyncKind::File(SyncFileKind::Transfer).as_u8()])
             .await?;
 
         // Send file name length (u64)
@@ -261,15 +261,14 @@ impl FileService {
         })
     }
 
-    pub async fn save_file(&self, src_ip: &IpAddr, recv_file: &ReceivedFile) -> io::Result<()> {
+    pub async fn save_file(&self, recv_file: &ReceivedFile) -> io::Result<File> {
         let file = File {
             name: recv_file.name.clone(),
             hash: recv_file.hash.clone(),
             last_modified_at: recv_file.last_modified_at,
         };
 
-        self.state.peer_manager.insert_file(src_ip, file.clone());
-        self.state.entry_manager.insert_file(file);
+        self.state.entry_manager.insert_file(file.clone());
 
         let original_path = self.state.constants.base_dir.join(&recv_file.name);
         let tmp_path = self.state.constants.tmp_dir.join(&recv_file.name);
@@ -289,7 +288,9 @@ impl FileService {
             fs::create_dir_all(parent).await?;
         }
 
-        fs::rename(&tmp_path, &original_path).await
+        fs::rename(&tmp_path, &original_path).await?;
+
+        Ok(file)
     }
 
     pub async fn remove_file(&self, filename: &str) {

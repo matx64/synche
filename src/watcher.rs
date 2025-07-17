@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::{entry::File, sync::FileSyncKind},
+    models::{entry::File, sync::SyncFileKind},
     utils::fs::{get_file_data, get_relative_path},
 };
 use notify::{
@@ -18,12 +18,12 @@ pub struct FileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
-    sync_tx: Sender<(FileSyncKind, File)>,
+    sync_tx: Sender<(SyncFileKind, File)>,
     absolute_base_path: PathBuf,
 }
 
 impl FileWatcher {
-    pub fn new(state: Arc<AppState>, sync_tx: Sender<(FileSyncKind, File)>) -> Self {
+    pub fn new(state: Arc<AppState>, sync_tx: Sender<(SyncFileKind, File)>) -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(100);
 
         let watcher = RecommendedWatcher::new(
@@ -160,7 +160,7 @@ impl FileWatcher {
     }
 
     async fn send_metadata(&self, file: File) {
-        if let Err(err) = self.sync_tx.send((FileSyncKind::Metadata, file)).await {
+        if let Err(err) = self.sync_tx.send((SyncFileKind::Metadata, file)).await {
             error!("sync_tx send error: {}", err);
         }
     }

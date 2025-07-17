@@ -2,7 +2,7 @@ use crate::{
     config::AppState,
     models::{
         peer::Peer,
-        sync::{HandshakeSyncKind, SyncKind},
+        sync::{SyncHandshakeKind, SyncKind},
     },
     services::file::FileService,
 };
@@ -51,7 +51,7 @@ impl HandshakeService {
     pub async fn read_handshake(
         &self,
         stream: &mut TcpStream,
-        kind: HandshakeSyncKind,
+        kind: SyncHandshakeKind,
     ) -> io::Result<()> {
         let src_addr = stream.peer_addr()?;
 
@@ -70,8 +70,8 @@ impl HandshakeService {
             .peer_manager
             .insert(Peer::new(src_addr, Some(sync_data)));
 
-        if matches!(kind, HandshakeSyncKind::Request) {
-            self.send_handshake(src_addr, SyncKind::Handshake(HandshakeSyncKind::Response))
+        if matches!(kind, SyncHandshakeKind::Request) {
+            self.send_handshake(src_addr, SyncKind::Handshake(SyncHandshakeKind::Response))
                 .await?;
         }
 

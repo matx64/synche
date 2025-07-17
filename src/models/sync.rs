@@ -3,18 +3,18 @@ use tokio::io::Error;
 
 #[derive(Debug)]
 pub enum SyncKind {
-    Handshake(HandshakeSyncKind),
-    File(FileSyncKind),
+    Handshake(SyncHandshakeKind),
+    File(SyncFileKind),
 }
 
 #[derive(Debug)]
-pub enum HandshakeSyncKind {
+pub enum SyncHandshakeKind {
     Request,
     Response,
 }
 
 #[derive(Debug)]
-pub enum FileSyncKind {
+pub enum SyncFileKind {
     Metadata,
     Request,
     Transfer,
@@ -23,11 +23,11 @@ pub enum FileSyncKind {
 impl SyncKind {
     pub fn as_u8(&self) -> u8 {
         match self {
-            Self::Handshake(HandshakeSyncKind::Request) => 0,
-            Self::Handshake(HandshakeSyncKind::Response) => 1,
-            Self::File(FileSyncKind::Metadata) => 2,
-            Self::File(FileSyncKind::Request) => 3,
-            Self::File(FileSyncKind::Transfer) => 4,
+            Self::Handshake(SyncHandshakeKind::Request) => 0,
+            Self::Handshake(SyncHandshakeKind::Response) => 1,
+            Self::File(SyncFileKind::Metadata) => 2,
+            Self::File(SyncFileKind::Request) => 3,
+            Self::File(SyncFileKind::Transfer) => 4,
         }
     }
 }
@@ -35,11 +35,11 @@ impl SyncKind {
 impl std::fmt::Display for SyncKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Handshake(HandshakeSyncKind::Request) => write!(f, "Handshake Request"),
-            Self::Handshake(HandshakeSyncKind::Response) => write!(f, "Handshake Response"),
-            Self::File(FileSyncKind::Metadata) => write!(f, "File Metadata"),
-            Self::File(FileSyncKind::Request) => write!(f, "File Request"),
-            Self::File(FileSyncKind::Transfer) => write!(f, "File Transfer"),
+            Self::Handshake(SyncHandshakeKind::Request) => write!(f, "Handshake Request"),
+            Self::Handshake(SyncHandshakeKind::Response) => write!(f, "Handshake Response"),
+            Self::File(SyncFileKind::Metadata) => write!(f, "File Metadata"),
+            Self::File(SyncFileKind::Request) => write!(f, "File Request"),
+            Self::File(SyncFileKind::Transfer) => write!(f, "File Transfer"),
         }
     }
 }
@@ -48,11 +48,11 @@ impl TryFrom<u8> for SyncKind {
     type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(SyncKind::Handshake(HandshakeSyncKind::Request)),
-            1 => Ok(SyncKind::Handshake(HandshakeSyncKind::Response)),
-            2 => Ok(SyncKind::File(FileSyncKind::Metadata)),
-            3 => Ok(SyncKind::File(FileSyncKind::Request)),
-            4 => Ok(SyncKind::File(FileSyncKind::Transfer)),
+            0 => Ok(SyncKind::Handshake(SyncHandshakeKind::Request)),
+            1 => Ok(SyncKind::Handshake(SyncHandshakeKind::Response)),
+            2 => Ok(SyncKind::File(SyncFileKind::Metadata)),
+            3 => Ok(SyncKind::File(SyncFileKind::Request)),
+            4 => Ok(SyncKind::File(SyncFileKind::Transfer)),
             _ => Err(Error::new(
                 ErrorKind::InvalidData,
                 "Invalid SyncDataKind value",
