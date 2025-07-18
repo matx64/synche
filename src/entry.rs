@@ -66,7 +66,7 @@ impl EntryManager {
         let mut removed_files = Vec::new();
 
         if let Ok(mut files) = self.files.write() {
-            let prefix = format!("{}/", deleted);
+            let prefix = format!("{deleted}/");
             let to_remove: Vec<String> = files
                 .keys()
                 .filter(|name| name.starts_with(&prefix))
@@ -74,7 +74,7 @@ impl EntryManager {
                 .collect();
 
             for name in to_remove {
-                if let Some(_) = files.remove(&name) {
+                if files.remove(&name).is_some() {
                     removed_files.push(File::absent(name));
                 }
             }

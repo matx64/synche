@@ -157,7 +157,7 @@ impl FileService {
 
         Ok(File {
             name: file_name,
-            hash: hash,
+            hash,
             version: file_version,
             last_modified_by: None,
         })
@@ -193,7 +193,7 @@ impl FileService {
         stream.write_all(file.name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
-        let hash_bytes = hex::decode(&file.hash.clone()).unwrap();
+        let hash_bytes = hex::decode(&file.hash).unwrap();
         stream.write_all(&hash_bytes).await?;
 
         // Send file version
