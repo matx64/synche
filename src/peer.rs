@@ -1,4 +1,4 @@
-use crate::models::{entry::File, peer::Peer};
+use crate::domain::{file::File, peer::Peer};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},

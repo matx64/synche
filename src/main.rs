@@ -1,6 +1,6 @@
 mod config;
+mod domain;
 mod entry;
-mod models;
 mod peer;
 mod services;
 mod utils;

@@ -1,5 +1,6 @@
-use crate::models::{
-    entry::{Directory, File},
+use crate::domain::{
+    directory::Directory,
+    file::File,
     peer::{Peer, PeerSyncData},
 };
 use std::{collections::HashMap, io::ErrorKind, sync::RwLock};

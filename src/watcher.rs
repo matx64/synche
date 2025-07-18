@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::entry::File,
+    domain::file::File,
     services::file::FileService,
     utils::fs::{compute_hash, get_relative_path},
 };

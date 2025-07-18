@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::sync::{SyncHandshakeKind, SyncKind},
+    domain::sync::{SyncHandshakeKind, SyncKind},
     services::handshake::HandshakeService,
 };
 use local_ip_address::{list_afinet_netifas, local_ip};

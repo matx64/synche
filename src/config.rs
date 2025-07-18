@@ -1,6 +1,9 @@
 use crate::{
+    domain::{
+        directory::{ConfiguredDirectory, Directory},
+        file::File,
+    },
     entry::EntryManager,
-    models::entry::{ConfiguredDirectory, Directory, File},
     peer::PeerManager,
     utils::fs::{compute_hash, get_relative_path},
 };

@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::sync::{SyncFileKind, SyncKind},
+    domain::sync::{SyncFileKind, SyncKind},
     services::{file::FileService, handshake::HandshakeService},
 };
 use std::{net::SocketAddr, sync::Arc};

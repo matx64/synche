@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    models::{
+    domain::{
         peer::Peer,
         sync::{SyncHandshakeKind, SyncKind},
     },

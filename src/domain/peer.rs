@@ -1,4 +1,4 @@
-use crate::models::entry::{Directory, File};
+use crate::domain::{directory::Directory, file::File};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 

@@ -3,16 +3,6 @@ use std::net::IpAddr;
 
 const DELETED_FILE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-#[derive(Debug, Deserialize)]
-pub struct ConfiguredDirectory {
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Directory {
-    pub name: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
     pub name: String,

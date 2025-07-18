@@ -1,7 +1,7 @@
 use crate::{
     config::AppState,
-    models::{
-        entry::File,
+    domain::{
+        file::File,
         sync::{SyncFileKind, SyncKind},
     },
 };
