@@ -60,7 +60,7 @@ impl FileWatcher {
     }
 
     pub async fn watch(&mut self) -> io::Result<()> {
-        for dir in self.state.entry_manager.dirs() {
+        for dir in self.state.entry_manager.list_dirs() {
             let path = self.state.constants.base_dir.join(&dir);
 
             self.watcher
@@ -168,7 +168,7 @@ impl FileWatcher {
                 continue;
             }
 
-            if path.is_dir() {
+            if self.state.entry_manager.is_dir(&relative_path) {
                 let removed_files = self.state.entry_manager.remove_dir(&relative_path);
 
                 for file in removed_files {

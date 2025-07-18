@@ -18,10 +18,17 @@ impl EntryManager {
         }
     }
 
-    pub fn dirs(&self) -> Vec<String> {
+    pub fn list_dirs(&self) -> Vec<String> {
         self.directories
             .read()
             .map(|dirs| dirs.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn is_dir(&self, name: &str) -> bool {
+        self.directories
+            .read()
+            .map(|dirs| dirs.get(name).is_some())
             .unwrap_or_default()
     }
 
