@@ -1,6 +1,8 @@
+mod application;
 mod config;
 mod domain;
 mod entry;
+mod infra;
 mod peer;
 mod services;
 mod utils;
