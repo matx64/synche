@@ -1,4 +1,4 @@
-use crate::application::network::NetworkPort;
+use crate::application::network::BroadcastPort;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 
@@ -22,8 +22,8 @@ impl UdpBroadcaster {
     }
 }
 
-impl NetworkPort for UdpBroadcaster {
-    async fn send(&self, data: &[u8]) -> tokio::io::Result<()> {
+impl BroadcastPort for UdpBroadcaster {
+    async fn broadcast(&self, data: &[u8]) -> tokio::io::Result<()> {
         self.socket
             .send_to(data, &self.broadcast_addr)
             .await
