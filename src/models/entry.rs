@@ -22,11 +22,11 @@ pub struct File {
 }
 
 impl File {
-    pub fn absent(name: String) -> Self {
+    pub fn absent(name: String, version: u32) -> Self {
         Self {
             name,
             hash: DELETED_FILE_HASH.to_string(),
-            version: 0,
+            version,
             last_modified_by: None,
         }
     }

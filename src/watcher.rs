@@ -175,8 +175,8 @@ impl FileWatcher {
                     self.send_metadata(file).await;
                 }
             } else {
-                self.state.entry_manager.remove_file(&relative_path);
-                self.send_metadata(File::absent(relative_path)).await;
+                let removed = self.state.entry_manager.remove_file(&relative_path);
+                self.send_metadata(removed).await;
             }
         }
     }

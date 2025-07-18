@@ -295,12 +295,11 @@ impl FileService {
     }
 
     pub async fn remove_file(&self, src_addr: SocketAddr, file_name: &str) -> io::Result<()> {
-        self.state.entry_manager.remove_file(file_name);
+        let removed = self.state.entry_manager.remove_file(file_name);
 
         let path = self.state.constants.base_dir.join(file_name);
         let _ = fs::remove_file(path).await;
 
-        self.send_metadata(&File::absent(file_name.to_owned()), src_addr)
-            .await
+        self.send_metadata(&removed, src_addr).await
     }
 }

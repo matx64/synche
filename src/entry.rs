@@ -56,9 +56,14 @@ impl EntryManager {
         result
     }
 
-    pub fn remove_file(&self, name: &str) {
+    pub fn remove_file(&self, name: &str) -> File {
         if let Ok(mut files) = self.files.write() {
-            files.remove(name);
+            match files.remove(name) {
+                Some(removed) => File::absent(removed.name, removed.version + 1),
+                None => File::absent(name.to_owned(), 0),
+            }
+        } else {
+            File::absent(name.to_owned(), 0)
         }
     }
 
@@ -74,8 +79,8 @@ impl EntryManager {
                 .collect();
 
             for name in to_remove {
-                if files.remove(&name).is_some() {
-                    removed_files.push(File::absent(name));
+                if let Some(removed) = files.remove(&name) {
+                    removed_files.push(File::absent(name, removed.version + 1));
                 }
             }
         }
