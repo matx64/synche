@@ -164,7 +164,7 @@ impl FileWatcher {
                 continue;
             };
 
-            if path.exists() || self.state.entry_manager.get_file(&relative_path).is_none() {
+            if path.exists() {
                 continue;
             }
 
@@ -174,7 +174,7 @@ impl FileWatcher {
                 for file in removed_files {
                     self.send_metadata(file).await;
                 }
-            } else {
+            } else if self.state.entry_manager.get_file(&relative_path).is_some() {
                 let removed = self.state.entry_manager.remove_file(&relative_path);
                 self.send_metadata(removed).await;
             }
