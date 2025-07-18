@@ -44,9 +44,7 @@ impl EntryManager {
         if let Ok(files) = self.files.read() {
             for file in files.values() {
                 if let Some(peer_file) = peer.files.get(&file.name) {
-                    if peer_file.hash != file.hash
-                        && peer_file.last_modified_at < file.last_modified_at
-                    {
+                    if peer_file.hash != file.hash && peer_file.version < file.version {
                         result.push(file.to_owned());
                     }
                 } else if peer.directories.contains_key(&file.get_dir()) {

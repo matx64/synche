@@ -2,7 +2,7 @@ use crate::{
     entry::EntryManager,
     models::entry::{ConfiguredDirectory, Directory, File},
     peer::PeerManager,
-    utils::fs::{get_file_data, get_relative_path},
+    utils::fs::{compute_hash, get_relative_path},
 };
 use std::{
     collections::HashMap,
@@ -117,7 +117,7 @@ fn build_file(
     abs_base_path: &PathBuf,
     files: &mut HashMap<String, File>,
 ) -> io::Result<()> {
-    let (hash, last_modified_at) = get_file_data(path)?;
+    let hash = compute_hash(path)?;
     let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
     files.insert(
@@ -125,7 +125,8 @@ fn build_file(
         File {
             name: relative_path,
             hash,
-            last_modified_at,
+            version: 0,
+            last_modified_by: None,
         },
     );
     Ok(())

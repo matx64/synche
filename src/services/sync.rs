@@ -3,12 +3,12 @@ use crate::{
     models::sync::{SyncFileKind, SyncKind},
     services::{file::FileService, handshake::HandshakeService},
 };
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct SyncService {
     state: Arc<AppState>,
@@ -34,14 +34,15 @@ impl SyncService {
             TcpListener::bind(format!("0.0.0.0:{}", self.state.constants.tcp_port)).await?;
 
         loop {
-            let (mut stream, addr) = listener.accept().await?;
+            let (mut stream, src_addr) = listener.accept().await?;
 
             let mut kind_buf = [0u8; 1];
             stream.read_exact(&mut kind_buf).await?;
 
             let kind = SyncKind::try_from(kind_buf[0])?;
-            info!("Received {} from {}", kind, addr.ip());
+            info!("Received {} from {}", kind, src_addr.ip());
 
+            // TODO: Async
             match kind {
                 SyncKind::Handshake(kind) => {
                     self.handshake_service
@@ -49,23 +50,26 @@ impl SyncService {
                         .await?;
                 }
                 SyncKind::File(SyncFileKind::Metadata) => {
-                    self.handle_file_metadata(&mut stream).await?;
+                    self.handle_file_metadata(src_addr, &mut stream).await?;
                 }
                 SyncKind::File(SyncFileKind::Request) => {
-                    self.handle_file_request(&mut stream).await?
+                    self.handle_file_request(src_addr, &mut stream).await?
                 }
                 SyncKind::File(SyncFileKind::Transfer) => {
-                    self.handle_file_transfer(&mut stream).await?;
+                    self.handle_file_transfer(src_addr, &mut stream).await?;
                 }
             };
         }
     }
 
-    async fn handle_file_metadata(&self, stream: &mut TcpStream) -> std::io::Result<()> {
-        let src_addr = stream.peer_addr()?;
+    async fn handle_file_metadata(
+        &self,
+        src_addr: SocketAddr,
+        stream: &mut TcpStream,
+    ) -> std::io::Result<()> {
         let src_ip = src_addr.ip();
 
-        let peer_file = self.file_service.read_metadata(stream).await?;
+        let peer_file = self.file_service.read_metadata(src_ip, stream).await?;
 
         let is_deleted = peer_file.is_deleted();
         if is_deleted {
@@ -80,22 +84,25 @@ impl SyncService {
 
         match self.state.entry_manager.get_file(&peer_file.name) {
             Some(local_file) => {
-                if local_file.last_modified_at < peer_file.last_modified_at {
-                    if is_deleted {
-                        self.file_service.remove_file(&peer_file.name).await;
-                    } else if local_file.hash != peer_file.hash {
-                        self.file_service
-                            .send_request(&peer_file.name, src_addr)
-                            .await?;
+                if local_file.hash != peer_file.hash {
+                    if local_file.version < peer_file.version {
+                        if is_deleted {
+                            self.file_service
+                                .remove_file(src_addr, &peer_file.name)
+                                .await?;
+                        } else {
+                            self.file_service.send_request(&peer_file, src_addr).await?;
+                        }
+                    } else if local_file.version == peer_file.version {
+                        // TODO: Handle Conflict
+                        warn!("FILE VERSION CONFLICT: {}", local_file.name);
                     }
                 }
             }
 
             None => {
                 if !is_deleted {
-                    self.file_service
-                        .send_request(&peer_file.name, src_addr)
-                        .await?;
+                    self.file_service.send_request(&peer_file, src_addr).await?;
                 }
             }
         }
@@ -103,28 +110,34 @@ impl SyncService {
         Ok(())
     }
 
-    async fn handle_file_request(&self, stream: &mut TcpStream) -> std::io::Result<()> {
-        let src_addr = stream.peer_addr()?;
+    async fn handle_file_request(
+        &self,
+        src_addr: SocketAddr,
+        stream: &mut TcpStream,
+    ) -> std::io::Result<()> {
+        let req_file = self.file_service.read_request(stream).await?;
 
-        let file_name = self.file_service.read_request(stream).await?;
-
-        if let Some(file) = self.state.entry_manager.get_file(&file_name) {
-            self.file_service.send_file(&file, src_addr).await?;
+        if let Some(file) = self.state.entry_manager.get_file(&req_file.name) {
+            if file.hash == req_file.hash && file.version == req_file.version {
+                self.file_service.send_file(&file, src_addr).await?;
+            }
         }
         Ok(())
     }
 
-    async fn handle_file_transfer(&self, stream: &mut TcpStream) -> std::io::Result<()> {
-        let src_addr = stream.peer_addr()?;
+    async fn handle_file_transfer(
+        &self,
+        src_addr: SocketAddr,
+        stream: &mut TcpStream,
+    ) -> std::io::Result<()> {
+        let src_ip = src_addr.ip();
 
-        let recv_file = self.file_service.read_file(stream).await?;
-        self.file_service.save_file(&recv_file).await?;
+        let recv_file = self.file_service.read_file(src_ip, stream).await?;
+        self.file_service.save_file(src_addr, &recv_file).await?;
 
         info!(
             "Successfully handled FileTransfer: {} ({} bytes) from {}",
-            recv_file.name,
-            recv_file.size,
-            src_addr.ip()
+            recv_file.name, recv_file.size, src_ip
         );
         Ok(())
     }

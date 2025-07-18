@@ -2,7 +2,7 @@ use crate::{
     config::AppState,
     models::entry::File,
     services::file::FileService,
-    utils::fs::{get_file_data, get_relative_path},
+    utils::fs::{compute_hash, get_relative_path},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, Watcher,
@@ -104,19 +104,20 @@ impl FileWatcher {
                 continue;
             };
 
-            let (hash, on_disk_modified) = match get_file_data(&path) {
-                Ok(data) => data,
+            let disk_hash = match compute_hash(&path) {
+                Ok(hash) => hash,
                 Err(err) => {
-                    error!("Failed to get file data: {}", err);
+                    error!("Failed to compute {} hash: {}", relative_path, err);
                     continue;
                 }
             };
 
-            if file.hash != hash && file.last_modified_at < on_disk_modified {
+            if file.hash != disk_hash {
                 let file = File {
                     name: relative_path.clone(),
-                    last_modified_at: on_disk_modified,
-                    hash,
+                    hash: disk_hash,
+                    version: file.version + 1,
+                    last_modified_by: None,
                 };
 
                 self.state.entry_manager.insert_file(file.clone());
@@ -132,18 +133,23 @@ impl FileWatcher {
                 continue;
             };
 
-            let (hash, on_disk_modified) = match get_file_data(&path) {
-                Ok(data) => data,
+            if self.state.entry_manager.get_file(&relative_path).is_some() {
+                continue;
+            }
+
+            let disk_hash = match compute_hash(&path) {
+                Ok(hash) => hash,
                 Err(err) => {
-                    error!("Failed to get file data: {}", err);
+                    error!("Failed to compute {} hash: {}", relative_path, err);
                     continue;
                 }
             };
 
             let file = File {
                 name: relative_path.clone(),
-                last_modified_at: on_disk_modified,
-                hash,
+                hash: disk_hash,
+                version: 0,
+                last_modified_by: None,
             };
 
             self.state.entry_manager.insert_file(file.clone());
@@ -158,7 +164,7 @@ impl FileWatcher {
                 continue;
             };
 
-            if path.exists() {
+            if path.exists() || self.state.entry_manager.get_file(&relative_path).is_none() {
                 continue;
             }
 

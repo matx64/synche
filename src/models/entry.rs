@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::net::IpAddr;
 
 const DELETED_FILE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -17,7 +17,8 @@ pub struct Directory {
 pub struct File {
     pub name: String,
     pub hash: String,
-    pub last_modified_at: SystemTime,
+    pub version: u32,
+    pub last_modified_by: Option<IpAddr>,
 }
 
 impl File {
@@ -25,7 +26,8 @@ impl File {
         Self {
             name,
             hash: DELETED_FILE_HASH.to_string(),
-            last_modified_at: SystemTime::now(),
+            version: 0,
+            last_modified_by: None,
         }
     }
 

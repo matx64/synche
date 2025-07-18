@@ -5,12 +5,10 @@ use crate::{
         sync::{SyncFileKind, SyncKind},
     },
 };
-use filetime::FileTime;
 use sha2::{Digest, Sha256};
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     fs::{self, File as FsFile},
@@ -21,10 +19,11 @@ use tracing::info;
 
 pub struct ReceivedFile {
     pub name: String,
+    pub version: u32,
     pub size: u64,
     pub contents: Vec<u8>,
     pub hash: String,
-    pub last_modified_at: SystemTime,
+    pub from: IpAddr,
 }
 
 pub struct FileService {
@@ -45,13 +44,6 @@ impl FileService {
 
         info!("Sending {} metadata to {}", file.name, target_ip);
 
-        // Get last modified at
-        let last_modified_at = file
-            .last_modified_at
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
         // Connect to target peer's TCP server
         target_addr.set_port(self.state.constants.tcp_port);
         let mut stream = TcpStream::connect(target_addr).await?;
@@ -70,53 +62,53 @@ impl FileService {
         stream.write_all(file.name.as_bytes()).await?;
 
         // Send file hash (32 bytes)
-        let hash_bytes = hex::decode(&file.hash.clone()).unwrap();
+        let hash_bytes = hex::decode(&file.hash).unwrap();
         stream.write_all(&hash_bytes).await?;
 
-        // Send last modification date
-        stream.write_all(&last_modified_at.to_be_bytes()).await?;
+        // Send local file version (u32)
+        stream.write_all(&u32::to_be_bytes(file.version)).await?;
 
         info!("Successfully sent {} metadata to {}", file.name, target_ip);
         Ok(())
     }
 
-    pub async fn read_metadata(&self, stream: &mut TcpStream) -> std::io::Result<File> {
-        // Read file name length (u64)
+    pub async fn read_metadata(
+        &self,
+        src_ip: IpAddr,
+        stream: &mut TcpStream,
+    ) -> std::io::Result<File> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
 
-        // Read file name
         let mut file_name_buf = vec![0u8; name_len];
         stream.read_exact(&mut file_name_buf).await?;
         let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
 
-        // Read file hash (32 bytes)
         let mut hash_buf = [0u8; 32];
         stream.read_exact(&mut hash_buf).await?;
         let received_hash = hex::encode(hash_buf);
 
-        // Read file last modification date
-        let mut timestamp_buf = [0u8; 8];
-        stream.read_exact(&mut timestamp_buf).await?;
-
-        let last_modified_at = UNIX_EPOCH + Duration::from_secs(u64::from_be_bytes(timestamp_buf));
+        let mut version_buf = [0u8; 4];
+        stream.read_exact(&mut version_buf).await?;
+        let file_version = u32::from_be_bytes(version_buf);
 
         Ok(File {
             name: file_name,
             hash: received_hash,
-            last_modified_at,
+            version: file_version,
+            last_modified_by: Some(src_ip),
         })
     }
 
     pub async fn send_request(
         &self,
-        file_name: &str,
+        file: &File,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
-        info!("Requesting file {} to {}", file_name, target_ip);
+        info!("Requesting file {} to {}", file.name, target_ip);
 
         // Connect to target peer's TCP server
         target_addr.set_port(self.state.constants.tcp_port);
@@ -129,28 +121,46 @@ impl FileService {
 
         // Send file name length (u64)
         stream
-            .write_all(&u64::to_be_bytes(file_name.len() as u64))
+            .write_all(&u64::to_be_bytes(file.name.len() as u64))
             .await?;
 
         // Send file name
-        stream.write_all(file_name.as_bytes()).await?;
+        stream.write_all(file.name.as_bytes()).await?;
 
-        info!("Successfully requested file {} to {}", file_name, target_ip);
+        // Send file hash (32 bytes)
+        let hash_bytes = hex::decode(&file.hash).unwrap();
+        stream.write_all(&hash_bytes).await?;
+
+        // Send local file version (u32)
+        stream.write_all(&u32::to_be_bytes(file.version)).await?;
+
+        info!("Successfully requested file {} to {}", file.name, target_ip);
         Ok(())
     }
 
-    pub async fn read_request(&self, stream: &mut TcpStream) -> std::io::Result<String> {
-        // Read file name length (u64)
+    pub async fn read_request(&self, stream: &mut TcpStream) -> std::io::Result<File> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
 
-        // Read file name
         let mut file_name_buf = vec![0u8; name_len];
         stream.read_exact(&mut file_name_buf).await?;
         let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
 
-        Ok(file_name)
+        let mut hash_buf = [0u8; 32];
+        stream.read_exact(&mut hash_buf).await?;
+        let hash = hex::encode(hash_buf);
+
+        let mut version_buf = [0u8; 4];
+        stream.read_exact(&mut version_buf).await?;
+        let file_version = u32::from_be_bytes(version_buf);
+
+        Ok(File {
+            name: file_name,
+            hash: hash,
+            version: file_version,
+            last_modified_by: None,
+        })
     }
 
     pub async fn send_file(&self, file: &File, mut target_addr: SocketAddr) -> std::io::Result<()> {
@@ -164,13 +174,6 @@ impl FileService {
         let mut fs_file = FsFile::open(path).await?;
         let mut buffer = Vec::new();
         fs_file.read_to_end(&mut buffer).await?;
-
-        // Get last modified at
-        let last_modified_at = file
-            .last_modified_at
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
 
         // Connect to target peer's TCP server
         target_addr.set_port(self.state.constants.tcp_port);
@@ -193,15 +196,15 @@ impl FileService {
         let hash_bytes = hex::decode(&file.hash.clone()).unwrap();
         stream.write_all(&hash_bytes).await?;
 
+        // Send file version
+        stream.write_all(&u32::to_be_bytes(file.version)).await?;
+
         // Send file size (u64)
         let file_size = buffer.len() as u64;
         stream.write_all(&u64::to_be_bytes(file_size)).await?;
 
         // Send file contents
         stream.write_all(&buffer).await?;
-
-        // Send last modification date
-        stream.write_all(&last_modified_at.to_be_bytes()).await?;
 
         info!(
             "Sent file: {} ({} bytes) to {}",
@@ -210,65 +213,66 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn read_file(&self, stream: &mut TcpStream) -> std::io::Result<ReceivedFile> {
-        // Read file name length (u64)
+    pub async fn read_file(
+        &self,
+        src_ip: IpAddr,
+        stream: &mut TcpStream,
+    ) -> std::io::Result<ReceivedFile> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
 
-        // Read file name
         let mut file_name_buf = vec![0u8; name_len];
         stream.read_exact(&mut file_name_buf).await?;
         let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
 
-        // Read file hash (32 bytes)
         let mut hash_buf = [0u8; 32];
         stream.read_exact(&mut hash_buf).await?;
         let received_hash = hex::encode(hash_buf);
 
-        // Read file size (u64)
+        let mut version_buf = [0u8; 4];
+        stream.read_exact(&mut version_buf).await?;
+        let file_version = u32::from_be_bytes(version_buf);
+
         let mut file_size_buf = [0u8; 8];
         stream.read_exact(&mut file_size_buf).await?;
         let file_size = u64::from_be_bytes(file_size_buf);
 
-        // Read file contents
         let mut file_buf = vec![0u8; file_size as usize];
         stream.read_exact(&mut file_buf).await?;
 
         // Compute hash for corruption check
-        if !received_hash.is_empty() {
-            let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
-            if computed_hash != received_hash {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Hash mismatch: data corruption detected",
-                ));
-            }
+        let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
+        if computed_hash != received_hash {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Hash mismatch: data corruption detected",
+            ));
         }
-
-        // Read file last modification date
-        let mut timestamp_buf = [0u8; 8];
-        stream.read_exact(&mut timestamp_buf).await?;
-
-        let last_modified_at = UNIX_EPOCH + Duration::from_secs(u64::from_be_bytes(timestamp_buf));
 
         Ok(ReceivedFile {
             name: file_name,
+            version: file_version,
             size: file_size,
             contents: file_buf,
             hash: received_hash,
-            last_modified_at,
+            from: src_ip,
         })
     }
 
-    pub async fn save_file(&self, recv_file: &ReceivedFile) -> io::Result<()> {
+    pub async fn save_file(
+        &self,
+        src_addr: SocketAddr,
+        recv_file: &ReceivedFile,
+    ) -> io::Result<()> {
         let file = File {
             name: recv_file.name.clone(),
+            version: recv_file.version,
             hash: recv_file.hash.clone(),
-            last_modified_at: recv_file.last_modified_at,
+            last_modified_by: Some(recv_file.from),
         };
 
-        self.state.entry_manager.insert_file(file);
+        self.state.entry_manager.insert_file(file.clone());
 
         let original_path = self.state.constants.base_dir.join(&recv_file.name);
         let tmp_path = self.state.constants.tmp_dir.join(&recv_file.name);
@@ -281,18 +285,22 @@ impl FileService {
         tmp_file.write_all(&recv_file.contents).await?;
         tmp_file.flush().await?;
 
-        let mtime = FileTime::from_system_time(recv_file.last_modified_at);
-        filetime::set_file_mtime(&tmp_path, mtime)?;
-
         if let Some(parent) = original_path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
-        fs::rename(&tmp_path, &original_path).await
+        fs::rename(&tmp_path, &original_path).await?;
+
+        self.send_metadata(&file, src_addr).await
     }
 
-    pub async fn remove_file(&self, filename: &str) {
-        let path = self.state.constants.base_dir.join(filename);
+    pub async fn remove_file(&self, src_addr: SocketAddr, file_name: &str) -> io::Result<()> {
+        self.state.entry_manager.remove_file(file_name);
+
+        let path = self.state.constants.base_dir.join(file_name);
         let _ = fs::remove_file(path).await;
+
+        self.send_metadata(&File::absent(file_name.to_owned()), src_addr)
+            .await
     }
 }

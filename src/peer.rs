@@ -72,9 +72,7 @@ impl PeerManager {
             for peer in peers.values() {
                 for file in buffer.values() {
                     if let Some(peer_file) = peer.files.get(&file.name) {
-                        if peer_file.hash != file.hash
-                            && peer_file.last_modified_at < file.last_modified_at
-                        {
+                        if peer_file.hash != file.hash && peer_file.version < file.version {
                             result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                         }
                     } else if peer.directories.contains_key(&file.get_dir()) {
