@@ -1,6 +1,6 @@
 use crate::{
     domain::file::File,
-    proto::tcp::{SyncHandshakeKind, SyncKind},
+    proto::tcp::{PeerSyncData, SyncKind},
 };
 use std::net::SocketAddr;
 use tokio::{io, net::TcpStream};
@@ -16,10 +16,10 @@ pub trait TcpPort {
     async fn send_handshake(
         &self,
         addr: SocketAddr,
-        kind: SyncHandshakeKind,
-        contents: &[u8],
+        kind: SyncKind,
+        data: PeerSyncData,
     ) -> io::Result<()>;
-    async fn read_handshake(&self, stream: &mut TcpStream) -> io::Result<Vec<u8>>;
+    async fn read_handshake(&self, stream: &mut TcpStream) -> io::Result<PeerSyncData>;
 
     async fn send_metadata(&self, addr: SocketAddr, file: &File) -> io::Result<()>;
     async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<File>;
