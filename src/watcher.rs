@@ -1,6 +1,6 @@
 use crate::{
     config::AppState,
-    domain::file::File,
+    domain::file::FileInfo,
     services::file::FileService,
     utils::fs::{compute_hash, get_relative_path},
 };
@@ -20,20 +20,20 @@ pub struct FileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
     watch_rx: Receiver<Result<Event, Error>>,
-    sync_tx: Sender<File>,
+    sync_tx: Sender<FileInfo>,
     absolute_base_path: PathBuf,
 }
 
 pub struct FileWatcherSender {
     state: Arc<AppState>,
     file_service: Arc<FileService>,
-    sync_rx: Receiver<File>,
+    sync_rx: Receiver<FileInfo>,
 }
 
 impl FileWatcher {
     pub fn new(state: Arc<AppState>, file_service: Arc<FileService>) -> (Self, FileWatcherSender) {
         let (watch_tx, watch_rx) = mpsc::channel(100);
-        let (sync_tx, sync_rx) = mpsc::channel::<File>(100);
+        let (sync_tx, sync_rx) = mpsc::channel::<FileInfo>(100);
 
         let watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
@@ -113,7 +113,7 @@ impl FileWatcher {
             };
 
             if file.hash != disk_hash {
-                let file = File {
+                let file = FileInfo {
                     name: relative_path.clone(),
                     hash: disk_hash,
                     version: file.version + 1,
@@ -145,7 +145,7 @@ impl FileWatcher {
                 }
             };
 
-            let file = File {
+            let file = FileInfo {
                 name: relative_path.clone(),
                 hash: disk_hash,
                 version: 0,
@@ -181,7 +181,7 @@ impl FileWatcher {
         }
     }
 
-    async fn send_metadata(&self, file: File) {
+    async fn send_metadata(&self, file: FileInfo) {
         if let Err(err) = self.sync_tx.send(file).await {
             error!("sync_tx send error: {}", err);
         }
@@ -190,7 +190,7 @@ impl FileWatcher {
 
 impl FileWatcherSender {
     pub async fn send_changes(&mut self) -> io::Result<()> {
-        let mut buffer = HashMap::<String, File>::new();
+        let mut buffer = HashMap::<String, FileInfo>::new();
         let mut interval = time::interval(Duration::from_secs(5));
 
         loop {

@@ -1,6 +1,6 @@
 use crate::{
-    application::network::TcpPort,
-    domain::file::File,
+    application::network::TransportInterface,
+    domain::file::FileInfo,
     proto::tcp::{PeerSyncData, SyncFileKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
@@ -27,7 +27,7 @@ impl TcpTransporter {
     }
 }
 
-impl TcpPort for TcpTransporter {
+impl TransportInterface for TcpTransporter {
     async fn recv(&self) -> io::Result<(TcpStream, SyncKind)> {
         let (mut stream, src_addr) = self.listener.accept().await?;
 
@@ -73,7 +73,7 @@ impl TcpPort for TcpTransporter {
         serde_json::from_str(&data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 
-    async fn send_metadata(&self, mut addr: SocketAddr, file: &File) -> io::Result<()> {
+    async fn send_metadata(&self, mut addr: SocketAddr, file: &FileInfo) -> io::Result<()> {
         addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(addr).await?;
 
@@ -95,7 +95,7 @@ impl TcpPort for TcpTransporter {
         stream.write_all(&u32::to_be_bytes(file.version)).await
     }
 
-    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<File> {
+    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<FileInfo> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
@@ -112,7 +112,7 @@ impl TcpPort for TcpTransporter {
         stream.read_exact(&mut version_buf).await?;
         let version = u32::from_be_bytes(version_buf);
 
-        Ok(File {
+        Ok(FileInfo {
             name,
             hash,
             version,
@@ -120,7 +120,7 @@ impl TcpPort for TcpTransporter {
         })
     }
 
-    async fn send_request(&self, mut addr: SocketAddr, file: &File) -> io::Result<()> {
+    async fn send_request(&self, mut addr: SocketAddr, file: &FileInfo) -> io::Result<()> {
         addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(addr).await?;
 
@@ -142,7 +142,7 @@ impl TcpPort for TcpTransporter {
         stream.write_all(&u32::to_be_bytes(file.version)).await
     }
 
-    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<File> {
+    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<FileInfo> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
@@ -159,7 +159,7 @@ impl TcpPort for TcpTransporter {
         stream.read_exact(&mut version_buf).await?;
         let version = u32::from_be_bytes(version_buf);
 
-        Ok(File {
+        Ok(FileInfo {
             name,
             hash,
             version,
@@ -170,7 +170,7 @@ impl TcpPort for TcpTransporter {
     async fn send_file(
         &self,
         mut addr: SocketAddr,
-        file: &File,
+        file: &FileInfo,
         contents: &[u8],
     ) -> io::Result<()> {
         addr.set_port(TCP_PORT);
@@ -199,7 +199,7 @@ impl TcpPort for TcpTransporter {
         stream.write_all(contents).await
     }
 
-    async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(File, Vec<u8>)> {
+    async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(FileInfo, Vec<u8>)> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
@@ -233,7 +233,7 @@ impl TcpPort for TcpTransporter {
         }
 
         Ok((
-            File {
+            FileInfo {
                 name,
                 hash,
                 version,

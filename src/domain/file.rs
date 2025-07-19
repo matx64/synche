@@ -4,14 +4,14 @@ use std::net::IpAddr;
 const DELETED_FILE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct File {
+pub struct FileInfo {
     pub name: String,
     pub hash: String,
     pub version: u32,
     pub last_modified_by: Option<IpAddr>,
 }
 
-impl File {
+impl FileInfo {
     pub fn absent(name: String, version: u32) -> Self {
         Self {
             name,

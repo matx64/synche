@@ -1,7 +1,7 @@
 use crate::{
     domain::{
         directory::{ConfiguredDirectory, Directory},
-        file::File,
+        file::FileInfo,
     },
     entry::EntryManager,
     peer::PeerManager,
@@ -73,7 +73,7 @@ fn create_dirs(base_dir: &str) -> (PathBuf, PathBuf) {
 fn build_entries(
     directories: Vec<ConfiguredDirectory>,
     base_dir: &Path,
-) -> io::Result<(HashMap<String, Directory>, HashMap<String, File>)> {
+) -> io::Result<(HashMap<String, Directory>, HashMap<String, FileInfo>)> {
     let mut dirs = HashMap::new();
     let mut files = HashMap::new();
 
@@ -96,7 +96,7 @@ fn build_entries(
 fn build_dir(
     dir_path: &PathBuf,
     abs_base_path: &PathBuf,
-    files: &mut HashMap<String, File>,
+    files: &mut HashMap<String, FileInfo>,
 ) -> io::Result<()> {
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
         let path = entry.path();
@@ -118,14 +118,14 @@ fn build_dir(
 fn build_file(
     path: &PathBuf,
     abs_base_path: &PathBuf,
-    files: &mut HashMap<String, File>,
+    files: &mut HashMap<String, FileInfo>,
 ) -> io::Result<()> {
     let hash = compute_hash(path)?;
     let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
     files.insert(
         relative_path.clone(),
-        File {
+        FileInfo {
             name: relative_path,
             hash,
             version: 0,

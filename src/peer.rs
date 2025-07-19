@@ -1,4 +1,4 @@
-use crate::domain::{file::File, peer::Peer};
+use crate::domain::{file::FileInfo, peer::Peer};
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -46,7 +46,7 @@ impl PeerManager {
         })
     }
 
-    pub fn insert_file(&self, ip: &IpAddr, file: File) {
+    pub fn insert_file(&self, ip: &IpAddr, file: FileInfo) {
         if let Ok(mut peers) = self.peers.write() {
             if let Some(peer) = peers.get_mut(ip) {
                 peer.files.insert(file.name.clone(), file);
@@ -64,8 +64,8 @@ impl PeerManager {
 
     pub fn build_sync_map<'a>(
         &self,
-        buffer: &'a HashMap<String, File>,
-    ) -> HashMap<SocketAddr, Vec<&'a File>> {
+        buffer: &'a HashMap<String, FileInfo>,
+    ) -> HashMap<SocketAddr, Vec<&'a FileInfo>> {
         let mut result = HashMap::new();
 
         if let Ok(peers) = self.peers.read() {

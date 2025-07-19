@@ -1,6 +1,6 @@
 use crate::domain::{
     directory::Directory,
-    file::File,
+    file::FileInfo,
     peer::{Peer, PeerSyncData},
 };
 use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
@@ -8,11 +8,11 @@ use tokio::io;
 
 pub struct EntryManager {
     directories: RwLock<HashMap<String, Directory>>,
-    files: RwLock<HashMap<String, File>>,
+    files: RwLock<HashMap<String, FileInfo>>,
 }
 
 impl EntryManager {
-    pub fn new(directories: HashMap<String, Directory>, files: HashMap<String, File>) -> Self {
+    pub fn new(directories: HashMap<String, Directory>, files: HashMap<String, FileInfo>) -> Self {
         Self {
             directories: RwLock::new(directories),
             files: RwLock::new(files),
@@ -33,20 +33,20 @@ impl EntryManager {
             .unwrap_or_default()
     }
 
-    pub fn insert_file(&self, entry: File) {
+    pub fn insert_file(&self, entry: FileInfo) {
         if let Ok(mut files) = self.files.write() {
             files.insert(entry.name.clone(), entry);
         }
     }
 
-    pub fn get_file(&self, name: &str) -> Option<File> {
+    pub fn get_file(&self, name: &str) -> Option<FileInfo> {
         self.files
             .read()
             .map(|files| files.get(name).cloned())
             .unwrap_or_default()
     }
 
-    pub fn get_files_to_send(&self, peer: &Peer) -> Vec<File> {
+    pub fn get_files_to_send(&self, peer: &Peer) -> Vec<FileInfo> {
         let mut result = Vec::new();
 
         if let Ok(files) = self.files.read() {
@@ -64,18 +64,18 @@ impl EntryManager {
         result
     }
 
-    pub fn remove_file(&self, name: &str) -> File {
+    pub fn remove_file(&self, name: &str) -> FileInfo {
         if let Ok(mut files) = self.files.write() {
             match files.remove(name) {
-                Some(removed) => File::absent(removed.name, removed.version + 1),
-                None => File::absent(name.to_owned(), 0),
+                Some(removed) => FileInfo::absent(removed.name, removed.version + 1),
+                None => FileInfo::absent(name.to_owned(), 0),
             }
         } else {
-            File::absent(name.to_owned(), 0)
+            FileInfo::absent(name.to_owned(), 0)
         }
     }
 
-    pub fn remove_dir(&self, deleted: &str) -> Vec<File> {
+    pub fn remove_dir(&self, deleted: &str) -> Vec<FileInfo> {
         let mut removed_files = Vec::new();
 
         if let Ok(mut files) = self.files.write() {
@@ -88,7 +88,7 @@ impl EntryManager {
 
             for name in to_remove {
                 if let Some(removed) = files.remove(&name) {
-                    removed_files.push(File::absent(name, removed.version + 1));
+                    removed_files.push(FileInfo::absent(name, removed.version + 1));
                 }
             }
         }

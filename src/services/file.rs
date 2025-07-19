@@ -1,7 +1,7 @@
 use crate::{
     config::AppState,
     domain::{
-        file::File,
+        file::FileInfo,
         sync::{SyncFileKind, SyncKind},
     },
 };
@@ -37,7 +37,7 @@ impl FileService {
 
     pub async fn send_metadata(
         &self,
-        file: &File,
+        file: &FileInfo,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
@@ -76,7 +76,7 @@ impl FileService {
         &self,
         src_ip: IpAddr,
         stream: &mut TcpStream,
-    ) -> std::io::Result<File> {
+    ) -> std::io::Result<FileInfo> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
@@ -93,7 +93,7 @@ impl FileService {
         stream.read_exact(&mut version_buf).await?;
         let file_version = u32::from_be_bytes(version_buf);
 
-        Ok(File {
+        Ok(FileInfo {
             name: file_name,
             hash: received_hash,
             version: file_version,
@@ -103,7 +103,7 @@ impl FileService {
 
     pub async fn send_request(
         &self,
-        file: &File,
+        file: &FileInfo,
         mut target_addr: SocketAddr,
     ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
@@ -138,7 +138,7 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn read_request(&self, stream: &mut TcpStream) -> std::io::Result<File> {
+    pub async fn read_request(&self, stream: &mut TcpStream) -> std::io::Result<FileInfo> {
         let mut name_len_buf = [0u8; 8];
         stream.read_exact(&mut name_len_buf).await?;
         let name_len = u64::from_be_bytes(name_len_buf) as usize;
@@ -155,7 +155,7 @@ impl FileService {
         stream.read_exact(&mut version_buf).await?;
         let file_version = u32::from_be_bytes(version_buf);
 
-        Ok(File {
+        Ok(FileInfo {
             name: file_name,
             hash,
             version: file_version,
@@ -163,7 +163,7 @@ impl FileService {
         })
     }
 
-    pub async fn send_file(&self, file: &File, mut target_addr: SocketAddr) -> std::io::Result<()> {
+    pub async fn send_file(&self, file: &FileInfo, mut target_addr: SocketAddr) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
         let path = self.state.constants.base_dir.join(&file.name);
@@ -265,7 +265,7 @@ impl FileService {
         src_addr: SocketAddr,
         recv_file: &ReceivedFile,
     ) -> io::Result<()> {
-        let file = File {
+        let file = FileInfo {
             name: recv_file.name.clone(),
             version: recv_file.version,
             hash: recv_file.hash.clone(),

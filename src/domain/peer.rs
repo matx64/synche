@@ -1,4 +1,4 @@
-use crate::domain::{directory::Directory, file::File};
+use crate::domain::{directory::Directory, file::FileInfo};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 
@@ -6,7 +6,7 @@ use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 pub struct Peer {
     pub addr: SocketAddr,
     pub directories: HashMap<String, Directory>,
-    pub files: HashMap<String, File>,
+    pub files: HashMap<String, FileInfo>,
     pub last_seen: SystemTime,
 }
 
@@ -41,5 +41,5 @@ impl Peer {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PeerSyncData {
     pub directories: Vec<Directory>,
-    pub files: Vec<File>,
+    pub files: Vec<FileInfo>,
 }
