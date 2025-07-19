@@ -1,5 +1,5 @@
 use crate::{
-    domain::{directory::Directory, file::FileInfo},
+    domain::{Directory, FileInfo},
     proto::tcp::PeerSyncData,
 };
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};

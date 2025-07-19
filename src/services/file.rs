@@ -1,7 +1,7 @@
 use crate::{
     config::AppState,
     domain::{
-        file::FileInfo,
+        FileInfo,
         sync::{SyncFileKind, SyncKind},
     },
 };
@@ -163,7 +163,11 @@ impl FileService {
         })
     }
 
-    pub async fn send_file(&self, file: &FileInfo, mut target_addr: SocketAddr) -> std::io::Result<()> {
+    pub async fn send_file(
+        &self,
+        file: &FileInfo,
+        mut target_addr: SocketAddr,
+    ) -> std::io::Result<()> {
         let target_ip = target_addr.ip();
 
         let path = self.state.constants.base_dir.join(&file.name);

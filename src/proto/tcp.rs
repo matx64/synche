@@ -1,4 +1,4 @@
-use crate::domain::{directory::Directory, file::FileInfo};
+use crate::domain::{Directory, FileInfo};
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
 use tokio::io::Error;

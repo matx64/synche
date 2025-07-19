@@ -1,6 +1,6 @@
 use crate::{
     application::network::TransportInterface,
-    domain::file::FileInfo,
+    domain::FileInfo,
     proto::tcp::{PeerSyncData, SyncFileKind, SyncKind},
 };
 use sha2::{Digest, Sha256};

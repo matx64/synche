@@ -1,5 +1,5 @@
 use crate::{
-    domain::file::FileInfo,
+    domain::FileInfo,
     proto::tcp::{PeerSyncData, SyncKind},
 };
 use std::net::SocketAddr;

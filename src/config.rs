@@ -1,10 +1,5 @@
 use crate::{
-    domain::{
-        PeerManager,
-        directory::{ConfiguredDirectory, Directory},
-        file::FileInfo,
-    },
-    entry::EntryManager,
+    domain::{ConfiguredDirectory, Directory, EntryManager, FileInfo, PeerManager},
     utils::fs::{compute_hash, get_relative_path},
 };
 use std::{
