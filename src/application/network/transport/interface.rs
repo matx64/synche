@@ -29,5 +29,9 @@ pub trait TransportInterface {
     async fn read_file(&self, stream: &mut Self::Stream) -> io::Result<(FileInfo, Vec<u8>)>;
 }
 
-pub trait TransportStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> TransportStream for T {}
+pub trait TransportStream: TransportStreamExt {}
+impl<T: TransportStreamExt> TransportStream for T {}
+
+pub trait TransportStreamExt: AsyncRead + AsyncWrite + Unpin + Send + 'static {
+    fn peer_addr(&self) -> io::Result<SocketAddr>;
+}

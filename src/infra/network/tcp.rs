@@ -1,5 +1,5 @@
 use crate::{
-    application::network::TransportInterface,
+    application::network::{TransportInterface, transport::interface::TransportStreamExt},
     domain::FileInfo,
     proto::tcp::{PeerSyncData, SyncFileKind, SyncKind},
 };
@@ -243,5 +243,11 @@ impl TransportInterface for TcpTransporter {
             },
             file_buf,
         ))
+    }
+}
+
+impl TransportStreamExt for TcpStream {
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        TcpStream::peer_addr(self)
     }
 }
