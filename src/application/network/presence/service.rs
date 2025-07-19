@@ -1,18 +1,24 @@
-use crate::application::network::PresenceInterface;
+use crate::{application::network::PresenceInterface, domain::PeerManager};
 use local_ip_address::{list_afinet_netifas, local_ip};
-use std::{net::IpAddr, time::Duration};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, time};
-use tracing::error;
+use tracing::{error, info};
 
 pub struct PresenceService<T: PresenceInterface> {
     presence_adapter: T,
+    peer_manager: Arc<PeerManager>,
     broadcast_interval_secs: u64,
 }
 
 impl<T: PresenceInterface> PresenceService<T> {
-    pub fn new(presence_adapter: T, broadcast_interval_secs: u64) -> Self {
+    pub fn new(
+        presence_adapter: T,
+        peer_manager: Arc<PeerManager>,
+        broadcast_interval_secs: u64,
+    ) -> Self {
         Self {
             presence_adapter,
+            peer_manager,
             broadcast_interval_secs,
         }
     }
@@ -49,7 +55,16 @@ impl<T: PresenceInterface> PresenceService<T> {
                 continue;
             }
 
-            // TODO: handle peer + handshake
+            let _send_handshake = self.peer_manager.insert_or_update(src_addr) && local_ip < src_ip;
+
+            // TODO: Send Handshake
+        }
+    }
+
+    pub async fn monitor_peers(&self) -> io::Result<()> {
+        loop {
+            info!("Connected Peers: {:?}", self.peer_manager.retain());
+            time::sleep(Duration::from_secs(10)).await;
         }
     }
 
