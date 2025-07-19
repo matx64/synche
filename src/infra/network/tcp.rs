@@ -1,10 +1,9 @@
-use std::{io::ErrorKind, net::SocketAddr};
-
 use crate::{
     application::network::TcpPort,
     domain::file::File,
-    proto::tcp::{PeerSyncData, SyncKind},
+    proto::tcp::{PeerSyncData, SyncFileKind, SyncKind},
 };
+use std::{io::ErrorKind, net::SocketAddr};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -73,12 +72,51 @@ impl TcpPort for TcpTransporter {
         serde_json::from_str(&data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 
-    async fn send_metadata(&self, addr: SocketAddr, file: &File) -> io::Result<()> {
-        todo!()
+    async fn send_metadata(&self, mut addr: SocketAddr, file: &File) -> io::Result<()> {
+        addr.set_port(TCP_PORT);
+        let mut stream = TcpStream::connect(addr).await?;
+
+        info!("Sending Metadata ({}) to {}", &file.name, addr.ip());
+
+        stream
+            .write_all(&[SyncKind::File(SyncFileKind::Metadata).as_u8()])
+            .await?;
+
+        stream
+            .write_all(&u64::to_be_bytes(file.name.len() as u64))
+            .await?;
+
+        stream.write_all(file.name.as_bytes()).await?;
+
+        let hash_bytes = hex::decode(&file.hash).map_err(io::Error::other)?;
+        stream.write_all(&hash_bytes).await?;
+
+        stream.write_all(&u32::to_be_bytes(file.version)).await
     }
 
     async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<File> {
-        todo!()
+        let mut name_len_buf = [0u8; 8];
+        stream.read_exact(&mut name_len_buf).await?;
+        let name_len = u64::from_be_bytes(name_len_buf) as usize;
+
+        let mut file_name_buf = vec![0u8; name_len];
+        stream.read_exact(&mut file_name_buf).await?;
+        let file_name = String::from_utf8_lossy(&file_name_buf).into_owned();
+
+        let mut hash_buf = [0u8; 32];
+        stream.read_exact(&mut hash_buf).await?;
+        let received_hash = hex::encode(hash_buf);
+
+        let mut version_buf = [0u8; 4];
+        stream.read_exact(&mut version_buf).await?;
+        let file_version = u32::from_be_bytes(version_buf);
+
+        Ok(File {
+            name: file_name,
+            hash: received_hash,
+            version: file_version,
+            last_modified_by: Some(stream.peer_addr()?.ip()),
+        })
     }
 
     async fn send_request(&self, addr: SocketAddr, file: &File) -> io::Result<()> {
