@@ -27,6 +27,6 @@ pub trait TcpPort {
     async fn send_request(&self, addr: SocketAddr, file: &File) -> io::Result<()>;
     async fn read_request(&self, stream: &mut TcpStream) -> io::Result<File>;
 
-    async fn send_file(&self, addr: SocketAddr, file: &File) -> io::Result<()>;
+    async fn send_file(&self, addr: SocketAddr, file: &File, contents: &[u8]) -> io::Result<()>;
     async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(File, Vec<u8>)>;
 }
