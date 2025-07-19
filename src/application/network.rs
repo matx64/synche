@@ -3,7 +3,7 @@ use crate::{
     proto::tcp::{PeerSyncData, SyncKind},
 };
 use std::net::SocketAddr;
-use tokio::{io, net::TcpStream};
+use tokio::io::{self, AsyncRead, AsyncWrite};
 
 pub trait PresenceInterface {
     async fn broadcast(&self, data: &[u8]) -> io::Result<()>;
@@ -11,7 +11,9 @@ pub trait PresenceInterface {
 }
 
 pub trait TransportInterface {
-    async fn recv(&self) -> io::Result<(TcpStream, SyncKind)>;
+    type Stream: TransportStream;
+
+    async fn recv(&self) -> io::Result<(Self::Stream, SyncKind)>;
 
     async fn send_handshake(
         &self,
@@ -19,15 +21,18 @@ pub trait TransportInterface {
         kind: SyncKind,
         data: PeerSyncData,
     ) -> io::Result<()>;
-    async fn read_handshake(&self, stream: &mut TcpStream) -> io::Result<PeerSyncData>;
+    async fn read_handshake(&self, stream: &mut Self::Stream) -> io::Result<PeerSyncData>;
 
     async fn send_metadata(&self, addr: SocketAddr, file: &FileInfo) -> io::Result<()>;
-    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<FileInfo>;
+    async fn read_metadata(&self, stream: &mut Self::Stream) -> io::Result<FileInfo>;
 
     async fn send_request(&self, addr: SocketAddr, file: &FileInfo) -> io::Result<()>;
-    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<FileInfo>;
+    async fn read_request(&self, stream: &mut Self::Stream) -> io::Result<FileInfo>;
 
     async fn send_file(&self, addr: SocketAddr, file: &FileInfo, contents: &[u8])
     -> io::Result<()>;
-    async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(FileInfo, Vec<u8>)>;
+    async fn read_file(&self, stream: &mut Self::Stream) -> io::Result<(FileInfo, Vec<u8>)>;
 }
+
+pub trait TransportStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> TransportStream for T {}

@@ -28,6 +28,8 @@ impl TcpTransporter {
 }
 
 impl TransportInterface for TcpTransporter {
+    type Stream = TcpStream;
+
     async fn recv(&self) -> io::Result<(TcpStream, SyncKind)> {
         let (mut stream, src_addr) = self.listener.accept().await?;
 
