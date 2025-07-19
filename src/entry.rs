@@ -1,7 +1,6 @@
-use crate::domain::{
-    directory::Directory,
-    file::FileInfo,
-    peer::{Peer, PeerSyncData},
+use crate::{
+    domain::{Peer, directory::Directory, file::FileInfo},
+    proto::tcp::PeerSyncData,
 };
 use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
 use tokio::io;

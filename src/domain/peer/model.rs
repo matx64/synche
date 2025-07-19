@@ -1,5 +1,7 @@
-use crate::domain::{directory::Directory, file::FileInfo};
-use serde::{Deserialize, Serialize};
+use crate::{
+    domain::{directory::Directory, file::FileInfo},
+    proto::tcp::PeerSyncData,
+};
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 
 #[derive(Debug, Clone)]
@@ -36,10 +38,4 @@ impl Peer {
             last_seen: SystemTime::now(),
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PeerSyncData {
-    pub directories: Vec<Directory>,
-    pub files: Vec<FileInfo>,
 }

@@ -1,7 +1,7 @@
 use crate::{
     config::AppState,
     domain::{
-        peer::Peer,
+        Peer,
         sync::{SyncHandshakeKind, SyncKind},
     },
     services::file::FileService,

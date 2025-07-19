@@ -3,7 +3,6 @@ mod config;
 mod domain;
 mod entry;
 mod infra;
-mod peer;
 mod proto;
 mod services;
 mod utils;
