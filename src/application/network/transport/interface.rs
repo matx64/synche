@@ -5,11 +5,6 @@ use crate::{
 use std::net::SocketAddr;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 
-pub trait PresenceInterface {
-    async fn broadcast(&self, data: &[u8]) -> io::Result<()>;
-    async fn recv(&self) -> io::Result<(Vec<u8>, SocketAddr)>;
-}
-
 pub trait TransportInterface {
     type Stream: TransportStream;
 
