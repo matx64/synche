@@ -30,9 +30,12 @@ impl PresenceInterface for UdpBroadcaster {
             .map(|_| ())
     }
 
-    async fn recv(&self) -> tokio::io::Result<(Vec<u8>, SocketAddr)> {
+    async fn recv(&self) -> tokio::io::Result<(String, SocketAddr)> {
         let mut buf = vec![0u8; 8];
-        let (_, src_addr) = self.socket.recv_from(&mut buf).await?;
-        Ok((buf, src_addr))
+        let (size, src_addr) = self.socket.recv_from(&mut buf).await?;
+
+        let msg = String::from_utf8_lossy(&buf[..size]).into_owned();
+
+        Ok((msg, src_addr))
     }
 }
