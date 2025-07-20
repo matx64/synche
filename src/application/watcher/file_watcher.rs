@@ -10,22 +10,22 @@ use tracing::error;
 pub struct FileWatcher<T: FileWatcherInterface> {
     watch_adapter: T,
     entry_manager: Arc<EntryManager>,
-    meta_tx: Sender<FileInfo>,
+    watch_tx: Sender<FileInfo>,
     base_dir: PathBuf,
     base_dir_absolute: PathBuf,
 }
 
 impl<T: FileWatcherInterface> FileWatcher<T> {
-    pub async fn new(
+    pub fn new(
         watch_adapter: T,
         entry_manager: Arc<EntryManager>,
-        meta_tx: Sender<FileInfo>,
+        watch_tx: Sender<FileInfo>,
         base_dir: PathBuf,
     ) -> Self {
         Self {
             watch_adapter,
             entry_manager,
-            meta_tx,
+            watch_tx,
             base_dir_absolute: base_dir.canonicalize().unwrap(),
             base_dir,
         }
@@ -144,7 +144,7 @@ impl<T: FileWatcherInterface> FileWatcher<T> {
     }
 
     async fn send_metadata(&self, file: FileInfo) {
-        if let Err(err) = self.meta_tx.send(file).await {
+        if let Err(err) = self.watch_tx.send(file).await {
             error!("Failed to buffer metadata {}", err);
         }
     }

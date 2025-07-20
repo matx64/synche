@@ -16,7 +16,7 @@ use tokio::{
 use tracing::info;
 
 pub struct TransportSender<T: TransportInterface> {
-    transport_adapter: T,
+    transport_adapter: Arc<T>,
     entry_manager: Arc<EntryManager>,
     peer_manager: Arc<PeerManager>,
     receivers: TransportReceivers,
@@ -25,7 +25,7 @@ pub struct TransportSender<T: TransportInterface> {
 
 impl<T: TransportInterface> TransportSender<T> {
     pub fn new(
-        transport_adapter: T,
+        transport_adapter: Arc<T>,
         entry_manager: Arc<EntryManager>,
         peer_manager: Arc<PeerManager>,
         base_dir: PathBuf,

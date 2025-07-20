@@ -11,10 +11,10 @@ use tokio::{
     fs::{self, File},
     io::{self, AsyncWriteExt},
 };
-use tracing::warn;
+use tracing::{info, warn};
 
 pub struct TransportReceiver<T: TransportInterface> {
-    transport_adapter: T,
+    transport_adapter: Arc<T>,
     entry_manager: Arc<EntryManager>,
     peer_manager: Arc<PeerManager>,
     senders: TransportSenders,
@@ -24,7 +24,7 @@ pub struct TransportReceiver<T: TransportInterface> {
 
 impl<T: TransportInterface> TransportReceiver<T> {
     pub fn new(
-        transport_adapter: T,
+        transport_adapter: Arc<T>,
         entry_manager: Arc<EntryManager>,
         peer_manager: Arc<PeerManager>,
         senders: TransportSenders,
@@ -69,10 +69,12 @@ impl<T: TransportInterface> TransportReceiver<T> {
         kind: SyncHandshakeKind,
     ) -> io::Result<()> {
         let src_addr = stream.peer_addr()?;
+        let src_ip = src_addr.ip();
 
         let data = self.transport_adapter.read_handshake(&mut stream).await?;
 
-        self.peer_manager.insert(Peer::new(src_addr, Some(data)));
+        let peer = Peer::new(src_addr, Some(data));
+        self.peer_manager.insert(peer.clone());
 
         if matches!(kind, SyncHandshakeKind::Request) {
             self.senders
@@ -82,8 +84,17 @@ impl<T: TransportInterface> TransportReceiver<T> {
                 .map_err(io::Error::other)?;
         }
 
-        // TODO: Sync peers
+        info!("Synching peer: {}", src_ip);
 
+        let files_to_send = self.entry_manager.get_files_to_send(&peer);
+
+        for file in files_to_send {
+            self.senders
+                .transfer_tx
+                .send((src_addr, file))
+                .await
+                .map_err(io::Error::other)?;
+        }
         Ok(())
     }
 
