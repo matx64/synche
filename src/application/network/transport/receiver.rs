@@ -7,7 +7,10 @@ use crate::{
     proto::tcp::{SyncFileKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};
-use tokio::{fs, io};
+use tokio::{
+    fs::{self, File},
+    io::{self, AsyncWriteExt},
+};
 use tracing::warn;
 
 pub struct TransportReceiver<T: TransportInterface> {
@@ -16,6 +19,7 @@ pub struct TransportReceiver<T: TransportInterface> {
     peer_manager: Arc<PeerManager>,
     senders: TransportSenders,
     base_dir: PathBuf,
+    tmp_dir: PathBuf,
 }
 
 impl<T: TransportInterface> TransportReceiver<T> {
@@ -25,6 +29,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
         peer_manager: Arc<PeerManager>,
         senders: TransportSenders,
         base_dir: PathBuf,
+        tmp_dir: PathBuf,
     ) -> Self {
         Self {
             transport_adapter,
@@ -32,6 +37,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
             peer_manager,
             senders,
             base_dir,
+            tmp_dir,
         }
     }
 
@@ -50,7 +56,9 @@ impl<T: TransportInterface> TransportReceiver<T> {
                 SyncKind::File(SyncFileKind::Request) => {
                     self.handle_request(stream).await?;
                 }
-                SyncKind::File(SyncFileKind::Transfer) => {}
+                SyncKind::File(SyncFileKind::Transfer) => {
+                    self.handle_transfer(stream).await?;
+                }
             }
         }
     }
@@ -122,20 +130,47 @@ impl<T: TransportInterface> TransportReceiver<T> {
     }
 
     pub async fn handle_request(&self, mut stream: T::Stream) -> io::Result<()> {
-        let src_addr = stream.peer_addr()?;
-
         let requested_file = self.transport_adapter.read_request(&mut stream).await?;
 
         if let Some(file) = self.entry_manager.get_file(&requested_file.name) {
             if file.hash == requested_file.hash && file.version == requested_file.version {
                 self.senders
                     .transfer_tx
-                    .send((src_addr, requested_file))
+                    .send((stream.peer_addr()?, requested_file))
                     .await
                     .map_err(io::Error::other)?;
             }
         }
         Ok(())
+    }
+
+    pub async fn handle_transfer(&self, mut stream: T::Stream) -> io::Result<()> {
+        let (file, contents) = self.transport_adapter.read_file(&mut stream).await?;
+
+        self.entry_manager.insert_file(file.clone());
+
+        let original_path = self.base_dir.join(&file.name);
+        let tmp_path = self.tmp_dir.join(&file.name);
+
+        if let Some(parent) = tmp_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        let mut tmp_file = File::create(&tmp_path).await?;
+        tmp_file.write_all(&contents).await?;
+        tmp_file.flush().await?;
+
+        if let Some(parent) = original_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        fs::rename(&tmp_path, &original_path).await?;
+
+        self.senders
+            .watch_tx
+            .send(file)
+            .await
+            .map_err(io::Error::other)
     }
 
     pub async fn remove_file(&self, file_name: &str) -> io::Result<()> {
