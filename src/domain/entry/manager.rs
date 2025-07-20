@@ -95,6 +95,22 @@ impl EntryManager {
         removed_files
     }
 
+    pub fn get_sync_data(&self) -> PeerSyncData {
+        let directories = self
+            .directories
+            .read()
+            .map(|dirs| dirs.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let files = self
+            .files
+            .read()
+            .map(|files| files.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        PeerSyncData { directories, files }
+    }
+
     pub fn serialize(&self) -> io::Result<String> {
         let directories = match self.directories.read() {
             Ok(dirs) => dirs.values().cloned().collect::<Vec<_>>(),
