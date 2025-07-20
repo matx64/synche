@@ -47,7 +47,9 @@ impl<T: TransportInterface> TransportReceiver<T> {
                 SyncKind::File(SyncFileKind::Metadata) => {
                     self.handle_metadata(stream).await?;
                 }
-                SyncKind::File(SyncFileKind::Request) => {}
+                SyncKind::File(SyncFileKind::Request) => {
+                    self.handle_request(stream).await?;
+                }
                 SyncKind::File(SyncFileKind::Transfer) => {}
             }
         }
@@ -114,6 +116,23 @@ impl<T: TransportInterface> TransportReceiver<T> {
                         .send_request(src_addr, &peer_file)
                         .await?;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn handle_request(&self, mut stream: T::Stream) -> io::Result<()> {
+        let src_addr = stream.peer_addr()?;
+
+        let requested_file = self.transport_adapter.read_request(&mut stream).await?;
+
+        if let Some(file) = self.entry_manager.get_file(&requested_file.name) {
+            if file.hash == requested_file.hash && file.version == requested_file.version {
+                self.senders
+                    .transfer_tx
+                    .send((src_addr, requested_file))
+                    .await
+                    .map_err(io::Error::other)?;
             }
         }
         Ok(())
