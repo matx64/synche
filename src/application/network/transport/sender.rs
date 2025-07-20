@@ -19,7 +19,6 @@ pub struct TransportSender<T: TransportInterface> {
     transport_adapter: T,
     entry_manager: Arc<EntryManager>,
     peer_manager: Arc<PeerManager>,
-    senders: TransportSenders,
     receivers: TransportReceivers,
     base_dir: PathBuf,
 }
@@ -30,30 +29,32 @@ impl<T: TransportInterface> TransportSender<T> {
         entry_manager: Arc<EntryManager>,
         peer_manager: Arc<PeerManager>,
         base_dir: PathBuf,
-    ) -> Self {
+    ) -> (Self, TransportSenders) {
         let (watch_tx, watch_rx) = mpsc::channel::<FileInfo>(100);
         let (handshake_tx, handshake_rx) = mpsc::channel::<(SocketAddr, SyncHandshakeKind)>(100);
         let (request_tx, request_rx) = mpsc::channel::<(SocketAddr, FileInfo)>(100);
         let (transfer_tx, transfer_rx) = mpsc::channel::<(SocketAddr, FileInfo)>(100);
 
-        Self {
-            transport_adapter,
-            entry_manager,
-            peer_manager,
-            base_dir,
-            senders: TransportSenders {
+        (
+            Self {
+                transport_adapter,
+                entry_manager,
+                peer_manager,
+                base_dir,
+                receivers: TransportReceivers {
+                    watch_rx,
+                    handshake_rx,
+                    request_rx,
+                    transfer_rx,
+                },
+            },
+            TransportSenders {
                 watch_tx,
                 handshake_tx,
                 request_tx,
                 transfer_tx,
             },
-            receivers: TransportReceivers {
-                watch_rx,
-                handshake_rx,
-                request_rx,
-                transfer_rx,
-            },
-        }
+        )
     }
 
     pub async fn send_file_changes(&mut self) -> io::Result<()> {
