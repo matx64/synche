@@ -1,21 +1,33 @@
 use crate::{
-    application::network::{TransportInterface, transport::interface::TransportStreamExt},
-    domain::{Peer, PeerManager},
+    application::network::{
+        TransportInterface,
+        transport::interface::{TransportInfo, TransportSenders, TransportStreamExt},
+    },
+    domain::{FileInfo, Peer, PeerManager},
     proto::tcp::{SyncFileKind, SyncHandshakeKind, SyncKind},
 };
 use std::sync::Arc;
-use tokio::io;
+use tokio::{
+    io,
+    sync::mpsc::{self, Receiver},
+};
 
-pub struct TransportService<T: TransportInterface> {
+pub struct TransportReceiver<T: TransportInterface> {
     transport_adapter: T,
     peer_manager: Arc<PeerManager>,
+    senders: TransportSenders,
 }
 
-impl<T: TransportInterface> TransportService<T> {
-    pub fn new(transport_adapter: T, peer_manager: Arc<PeerManager>) -> Self {
+impl<T: TransportInterface> TransportReceiver<T> {
+    pub fn new(
+        transport_adapter: T,
+        peer_manager: Arc<PeerManager>,
+        senders: TransportSenders,
+    ) -> Self {
         Self {
             transport_adapter,
             peer_manager,
+            senders,
         }
     }
 

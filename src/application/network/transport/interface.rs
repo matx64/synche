@@ -3,7 +3,10 @@ use crate::{
     proto::tcp::{PeerSyncData, SyncKind},
 };
 use std::net::SocketAddr;
-use tokio::io::{self, AsyncRead, AsyncWrite};
+use tokio::{
+    io::{self, AsyncRead, AsyncWrite},
+    sync::mpsc::{Receiver, Sender},
+};
 
 pub trait TransportInterface {
     type Stream: TransportStream;
@@ -34,4 +37,21 @@ impl<T: TransportStreamExt> TransportStream for T {}
 
 pub trait TransportStreamExt: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn peer_addr(&self) -> io::Result<SocketAddr>;
+}
+
+pub struct TransportInfo {
+    pub target_addr: SocketAddr,
+    pub file_info: FileInfo,
+}
+
+pub struct TransportSenders {
+    pub watch_tx: Sender<FileInfo>,
+    pub transfer_tx: Sender<TransportInfo>,
+    pub control_tx: Sender<(SyncKind, TransportInfo)>,
+}
+
+pub struct TransportReceivers {
+    pub watch_rx: Receiver<FileInfo>,
+    pub transfer_rx: Receiver<TransportInfo>,
+    pub control_rx: Receiver<(SyncKind, TransportInfo)>,
 }
