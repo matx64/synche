@@ -25,7 +25,7 @@ pub struct AppConstants {
 }
 
 pub fn init() -> AppState {
-    let cfg_path = ".cfg.json";
+    let cfg_path = ".synche/settings.json";
     let base_dir = "synche-files";
 
     let configured_dirs = load_config_file(cfg_path);
