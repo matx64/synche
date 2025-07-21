@@ -21,8 +21,6 @@ pub struct AppState {
 pub struct AppConstants {
     pub base_dir: PathBuf,
     pub tmp_dir: PathBuf,
-    pub tcp_port: u16,
-    pub broadcast_port: u16,
     pub broadcast_interval_secs: u64,
 }
 
@@ -43,8 +41,6 @@ pub fn init() -> AppState {
         constants: AppConstants {
             base_dir: base_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
-            tcp_port: 8889,
-            broadcast_port: 8888,
             broadcast_interval_secs: 5,
         },
     }

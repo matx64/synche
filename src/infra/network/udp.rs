@@ -2,15 +2,17 @@ use crate::application::network::PresenceInterface;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 
+const UDP_PORT: u16 = 8888;
+
 pub struct UdpBroadcaster {
     socket: UdpSocket,
     broadcast_addr: String,
 }
 
 impl UdpBroadcaster {
-    pub async fn new(port: u16) -> Self {
-        let bind_addr = format!("0.0.0.0:{port}");
-        let broadcast_addr = format!("255.255.255.255:{port}");
+    pub async fn new() -> Self {
+        let bind_addr = format!("0.0.0.0:{UDP_PORT}");
+        let broadcast_addr = format!("255.255.255.255:{UDP_PORT}");
 
         let socket = UdpSocket::bind(&bind_addr).await.unwrap();
         socket.set_broadcast(true).unwrap();

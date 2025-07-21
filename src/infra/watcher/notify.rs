@@ -16,7 +16,7 @@ pub struct NotifyFileWatcher {
 }
 
 impl NotifyFileWatcher {
-    pub async fn new() -> Self {
+    pub fn new() -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(100);
 
         let watcher = RecommendedWatcher::new(

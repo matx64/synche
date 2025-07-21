@@ -8,8 +8,13 @@ use crate::{
         watcher::{FileWatcher, FileWatcherInterface},
     },
     config::AppState,
+    infra::{
+        network::{tcp::TcpTransporter, udp::UdpBroadcaster},
+        watcher::notify::NotifyFileWatcher,
+    },
 };
 use std::sync::Arc;
+use tokio::io;
 
 pub struct Synchronizer<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> {
     file_watcher: FileWatcher<W>,
@@ -65,5 +70,30 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
             transport_sender,
             transport_receiver,
         }
+    }
+
+    pub async fn run(&mut self) -> io::Result<()> {
+        tokio::try_join!(
+            self.presence_service.monitor_peers(),
+            self.presence_service.run_broadcast(),
+            self.presence_service.run_recv(),
+            self.file_watcher.run(),
+            self.transport_receiver.recv(),
+            self.transport_sender.send_file_changes(),
+            self.transport_sender.send_handshakes(),
+            self.transport_sender.send_requests(),
+            self.transport_sender.send_files(),
+        )?;
+        Ok(())
+    }
+}
+
+impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
+    pub async fn new_default(state: AppState) -> Self {
+        let watch_adapter = NotifyFileWatcher::new();
+        let presence_adapter = UdpBroadcaster::new().await;
+        let transport_adapter = TcpTransporter::new().await;
+
+        Self::new(state, watch_adapter, presence_adapter, transport_adapter)
     }
 }
