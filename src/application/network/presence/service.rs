@@ -12,6 +12,7 @@ use tracing::{error, info};
 
 pub struct PresenceService<T: PresenceInterface> {
     presence_adapter: T,
+    device_id: String,
     peer_manager: Arc<PeerManager>,
     handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
     broadcast_interval_secs: u64,
@@ -20,12 +21,14 @@ pub struct PresenceService<T: PresenceInterface> {
 impl<T: PresenceInterface> PresenceService<T> {
     pub fn new(
         presence_adapter: T,
+        device_id: String,
         peer_manager: Arc<PeerManager>,
         handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
         broadcast_interval_secs: u64,
     ) -> Self {
         Self {
             presence_adapter,
+            device_id,
             peer_manager,
             handshake_tx,
             broadcast_interval_secs,
@@ -33,7 +36,8 @@ impl<T: PresenceInterface> PresenceService<T> {
     }
 
     pub async fn run_broadcast(&self) -> io::Result<()> {
-        let msg = "ping".as_bytes();
+        let msg = format!("ping:{}", &self.device_id);
+        let msg = msg.as_bytes();
         let mut retries: usize = 0;
 
         loop {
@@ -60,11 +64,18 @@ impl<T: PresenceInterface> PresenceService<T> {
             let (msg, src_addr) = self.presence_adapter.recv().await?;
             let src_ip = src_addr.ip();
 
-            if self.is_host(&ifas, src_ip) || msg != "ping" {
+            if self.is_host(&ifas, src_ip) {
                 continue;
             }
 
-            let send_handshake = self.peer_manager.insert_or_update(src_addr) && local_ip < src_ip;
+            let Some(peer_id) = msg.strip_prefix("ping:") else {
+                continue;
+            };
+
+            let send_handshake = self
+                .peer_manager
+                .insert_or_update(peer_id.to_owned(), src_addr)
+                && local_ip < src_ip;
 
             if send_handshake {
                 self.handshake_tx

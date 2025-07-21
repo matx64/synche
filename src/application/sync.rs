@@ -50,6 +50,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
 
         let presence_service = PresenceService::new(
             presence_adapter,
+            state.constants.device_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
             state.constants.broadcast_interval_secs,

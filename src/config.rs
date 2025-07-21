@@ -10,6 +10,7 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub struct AppState {
@@ -19,16 +20,17 @@ pub struct AppState {
 }
 
 pub struct AppConstants {
+    pub device_id: String,
     pub base_dir: PathBuf,
     pub tmp_dir: PathBuf,
     pub broadcast_interval_secs: u64,
 }
 
 pub fn init() -> AppState {
-    let cfg_path = ".synche/settings.json";
+    let cfg_path = ".synche";
     let base_dir = "synche-files";
 
-    let configured_dirs = load_config_file(cfg_path);
+    let (device_id, configured_dirs) = load_config_file(cfg_path);
     let (base_dir, tmp_dir) = create_dirs(base_dir);
 
     tracing_subscriber::fmt::init();
@@ -39,6 +41,7 @@ pub fn init() -> AppState {
         entry_manager: EntryManager::new(dirs, files),
         peer_manager: PeerManager::new(),
         constants: AppConstants {
+            device_id,
             base_dir: base_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
             broadcast_interval_secs: 5,
@@ -46,9 +49,22 @@ pub fn init() -> AppState {
     }
 }
 
-fn load_config_file(path: &str) -> Vec<ConfiguredDirectory> {
-    let contents = fs::read_to_string(path).expect("Failed to read config file");
-    serde_json::from_str(&contents).expect("Failed to parse config file")
+fn load_config_file(cfg_base: &str) -> (String, Vec<ConfiguredDirectory>) {
+    let settings_path = PathBuf::from(cfg_base).join("settings.json");
+    let settings_json = fs::read_to_string(settings_path).expect("Failed to read config file");
+    let settings_dirs = serde_json::from_str(&settings_json).expect("Failed to parse config file");
+
+    let id_path = PathBuf::from(cfg_base).join("device.id");
+    let device_id = match fs::read_to_string(&id_path) {
+        Ok(id) => id,
+        Err(_) => {
+            let id = Uuid::new_v4().to_string();
+            fs::write(id_path, id.as_bytes()).expect("Failed to write device.id file");
+            id
+        }
+    };
+
+    (device_id, settings_dirs)
 }
 
 fn create_dirs(base_dir: &str) -> (PathBuf, PathBuf) {

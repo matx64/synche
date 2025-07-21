@@ -1,13 +1,8 @@
 use crate::domain::{FileInfo, Peer};
-use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
-    sync::RwLock,
-    time::SystemTime,
-};
+use std::{collections::HashMap, net::SocketAddr, sync::RwLock, time::SystemTime};
 
 pub struct PeerManager {
-    peers: RwLock<HashMap<IpAddr, Peer>>,
+    peers: RwLock<HashMap<String, Peer>>,
     peer_timeout_secs: u64,
 }
 
@@ -19,44 +14,35 @@ impl PeerManager {
         }
     }
 
-    pub fn _get(&self, ip: &IpAddr) -> Option<Peer> {
-        self.peers
-            .read()
-            .map(|peers| peers.get(ip).cloned())
-            .unwrap_or_default()
-    }
-
     pub fn insert(&self, peer: Peer) {
         if let Ok(mut peers) = self.peers.write() {
-            peers.insert(peer.addr.ip(), peer);
+            peers.insert(peer.id.to_owned(), peer);
         }
     }
 
-    pub fn insert_or_update(&self, addr: SocketAddr) -> bool {
-        let ip = addr.ip();
-
+    pub fn insert_or_update(&self, id: String, addr: SocketAddr) -> bool {
         self.peers.write().is_ok_and(|mut peers| {
-            if let Some(peer) = peers.get_mut(&ip) {
+            if let Some(peer) = peers.get_mut(&id) {
                 peer.last_seen = SystemTime::now();
                 false
             } else {
-                peers.insert(ip, Peer::new(addr, None));
+                peers.insert(id.to_owned(), Peer::new(id, addr, None));
                 true
             }
         })
     }
 
-    pub fn insert_file(&self, ip: &IpAddr, file: FileInfo) {
+    pub fn insert_file(&self, peer_id: &str, file: FileInfo) {
         if let Ok(mut peers) = self.peers.write() {
-            if let Some(peer) = peers.get_mut(ip) {
+            if let Some(peer) = peers.get_mut(peer_id) {
                 peer.files.insert(file.name.clone(), file);
             }
         }
     }
 
-    pub fn remove_file(&self, ip: &IpAddr, name: &str) {
+    pub fn remove_file(&self, peer_id: &str, name: &str) {
         if let Ok(mut peers) = self.peers.write() {
-            if let Some(peer) = peers.get_mut(ip) {
+            if let Some(peer) = peers.get_mut(peer_id) {
                 peer.files.remove(name);
             }
         }
@@ -71,11 +57,7 @@ impl PeerManager {
         if let Ok(peers) = self.peers.read() {
             for peer in peers.values() {
                 for file in buffer.values() {
-                    if let Some(peer_file) = peer.files.get(&file.name) {
-                        if peer_file.hash != file.hash && peer_file.version < file.version {
-                            result.entry(peer.addr).or_insert_with(Vec::new).push(file);
-                        }
-                    } else if peer.directories.contains_key(&file.get_dir()) {
+                    if peer.directories.contains_key(&file.get_dir()) {
                         result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                     }
                 }
