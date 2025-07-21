@@ -118,9 +118,11 @@ impl<T: TransportInterface> TransportReceiver<T> {
                         if is_deleted {
                             self.remove_file(&peer_file.name).await?;
                         } else {
-                            self.transport_adapter
-                                .send_request(src_addr, &peer_file)
-                                .await?;
+                            self.senders
+                                .request_tx
+                                .send((src_addr, peer_file))
+                                .await
+                                .map_err(io::Error::other)?;
                         }
                     } else if local_file.version == peer_file.version {
                         // TODO: Handle Conflict
@@ -131,9 +133,11 @@ impl<T: TransportInterface> TransportReceiver<T> {
 
             None => {
                 if !is_deleted {
-                    self.transport_adapter
-                        .send_request(src_addr, &peer_file)
-                        .await?;
+                    self.senders
+                        .request_tx
+                        .send((src_addr, peer_file))
+                        .await
+                        .map_err(io::Error::other)?;
                 }
             }
         }

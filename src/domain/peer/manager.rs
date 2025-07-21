@@ -19,7 +19,7 @@ impl PeerManager {
         }
     }
 
-    pub fn get(&self, ip: &IpAddr) -> Option<Peer> {
+    pub fn _get(&self, ip: &IpAddr) -> Option<Peer> {
         self.peers
             .read()
             .map(|peers| peers.get(ip).cloned())

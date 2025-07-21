@@ -2,8 +2,7 @@ use crate::{
     domain::{Directory, FileInfo, Peer},
     proto::tcp::PeerSyncData,
 };
-use std::{collections::HashMap, io::ErrorKind, sync::RwLock};
-use tokio::io;
+use std::{collections::HashMap, sync::RwLock};
 
 pub struct EntryManager {
     directories: RwLock<HashMap<String, Directory>>,
@@ -109,29 +108,5 @@ impl EntryManager {
             .unwrap_or_default();
 
         PeerSyncData { directories, files }
-    }
-
-    pub fn serialize(&self) -> io::Result<String> {
-        let directories = match self.directories.read() {
-            Ok(dirs) => dirs.values().cloned().collect::<Vec<_>>(),
-            Err(err) => {
-                return Err(io::Error::other(err.to_string()));
-            }
-        };
-
-        let files = match self.files.read() {
-            Ok(files) => files.values().cloned().collect::<Vec<_>>(),
-            Err(err) => {
-                return Err(io::Error::other(err.to_string()));
-            }
-        };
-
-        serde_json::to_string(&PeerSyncData { directories, files })
-            .map_err(|e| io::Error::other(e.to_string()))
-    }
-
-    pub fn deserialize(&self, msg: &str) -> io::Result<PeerSyncData> {
-        serde_json::from_str::<PeerSyncData>(msg)
-            .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 }
