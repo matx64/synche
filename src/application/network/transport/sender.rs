@@ -10,7 +10,10 @@ use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time:
 use tokio::{
     fs::File,
     io::{self, AsyncReadExt},
-    sync::mpsc::{self},
+    sync::{
+        Mutex,
+        mpsc::{self},
+    },
     time,
 };
 use tracing::info;
@@ -42,10 +45,10 @@ impl<T: TransportInterface> TransportSender<T> {
                 peer_manager,
                 base_dir,
                 receivers: TransportReceivers {
-                    watch_rx,
-                    handshake_rx,
-                    request_rx,
-                    transfer_rx,
+                    watch_rx: Mutex::new(watch_rx),
+                    handshake_rx: Mutex::new(handshake_rx),
+                    request_rx: Mutex::new(request_rx),
+                    transfer_rx: Mutex::new(transfer_rx),
                 },
             },
             TransportSenders {
@@ -57,13 +60,16 @@ impl<T: TransportInterface> TransportSender<T> {
         )
     }
 
-    pub async fn send_file_changes(&mut self) -> io::Result<()> {
+    pub async fn send_file_changes(&self) -> io::Result<()> {
         let mut buffer = HashMap::<String, FileInfo>::new();
         let mut interval = time::interval(Duration::from_secs(5));
 
         loop {
             tokio::select! {
-                Some(file) = self.receivers.watch_rx.recv() => {
+                Some(file) = async {
+                    let mut watch_rx = self.receivers.watch_rx.lock().await;
+                    watch_rx.recv().await
+                } => {
                     info!("File changed: {}", file.name);
                     buffer.insert(file.name.clone(), file);
                 },
@@ -89,9 +95,9 @@ impl<T: TransportInterface> TransportSender<T> {
         }
     }
 
-    pub async fn send_handshakes(&mut self) -> io::Result<()> {
+    pub async fn send_handshakes(&self) -> io::Result<()> {
         loop {
-            if let Some((addr, kind)) = self.receivers.handshake_rx.recv().await {
+            if let Some((addr, kind)) = self.receivers.handshake_rx.lock().await.recv().await {
                 let data = self.entry_manager.get_sync_data();
                 self.transport_adapter
                     .send_handshake(addr, SyncKind::Handshake(kind), data)
@@ -100,17 +106,17 @@ impl<T: TransportInterface> TransportSender<T> {
         }
     }
 
-    pub async fn send_requests(&mut self) -> io::Result<()> {
+    pub async fn send_requests(&self) -> io::Result<()> {
         loop {
-            if let Some((addr, file)) = self.receivers.request_rx.recv().await {
+            if let Some((addr, file)) = self.receivers.request_rx.lock().await.recv().await {
                 self.transport_adapter.send_request(addr, &file).await?;
             }
         }
     }
 
-    pub async fn send_files(&mut self) -> io::Result<()> {
+    pub async fn send_files(&self) -> io::Result<()> {
         loop {
-            if let Some((addr, file)) = self.receivers.transfer_rx.recv().await {
+            if let Some((addr, file)) = self.receivers.transfer_rx.lock().await.recv().await {
                 let path = self.base_dir.join(&file.name);
 
                 if !path.exists() {

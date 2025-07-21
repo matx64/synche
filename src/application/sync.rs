@@ -90,10 +90,11 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
 
 impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
     pub async fn new_default(state: AppState) -> Self {
-        let watch_adapter = NotifyFileWatcher::new();
-        let presence_adapter = UdpBroadcaster::new().await;
-        let transport_adapter = TcpTransporter::new().await;
-
-        Self::new(state, watch_adapter, presence_adapter, transport_adapter)
+        Self::new(
+            state,
+            NotifyFileWatcher::new(),
+            UdpBroadcaster::new().await,
+            TcpTransporter::new().await,
+        )
     }
 }

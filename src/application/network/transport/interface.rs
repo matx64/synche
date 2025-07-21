@@ -5,7 +5,10 @@ use crate::{
 use std::net::SocketAddr;
 use tokio::{
     io::{self, AsyncRead, AsyncWrite},
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        Mutex,
+        mpsc::{Receiver, Sender},
+    },
 };
 
 pub trait TransportInterface {
@@ -47,8 +50,8 @@ pub struct TransportSenders {
 }
 
 pub struct TransportReceivers {
-    pub watch_rx: Receiver<FileInfo>,
-    pub handshake_rx: Receiver<(SocketAddr, SyncHandshakeKind)>,
-    pub request_rx: Receiver<(SocketAddr, FileInfo)>,
-    pub transfer_rx: Receiver<(SocketAddr, FileInfo)>,
+    pub watch_rx: Mutex<Receiver<FileInfo>>,
+    pub handshake_rx: Mutex<Receiver<(SocketAddr, SyncHandshakeKind)>>,
+    pub request_rx: Mutex<Receiver<(SocketAddr, FileInfo)>>,
+    pub transfer_rx: Mutex<Receiver<(SocketAddr, FileInfo)>>,
 }
