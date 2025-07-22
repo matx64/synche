@@ -75,15 +75,15 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
 
     pub async fn run(&mut self) -> io::Result<()> {
         tokio::try_join!(
-            self.presence_service.monitor_peers(),
-            self.presence_service.run_broadcast(),
-            self.presence_service.run_recv(),
-            self.file_watcher.run(),
             self.transport_receiver.recv(),
             self.transport_sender.send_file_changes(),
             self.transport_sender.send_handshakes(),
             self.transport_sender.send_requests(),
             self.transport_sender.send_files(),
+            self.presence_service.run_recv(),
+            self.presence_service.run_broadcast(),
+            self.presence_service.monitor_peers(),
+            self.file_watcher.run(),
         )?;
         Ok(())
     }
