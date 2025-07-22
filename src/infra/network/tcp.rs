@@ -70,7 +70,7 @@ impl TransportInterface for TcpTransporter {
 
         let contents = serde_json::to_vec(&data)?;
 
-        info!(kind = ?kind, ip = ?addr.ip(), "[✉️SEND]");
+        info!(kind = ?kind, ip = ?addr.ip(), "[⬆️SEND]");
 
         stream.write_all(self.device_id.as_bytes()).await?;
         stream.write_all(&[kind.as_u8()]).await?;
@@ -100,7 +100,7 @@ impl TransportInterface for TcpTransporter {
         let metadata_json = serde_json::to_vec(file)?;
         let kind = SyncKind::File(SyncFileKind::Metadata);
 
-        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[✉️SEND]");
+        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️SEND]");
 
         // Write self peer id
         stream.write_all(self.device_id.as_bytes()).await?;
@@ -136,7 +136,7 @@ impl TransportInterface for TcpTransporter {
         let metadata_json = serde_json::to_vec(file)?;
         let kind = SyncKind::File(SyncFileKind::Request);
 
-        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[✉️SEND]");
+        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️SEND]");
 
         // Write self peer id
         stream.write_all(self.device_id.as_bytes()).await?;
@@ -170,7 +170,7 @@ impl TransportInterface for TcpTransporter {
         let kind = SyncKind::File(SyncFileKind::Transfer);
         let file_size = contents.len() as u64;
 
-        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[✉️SEND]");
+        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️SEND]");
 
         // Write self peer id
         stream.write_all(self.device_id.as_bytes()).await?;

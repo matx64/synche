@@ -1,7 +1,4 @@
-use crate::{
-    domain::{Directory, FileInfo},
-    proto::transport::PeerSyncData,
-};
+use crate::{domain::Directory, proto::transport::PeerSyncData};
 use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
 use uuid::Uuid;
 
@@ -10,34 +7,24 @@ pub struct Peer {
     pub id: Uuid,
     pub addr: SocketAddr,
     pub directories: HashMap<String, Directory>,
-    pub files: HashMap<String, FileInfo>,
     pub last_seen: SystemTime,
 }
 
 impl Peer {
     pub fn new(id: Uuid, addr: SocketAddr, data: Option<PeerSyncData>) -> Self {
-        let (directories, files) = data.map_or_else(
-            || (HashMap::new(), HashMap::new()),
-            |data| {
-                let directories = data
-                    .directories
+        let directories = data
+            .map(|data| {
+                data.directories
                     .into_iter()
                     .map(|d| (d.name.clone(), d))
-                    .collect();
-                let files = data
-                    .files
-                    .into_iter()
-                    .map(|f| (f.name.clone(), f))
-                    .collect();
-                (directories, files)
-            },
-        );
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Self {
             id,
             addr,
             directories,
-            files,
             last_seen: SystemTime::now(),
         }
     }

@@ -1,5 +1,5 @@
+use crate::domain::entry::VersionVector;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
 
 const DELETED_FILE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -7,8 +7,7 @@ const DELETED_FILE_HASH: &str = "00000000000000000000000000000000000000000000000
 pub struct FileInfo {
     pub name: String,
     pub hash: String,
-    pub version: u32,
-    pub last_modified_by: Option<IpAddr>,
+    pub version_vector: VersionVector,
 }
 
 impl FileInfo {
@@ -16,8 +15,6 @@ impl FileInfo {
         Self {
             name,
             hash: DELETED_FILE_HASH.to_string(),
-            version,
-            last_modified_by: None,
         }
     }
 
