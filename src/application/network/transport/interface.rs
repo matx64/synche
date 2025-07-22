@@ -1,6 +1,6 @@
 use crate::{
     domain::FileInfo,
-    proto::tcp::{PeerSyncData, SyncHandshakeKind, SyncKind},
+    proto::transport::{PeerSyncData, SyncHandshakeKind, SyncKind},
 };
 use std::net::SocketAddr;
 use tokio::{
@@ -14,7 +14,7 @@ use tokio::{
 pub trait TransportInterface {
     type Stream: TransportStream;
 
-    async fn recv(&self) -> io::Result<(Self::Stream, SyncKind)>;
+    async fn recv(&self) -> io::Result<TransportData<Self::Stream>>;
 
     async fn send_handshake(
         &self,
@@ -40,6 +40,13 @@ impl<T: TransportStreamExt> TransportStream for T {}
 
 pub trait TransportStreamExt: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn peer_addr(&self) -> io::Result<SocketAddr>;
+}
+
+pub struct TransportData<T: TransportStream> {
+    pub src_id: String,
+    pub src_addr: SocketAddr,
+    pub kind: SyncKind,
+    pub stream: T,
 }
 
 pub struct TransportSenders {

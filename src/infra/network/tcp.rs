@@ -1,7 +1,10 @@
 use crate::{
-    application::network::{TransportInterface, transport::interface::TransportStreamExt},
+    application::network::{
+        TransportInterface,
+        transport::interface::{TransportData, TransportStreamExt},
+    },
     domain::FileInfo,
-    proto::tcp::{PeerSyncData, SyncFileKind, SyncKind},
+    proto::transport::{PeerSyncData, SyncFileKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
 use std::{io::ErrorKind, net::SocketAddr};
@@ -15,23 +18,31 @@ const TCP_PORT: u16 = 8889;
 
 pub struct TcpTransporter {
     listener: TcpListener,
+    device_id: String,
 }
 
 impl TcpTransporter {
-    pub async fn new() -> Self {
+    pub async fn new(device_id: String) -> Self {
         let listener = TcpListener::bind(format!("0.0.0.0:{TCP_PORT}"))
             .await
             .unwrap();
 
-        Self { listener }
+        Self {
+            listener,
+            device_id,
+        }
     }
 }
 
 impl TransportInterface for TcpTransporter {
     type Stream = TcpStream;
 
-    async fn recv(&self) -> io::Result<(TcpStream, SyncKind)> {
+    async fn recv(&self) -> io::Result<TransportData<Self::Stream>> {
         let (mut stream, src_addr) = self.listener.accept().await?;
+
+        let mut src_id_buf = vec![0u8; 16];
+        stream.read_exact(&mut src_id_buf).await?;
+        let src_id = String::from_utf8_lossy(&src_id_buf).into_owned();
 
         let mut kind_buf = [0u8; 1];
         stream.read_exact(&mut kind_buf).await?;
@@ -39,7 +50,12 @@ impl TransportInterface for TcpTransporter {
         let kind = SyncKind::try_from(kind_buf[0])?;
         info!("Received {} from {}", kind, src_addr.ip());
 
-        Ok((stream, kind))
+        Ok(TransportData {
+            src_id,
+            src_addr,
+            kind,
+            stream,
+        })
     }
 
     async fn send_handshake(
@@ -55,6 +71,7 @@ impl TransportInterface for TcpTransporter {
 
         let contents = serde_json::to_vec(&data).map_err(|e| io::Error::other(e.to_string()))?;
 
+        stream.write_all(self.device_id.as_bytes()).await?;
         stream.write_all(&[kind.as_u8()]).await?;
         stream
             .write_all(&(contents.len() as u32).to_be_bytes())
@@ -80,6 +97,8 @@ impl TransportInterface for TcpTransporter {
         let mut stream = TcpStream::connect(addr).await?;
 
         info!("Sending Metadata [{}] to {}", &file.name, addr.ip());
+
+        stream.write_all(self.device_id.as_bytes()).await?;
 
         stream
             .write_all(&[SyncKind::File(SyncFileKind::Metadata).as_u8()])
@@ -127,6 +146,8 @@ impl TransportInterface for TcpTransporter {
         let mut stream = TcpStream::connect(addr).await?;
 
         info!("Sending Request [{}] to {}", &file.name, addr.ip());
+
+        stream.write_all(self.device_id.as_bytes()).await?;
 
         stream
             .write_all(&[SyncKind::File(SyncFileKind::Request).as_u8()])
@@ -179,6 +200,8 @@ impl TransportInterface for TcpTransporter {
         let mut stream = TcpStream::connect(addr).await?;
 
         info!("Sending File [{}] to {}", &file.name, addr.ip());
+
+        stream.write_all(self.device_id.as_bytes()).await?;
 
         stream
             .write_all(&[SyncKind::File(SyncFileKind::Transfer).as_u8()])

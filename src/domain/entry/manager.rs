@@ -1,6 +1,6 @@
 use crate::{
     domain::{Directory, FileInfo, Peer},
-    proto::tcp::PeerSyncData,
+    proto::transport::PeerSyncData,
 };
 use std::{collections::HashMap, sync::RwLock};
 

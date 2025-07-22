@@ -1,10 +1,10 @@
 use crate::{
     application::network::{
         TransportInterface,
-        transport::interface::{TransportSenders, TransportStreamExt},
+        transport::interface::{TransportData, TransportSenders},
     },
     domain::{EntryManager, Peer, PeerManager},
-    proto::tcp::{SyncFileKind, SyncHandshakeKind, SyncKind},
+    proto::transport::{SyncFileKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
@@ -43,72 +43,69 @@ impl<T: TransportInterface> TransportReceiver<T> {
 
     pub async fn recv(&self) -> io::Result<()> {
         loop {
-            let (stream, kind) = self.transport_adapter.recv().await?;
+            let data = self.transport_adapter.recv().await?;
 
             // TODO: Async
-            match kind {
-                SyncKind::Handshake(kind) => {
-                    self.handle_handshake(stream, kind).await?;
+            match data.kind {
+                SyncKind::Handshake(_) => {
+                    self.handle_handshake(data).await?;
                 }
                 SyncKind::File(SyncFileKind::Metadata) => {
-                    self.handle_metadata(stream).await?;
+                    self.handle_metadata(data).await?;
                 }
                 SyncKind::File(SyncFileKind::Request) => {
-                    self.handle_request(stream).await?;
+                    self.handle_request(data).await?;
                 }
                 SyncKind::File(SyncFileKind::Transfer) => {
-                    self.handle_transfer(stream).await?;
+                    self.handle_transfer(data).await?;
                 }
             }
         }
     }
 
-    pub async fn handle_handshake(
-        &self,
-        mut stream: T::Stream,
-        kind: SyncHandshakeKind,
-    ) -> io::Result<()> {
-        let src_addr = stream.peer_addr()?;
-        let src_ip = src_addr.ip();
+    pub async fn handle_handshake(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
+        let sync_data = self
+            .transport_adapter
+            .read_handshake(&mut data.stream)
+            .await?;
 
-        let data = self.transport_adapter.read_handshake(&mut stream).await?;
-
-        let peer = Peer::new(src_addr, Some(data));
+        let peer = Peer::new(data.src_id, data.src_addr, Some(sync_data));
         self.peer_manager.insert(peer.clone());
 
-        if matches!(kind, SyncHandshakeKind::Request) {
+        if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
             self.senders
                 .handshake_tx
-                .send((src_addr, SyncHandshakeKind::Response))
+                .send((data.src_addr, SyncHandshakeKind::Response))
                 .await
                 .map_err(io::Error::other)?;
         }
 
-        info!("Synching peer: {}", src_ip);
+        info!("Synching peer: {}", data.src_addr.ip());
 
         let files_to_send = self.entry_manager.get_files_to_send(&peer);
 
         for file in files_to_send {
             self.senders
                 .transfer_tx
-                .send((src_addr, file))
+                .send((data.src_addr, file))
                 .await
                 .map_err(io::Error::other)?;
         }
         Ok(())
     }
 
-    pub async fn handle_metadata(&self, mut stream: T::Stream) -> io::Result<()> {
-        let src_addr = stream.peer_addr()?;
-        let src_ip = src_addr.ip();
-
-        let peer_file = self.transport_adapter.read_metadata(&mut stream).await?;
+    pub async fn handle_metadata(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
+        let peer_file = self
+            .transport_adapter
+            .read_metadata(&mut data.stream)
+            .await?;
 
         let is_deleted = peer_file.is_deleted();
         if is_deleted {
-            self.peer_manager.remove_file(&src_ip, &peer_file.name);
+            self.peer_manager.remove_file(&data.src_id, &peer_file.name);
         } else {
-            self.peer_manager.insert_file(&src_ip, peer_file.clone());
+            self.peer_manager
+                .insert_file(&data.src_id, peer_file.clone());
         }
 
         match self.entry_manager.get_file(&peer_file.name) {
@@ -120,7 +117,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
                         } else {
                             self.senders
                                 .request_tx
-                                .send((src_addr, peer_file))
+                                .send((data.src_addr, peer_file))
                                 .await
                                 .map_err(io::Error::other)?;
                         }
@@ -135,7 +132,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
                 if !is_deleted {
                     self.senders
                         .request_tx
-                        .send((src_addr, peer_file))
+                        .send((data.src_addr, peer_file))
                         .await
                         .map_err(io::Error::other)?;
                 }
@@ -144,14 +141,17 @@ impl<T: TransportInterface> TransportReceiver<T> {
         Ok(())
     }
 
-    pub async fn handle_request(&self, mut stream: T::Stream) -> io::Result<()> {
-        let requested_file = self.transport_adapter.read_request(&mut stream).await?;
+    pub async fn handle_request(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
+        let requested_file = self
+            .transport_adapter
+            .read_request(&mut data.stream)
+            .await?;
 
         if let Some(file) = self.entry_manager.get_file(&requested_file.name) {
             if file.hash == requested_file.hash && file.version == requested_file.version {
                 self.senders
                     .transfer_tx
-                    .send((stream.peer_addr()?, requested_file))
+                    .send((data.src_addr, requested_file))
                     .await
                     .map_err(io::Error::other)?;
             }
@@ -159,8 +159,8 @@ impl<T: TransportInterface> TransportReceiver<T> {
         Ok(())
     }
 
-    pub async fn handle_transfer(&self, mut stream: T::Stream) -> io::Result<()> {
-        let (file, contents) = self.transport_adapter.read_file(&mut stream).await?;
+    pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
+        let (file, contents) = self.transport_adapter.read_file(&mut data.stream).await?;
 
         self.entry_manager.insert_file(file.clone());
 

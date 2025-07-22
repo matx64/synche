@@ -40,10 +40,10 @@ impl PeerManager {
         }
     }
 
-    pub fn remove_file(&self, peer_id: &str, name: &str) {
+    pub fn remove_file(&self, peer_id: &str, file_name: &str) {
         if let Ok(mut peers) = self.peers.write() {
             if let Some(peer) = peers.get_mut(peer_id) {
-                peer.files.remove(name);
+                peer.files.remove(file_name);
             }
         }
     }

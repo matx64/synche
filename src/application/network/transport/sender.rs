@@ -4,7 +4,7 @@ use crate::{
         transport::interface::{TransportReceivers, TransportSenders},
     },
     domain::{EntryManager, FileInfo, PeerManager},
-    proto::tcp::{SyncHandshakeKind, SyncKind},
+    proto::transport::{SyncHandshakeKind, SyncKind},
 };
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
