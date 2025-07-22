@@ -102,10 +102,10 @@ impl<T: TransportInterface> TransportReceiver<T> {
 
         let is_deleted = peer_file.is_deleted();
         if is_deleted {
-            self.peer_manager.remove_file(&data.src_id, &peer_file.name);
+            self.peer_manager.remove_file(data.src_id, &peer_file.name);
         } else {
             self.peer_manager
-                .insert_file(&data.src_id, peer_file.clone());
+                .insert_file(data.src_id, peer_file.clone());
         }
 
         match self.entry_manager.get_file(&peer_file.name) {

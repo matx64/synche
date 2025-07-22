@@ -1,8 +1,9 @@
 use crate::domain::{FileInfo, Peer};
 use std::{collections::HashMap, net::SocketAddr, sync::RwLock, time::SystemTime};
+use uuid::Uuid;
 
 pub struct PeerManager {
-    peers: RwLock<HashMap<String, Peer>>,
+    peers: RwLock<HashMap<Uuid, Peer>>,
     peer_timeout_secs: u64,
 }
 
@@ -16,33 +17,33 @@ impl PeerManager {
 
     pub fn insert(&self, peer: Peer) {
         if let Ok(mut peers) = self.peers.write() {
-            peers.insert(peer.id.to_owned(), peer);
+            peers.insert(peer.id, peer);
         }
     }
 
-    pub fn insert_or_update(&self, id: String, addr: SocketAddr) -> bool {
+    pub fn insert_or_update(&self, id: Uuid, addr: SocketAddr) -> bool {
         self.peers.write().is_ok_and(|mut peers| {
             if let Some(peer) = peers.get_mut(&id) {
                 peer.last_seen = SystemTime::now();
                 false
             } else {
-                peers.insert(id.to_owned(), Peer::new(id, addr, None));
+                peers.insert(id, Peer::new(id, addr, None));
                 true
             }
         })
     }
 
-    pub fn insert_file(&self, peer_id: &str, file: FileInfo) {
+    pub fn insert_file(&self, peer_id: Uuid, file: FileInfo) {
         if let Ok(mut peers) = self.peers.write() {
-            if let Some(peer) = peers.get_mut(peer_id) {
+            if let Some(peer) = peers.get_mut(&peer_id) {
                 peer.files.insert(file.name.clone(), file);
             }
         }
     }
 
-    pub fn remove_file(&self, peer_id: &str, file_name: &str) {
+    pub fn remove_file(&self, peer_id: Uuid, file_name: &str) {
         if let Ok(mut peers) = self.peers.write() {
-            if let Some(peer) = peers.get_mut(peer_id) {
+            if let Some(peer) = peers.get_mut(&peer_id) {
                 peer.files.remove(file_name);
             }
         }

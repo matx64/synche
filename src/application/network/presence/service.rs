@@ -10,10 +10,11 @@ use std::{
 };
 use tokio::{io, sync::mpsc::Sender, time};
 use tracing::{error, info};
+use uuid::Uuid;
 
 pub struct PresenceService<T: PresenceInterface> {
     presence_adapter: T,
-    device_id: String,
+    device_id: Uuid,
     peer_manager: Arc<PeerManager>,
     handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
     broadcast_interval_secs: u64,
@@ -22,7 +23,7 @@ pub struct PresenceService<T: PresenceInterface> {
 impl<T: PresenceInterface> PresenceService<T> {
     pub fn new(
         presence_adapter: T,
-        device_id: String,
+        device_id: Uuid,
         peer_manager: Arc<PeerManager>,
         handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
         broadcast_interval_secs: u64,
@@ -69,14 +70,17 @@ impl<T: PresenceInterface> PresenceService<T> {
                 continue;
             }
 
-            let Some(peer_id) = msg.strip_prefix("ping:") else {
+            let peer_id = msg
+                .strip_prefix("ping:")
+                .and_then(|id| Uuid::parse_str(id).ok());
+
+            let Some(peer_id) = peer_id else {
+                error!("Invalid or missing broadcast ID: {}", msg);
                 continue;
             };
 
-            let send_handshake = self
-                .peer_manager
-                .insert_or_update(peer_id.to_owned(), src_addr)
-                && local_ip < src_ip;
+            let send_handshake =
+                self.peer_manager.insert_or_update(peer_id, src_addr) && local_ip < src_ip;
 
             if send_handshake {
                 self.handshake_tx

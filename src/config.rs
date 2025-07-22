@@ -20,7 +20,7 @@ pub struct AppState {
 }
 
 pub struct AppConstants {
-    pub device_id: String,
+    pub device_id: Uuid,
     pub base_dir: PathBuf,
     pub tmp_dir: PathBuf,
     pub broadcast_interval_secs: u64,
@@ -49,16 +49,16 @@ pub fn init() -> AppState {
     }
 }
 
-fn load_config_file(cfg_base: &str) -> (String, Vec<ConfiguredDirectory>) {
+fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
     let settings_path = PathBuf::from(cfg_base).join("settings.json");
     let settings_json = fs::read_to_string(settings_path).expect("Failed to read config file");
     let settings_dirs = serde_json::from_str(&settings_json).expect("Failed to parse config file");
 
     let id_path = PathBuf::from(cfg_base).join("device.id");
     let device_id = match fs::read_to_string(&id_path) {
-        Ok(id) => id,
+        Ok(id) => Uuid::parse_str(&id).unwrap(),
         Err(_) => {
-            let id = Uuid::new_v4().to_string();
+            let id = Uuid::new_v4();
             fs::write(id_path, id.as_bytes()).expect("Failed to write device.id file");
             id
         }

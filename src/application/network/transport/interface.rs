@@ -10,6 +10,7 @@ use tokio::{
         mpsc::{Receiver, Sender},
     },
 };
+use uuid::Uuid;
 
 pub trait TransportInterface {
     type Stream: TransportStream;
@@ -43,7 +44,7 @@ pub trait TransportStreamExt: AsyncRead + AsyncWrite + Unpin + Send + 'static {
 }
 
 pub struct TransportData<T: TransportStream> {
-    pub src_id: String,
+    pub src_id: Uuid,
     pub src_addr: SocketAddr,
     pub kind: SyncKind,
     pub stream: T,

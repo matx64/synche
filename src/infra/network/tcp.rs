@@ -13,16 +13,17 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tracing::info;
+use uuid::Uuid;
 
 const TCP_PORT: u16 = 8889;
 
 pub struct TcpTransporter {
     listener: TcpListener,
-    device_id: String,
+    device_id: Uuid,
 }
 
 impl TcpTransporter {
-    pub async fn new(device_id: String) -> Self {
+    pub async fn new(device_id: Uuid) -> Self {
         let listener = TcpListener::bind(format!("0.0.0.0:{TCP_PORT}"))
             .await
             .unwrap();
@@ -40,9 +41,9 @@ impl TransportInterface for TcpTransporter {
     async fn recv(&self) -> io::Result<TransportData<Self::Stream>> {
         let (mut stream, src_addr) = self.listener.accept().await?;
 
-        let mut src_id_buf = vec![0u8; 16];
+        let mut src_id_buf = [0u8; 16];
         stream.read_exact(&mut src_id_buf).await?;
-        let src_id = String::from_utf8_lossy(&src_id_buf).into_owned();
+        let src_id = Uuid::from_bytes(src_id_buf);
 
         let mut kind_buf = [0u8; 1];
         stream.read_exact(&mut kind_buf).await?;
