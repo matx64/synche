@@ -49,7 +49,7 @@ impl TransportInterface for TcpTransporter {
         stream.read_exact(&mut kind_buf).await?;
 
         let kind = SyncKind::try_from(kind_buf[0])?;
-        info!("Received {} from {}", kind, src_addr.ip());
+        info!(kind = ?kind, id = ?src_id, ip = ?src_addr.ip(), "[🔔RECV]");
 
         Ok(TransportData {
             src_id,
@@ -68,9 +68,9 @@ impl TransportInterface for TcpTransporter {
         addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(addr).await?;
 
-        info!("Sending {} to {}", kind, addr.ip());
+        let contents = serde_json::to_vec(&data)?;
 
-        let contents = serde_json::to_vec(&data).map_err(|e| io::Error::other(e.to_string()))?;
+        info!(kind = ?kind, ip = ?addr.ip(), "[✉️SEND]");
 
         stream.write_all(self.device_id.as_bytes()).await?;
         stream.write_all(&[kind.as_u8()]).await?;
@@ -97,98 +97,64 @@ impl TransportInterface for TcpTransporter {
         addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(addr).await?;
 
-        info!("Sending Metadata [{}] to {}", &file.name, addr.ip());
+        let metadata_json = serde_json::to_vec(file)?;
+        let kind = SyncKind::File(SyncFileKind::Metadata);
 
+        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[✉️SEND]");
+
+        // Write self peer id
         stream.write_all(self.device_id.as_bytes()).await?;
 
+        // Write sync kind
+        stream.write_all(&[kind.as_u8()]).await?;
+
+        // Write metadata json size
         stream
-            .write_all(&[SyncKind::File(SyncFileKind::Metadata).as_u8()])
+            .write_all(&u32::to_be_bytes(metadata_json.len() as u32))
             .await?;
 
-        stream
-            .write_all(&u64::to_be_bytes(file.name.len() as u64))
-            .await?;
-
-        stream.write_all(file.name.as_bytes()).await?;
-
-        let hash_bytes = hex::decode(&file.hash).map_err(io::Error::other)?;
-        stream.write_all(&hash_bytes).await?;
-
-        stream.write_all(&u32::to_be_bytes(file.version)).await
+        // Write metadata json
+        stream.write_all(&metadata_json).await
     }
 
     async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<FileInfo> {
-        let mut name_len_buf = [0u8; 8];
-        stream.read_exact(&mut name_len_buf).await?;
-        let name_len = u64::from_be_bytes(name_len_buf) as usize;
+        let mut json_len_buf = [0u8; 4];
+        stream.read_exact(&mut json_len_buf).await?;
+        let json_len = u32::from_be_bytes(json_len_buf) as usize;
 
-        let mut name_buf = vec![0u8; name_len];
-        stream.read_exact(&mut name_buf).await?;
-        let name = String::from_utf8_lossy(&name_buf).into_owned();
+        let mut json_buf = vec![0u8; json_len];
+        stream.read_exact(&mut json_buf).await?;
 
-        let mut hash_buf = [0u8; 32];
-        stream.read_exact(&mut hash_buf).await?;
-        let hash = hex::encode(hash_buf);
-
-        let mut version_buf = [0u8; 4];
-        stream.read_exact(&mut version_buf).await?;
-        let version = u32::from_be_bytes(version_buf);
-
-        Ok(FileInfo {
-            name,
-            hash,
-            version,
-            last_modified_by: Some(stream.peer_addr()?.ip()),
-        })
+        let metadata = serde_json::from_slice::<FileInfo>(&json_buf)?;
+        Ok(metadata)
     }
 
     async fn send_request(&self, mut addr: SocketAddr, file: &FileInfo) -> io::Result<()> {
         addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(addr).await?;
 
-        info!("Sending Request [{}] to {}", &file.name, addr.ip());
+        let metadata_json = serde_json::to_vec(file)?;
+        let kind = SyncKind::File(SyncFileKind::Request);
 
+        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[✉️SEND]");
+
+        // Write self peer id
         stream.write_all(self.device_id.as_bytes()).await?;
 
+        // Write sync kind
+        stream.write_all(&[kind.as_u8()]).await?;
+
+        // Write metadata json size
         stream
-            .write_all(&[SyncKind::File(SyncFileKind::Request).as_u8()])
+            .write_all(&u32::to_be_bytes(metadata_json.len() as u32))
             .await?;
 
-        stream
-            .write_all(&u64::to_be_bytes(file.name.len() as u64))
-            .await?;
-
-        stream.write_all(file.name.as_bytes()).await?;
-
-        let hash_bytes = hex::decode(&file.hash).map_err(io::Error::other)?;
-        stream.write_all(&hash_bytes).await?;
-
-        stream.write_all(&u32::to_be_bytes(file.version)).await
+        // Write metadata json
+        stream.write_all(&metadata_json).await
     }
 
     async fn read_request(&self, stream: &mut TcpStream) -> io::Result<FileInfo> {
-        let mut name_len_buf = [0u8; 8];
-        stream.read_exact(&mut name_len_buf).await?;
-        let name_len = u64::from_be_bytes(name_len_buf) as usize;
-
-        let mut name_buf = vec![0u8; name_len];
-        stream.read_exact(&mut name_buf).await?;
-        let name = String::from_utf8_lossy(&name_buf).into_owned();
-
-        let mut hash_buf = [0u8; 32];
-        stream.read_exact(&mut hash_buf).await?;
-        let hash = hex::encode(hash_buf);
-
-        let mut version_buf = [0u8; 4];
-        stream.read_exact(&mut version_buf).await?;
-        let version = u32::from_be_bytes(version_buf);
-
-        Ok(FileInfo {
-            name,
-            hash,
-            version,
-            last_modified_by: None,
-        })
+        self.read_metadata(stream).await
     }
 
     async fn send_file(
@@ -200,47 +166,35 @@ impl TransportInterface for TcpTransporter {
         addr.set_port(TCP_PORT);
         let mut stream = TcpStream::connect(addr).await?;
 
-        info!("Sending File [{}] to {}", &file.name, addr.ip());
+        let metadata_json = serde_json::to_vec(file)?;
+        let kind = SyncKind::File(SyncFileKind::Transfer);
+        let file_size = contents.len() as u64;
 
+        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[✉️SEND]");
+
+        // Write self peer id
         stream.write_all(self.device_id.as_bytes()).await?;
 
+        // Write sync kind
+        stream.write_all(&[kind.as_u8()]).await?;
+
+        // Write metadata json size
         stream
-            .write_all(&[SyncKind::File(SyncFileKind::Transfer).as_u8()])
+            .write_all(&u32::to_be_bytes(metadata_json.len() as u32))
             .await?;
 
-        stream
-            .write_all(&u64::to_be_bytes(file.name.len() as u64))
-            .await?;
+        // Write metadata json
+        stream.write_all(&metadata_json).await?;
 
-        stream.write_all(file.name.as_bytes()).await?;
-
-        let hash_bytes = hex::decode(&file.hash).map_err(io::Error::other)?;
-        stream.write_all(&hash_bytes).await?;
-
-        stream.write_all(&u32::to_be_bytes(file.version)).await?;
-
-        let file_size = contents.len() as u64;
+        // Write file size
         stream.write_all(&u64::to_be_bytes(file_size)).await?;
 
+        // Write file contents
         stream.write_all(contents).await
     }
 
     async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(FileInfo, Vec<u8>)> {
-        let mut name_len_buf = [0u8; 8];
-        stream.read_exact(&mut name_len_buf).await?;
-        let name_len = u64::from_be_bytes(name_len_buf) as usize;
-
-        let mut name_buf = vec![0u8; name_len];
-        stream.read_exact(&mut name_buf).await?;
-        let name = String::from_utf8_lossy(&name_buf).into_owned();
-
-        let mut hash_buf = [0u8; 32];
-        stream.read_exact(&mut hash_buf).await?;
-        let hash = hex::encode(hash_buf);
-
-        let mut version_buf = [0u8; 4];
-        stream.read_exact(&mut version_buf).await?;
-        let version = u32::from_be_bytes(version_buf);
+        let metadata = self.read_metadata(stream).await?;
 
         let mut file_size_buf = [0u8; 8];
         stream.read_exact(&mut file_size_buf).await?;
@@ -251,22 +205,14 @@ impl TransportInterface for TcpTransporter {
 
         // Compute hash for corruption check
         let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
-        if computed_hash != hash {
+        if computed_hash != metadata.hash {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Hash mismatch: data corruption detected",
             ));
         }
 
-        Ok((
-            FileInfo {
-                name,
-                hash,
-                version,
-                last_modified_by: Some(stream.peer_addr()?.ip()),
-            },
-            file_buf,
-        ))
+        Ok((metadata, file_buf))
     }
 }
 

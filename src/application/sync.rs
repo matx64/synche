@@ -91,7 +91,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
 
 impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
     pub async fn new_default(state: AppState) -> Self {
-        let transporter = TcpTransporter::new(state.constants.device_id.clone()).await;
+        let transporter = TcpTransporter::new(state.constants.device_id).await;
         Self::new(
             state,
             NotifyFileWatcher::new(),

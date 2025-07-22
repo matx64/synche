@@ -70,7 +70,7 @@ impl<T: TransportInterface> TransportSender<T> {
                     let mut watch_rx = self.receivers.watch_rx.lock().await;
                     watch_rx.recv().await
                 } => {
-                    info!("File changed: {}", file.name);
+                    info!("🗃️ Adding changed file to buffer: {}", file.name);
                     buffer.insert(file.name.clone(), file);
                 },
 
@@ -78,8 +78,6 @@ impl<T: TransportInterface> TransportSender<T> {
                     if buffer.is_empty() {
                         continue;
                     }
-
-                    info!("Sending file changes: {:?}", buffer);
 
                     let sync_map = self.peer_manager.build_sync_map(&buffer);
 
