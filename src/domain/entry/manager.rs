@@ -38,10 +38,33 @@ impl EntryManager {
             .unwrap_or_default()
     }
 
-    pub fn insert_file(&self, entry: FileInfo) {
+    pub fn insert_file(&self, file: FileInfo) {
         if let Ok(mut files) = self.files.write() {
-            files.insert(entry.name.clone(), entry);
+            files.insert(file.name.clone(), file);
         }
+    }
+
+    pub fn file_created(&self, name: &str, hash: String) -> FileInfo {
+        let file = FileInfo {
+            name: name.to_owned(),
+            hash,
+            vv: HashMap::from([(self.local_id, 0)]),
+        };
+
+        self.insert_file(file.clone());
+        file
+    }
+
+    pub fn file_modified(&self, name: &str, hash: String) -> Option<FileInfo> {
+        self.files.write().ok().and_then(|mut files| {
+            if let Some(file) = files.get_mut(name) {
+                file.hash = hash;
+                *file.vv.entry(self.local_id).or_insert(0) += 1;
+                Some(file.clone())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn get_file(&self, name: &str) -> Option<FileInfo> {

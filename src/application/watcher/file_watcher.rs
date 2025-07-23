@@ -75,14 +75,7 @@ impl<T: FileWatcherInterface> FileWatcher<T> {
             }
         };
 
-        let file = FileInfo {
-            name: relative_path.clone(),
-            hash: disk_hash,
-            version: 0,
-            last_modified_by: None,
-        };
-
-        self.entry_manager.insert_file(file.clone());
+        let file = self.entry_manager.file_created(&relative_path, disk_hash);
 
         self.send_metadata(file).await;
     }
@@ -109,16 +102,10 @@ impl<T: FileWatcherInterface> FileWatcher<T> {
         };
 
         if file.hash != disk_hash {
-            let file = FileInfo {
-                name: relative_path.clone(),
-                hash: disk_hash,
-                version: file.version + 1,
-                last_modified_by: None,
-            };
-
-            self.entry_manager.insert_file(file.clone());
-
-            self.send_metadata(file).await;
+            if let Some(file) = self.entry_manager.file_modified(&relative_path, disk_hash) {
+                self.entry_manager.insert_file(file.clone());
+                self.send_metadata(file).await;
+            }
         }
     }
 
