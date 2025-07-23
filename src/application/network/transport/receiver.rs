@@ -69,7 +69,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
             .read_handshake(&mut data.stream)
             .await?;
 
-        let peer = Peer::new(data.src_id, data.src_addr, Some(sync_data));
+        let peer = Peer::new(data.src_id, data.src_addr, Some(sync_data.directories));
         self.peer_manager.insert(peer.clone());
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
@@ -82,7 +82,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
 
         info!("Synching peer: {}", data.src_addr.ip());
 
-        let files_to_send = self.entry_manager.get_files_to_send(&peer);
+        let files_to_send = self.entry_manager.get_files_to_send(&peer, sync_data.files);
 
         for file in files_to_send {
             self.senders
@@ -101,31 +101,26 @@ impl<T: TransportInterface> TransportReceiver<T> {
             .await?;
 
         let is_deleted = peer_file.is_deleted();
-        if is_deleted {
-            self.peer_manager.remove_file(data.src_id, &peer_file.name);
-        } else {
-            self.peer_manager
-                .insert_file(data.src_id, peer_file.clone());
-        }
 
+        // TODO: version vector
         match self.entry_manager.get_file(&peer_file.name) {
             Some(local_file) => {
-                if local_file.hash != peer_file.hash {
-                    if local_file.version < peer_file.version {
-                        if is_deleted {
-                            self.remove_file(&peer_file.name).await?;
-                        } else {
-                            self.senders
-                                .request_tx
-                                .send((data.src_addr, peer_file))
-                                .await
-                                .map_err(io::Error::other)?;
-                        }
-                    } else if local_file.version == peer_file.version {
-                        // TODO: Handle Conflict
-                        warn!("FILE VERSION CONFLICT: {}", local_file.name);
-                    }
-                }
+                // if local_file.hash != peer_file.hash {
+                //     if local_file.version < peer_file.version {
+                //         if is_deleted {
+                //             self.remove_file(&peer_file.name).await?;
+                //         } else {
+                //             self.senders
+                //                 .request_tx
+                //                 .send((data.src_addr, peer_file))
+                //                 .await
+                //                 .map_err(io::Error::other)?;
+                //         }
+                //     } else if local_file.version == peer_file.version {
+                //         // TODO: Handle Conflict
+                //         warn!("FILE VERSION CONFLICT: {}", local_file.name);
+                //     }
+                // }
             }
 
             None => {
@@ -148,7 +143,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
             .await?;
 
         if let Some(file) = self.entry_manager.get_file(&requested_file.name) {
-            if file.hash == requested_file.hash && file.version == requested_file.version {
+            if file.hash == requested_file.hash {
                 self.senders
                     .transfer_tx
                     .send((data.src_addr, requested_file))

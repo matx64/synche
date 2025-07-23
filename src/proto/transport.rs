@@ -1,12 +1,12 @@
 use crate::domain::{Directory, FileInfo};
 use serde::{Deserialize, Serialize};
-use std::io::ErrorKind;
+use std::{collections::HashMap, io::ErrorKind};
 use tokio::io::Error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PeerSyncData {
     pub directories: Vec<Directory>,
-    pub files: Vec<FileInfo>,
+    pub files: HashMap<String, FileInfo>,
 }
 
 #[derive(Debug)]

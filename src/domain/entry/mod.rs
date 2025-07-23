@@ -8,3 +8,4 @@ pub use directory::Directory;
 pub use file_info::FileInfo;
 pub use manager::EntryManager;
 pub use version::VersionVector;
+pub use version::VersionVectorCmp;

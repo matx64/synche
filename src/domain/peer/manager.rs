@@ -33,22 +33,6 @@ impl PeerManager {
         })
     }
 
-    pub fn insert_file(&self, peer_id: Uuid, file: FileInfo) {
-        if let Ok(mut peers) = self.peers.write() {
-            if let Some(peer) = peers.get_mut(&peer_id) {
-                peer.files.insert(file.name.clone(), file);
-            }
-        }
-    }
-
-    pub fn remove_file(&self, peer_id: Uuid, file_name: &str) {
-        if let Ok(mut peers) = self.peers.write() {
-            if let Some(peer) = peers.get_mut(&peer_id) {
-                peer.files.remove(file_name);
-            }
-        }
-    }
-
     pub fn build_sync_map<'a>(
         &self,
         buffer: &'a HashMap<String, FileInfo>,

@@ -3,15 +3,22 @@ use crate::{
     proto::transport::PeerSyncData,
 };
 use std::{collections::HashMap, sync::RwLock};
+use uuid::Uuid;
 
 pub struct EntryManager {
+    local_id: Uuid,
     directories: RwLock<HashMap<String, Directory>>,
     files: RwLock<HashMap<String, FileInfo>>,
 }
 
 impl EntryManager {
-    pub fn new(directories: HashMap<String, Directory>, files: HashMap<String, FileInfo>) -> Self {
+    pub fn new(
+        local_id: Uuid,
+        directories: HashMap<String, Directory>,
+        files: HashMap<String, FileInfo>,
+    ) -> Self {
         Self {
+            local_id,
             directories: RwLock::new(directories),
             files: RwLock::new(files),
         }
@@ -44,15 +51,17 @@ impl EntryManager {
             .unwrap_or_default()
     }
 
-    pub fn get_files_to_send(&self, peer: &Peer) -> Vec<FileInfo> {
+    pub fn get_files_to_send(
+        &self,
+        peer: &Peer,
+        peer_files: HashMap<String, FileInfo>,
+    ) -> Vec<FileInfo> {
         let mut result = Vec::new();
 
         if let Ok(files) = self.files.read() {
             for file in files.values() {
-                if let Some(peer_file) = peer.files.get(&file.name) {
-                    if peer_file.hash != file.hash && peer_file.version < file.version {
-                        result.push(file.to_owned());
-                    }
+                if let Some(peer_file) = peer_files.get(&file.name) {
+                    // TODO: version vector
                 } else if peer.directories.contains_key(&file.get_dir()) {
                     result.push(file.to_owned());
                 }
@@ -104,7 +113,13 @@ impl EntryManager {
         let files = self
             .files
             .read()
-            .map(|files| files.values().cloned().collect::<Vec<_>>())
+            .map(|files| {
+                files
+                    .values()
+                    .cloned()
+                    .map(|f| (f.name.clone(), f))
+                    .collect::<HashMap<_, _>>()
+            })
             .unwrap_or_default();
 
         PeerSyncData { directories, files }

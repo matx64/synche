@@ -1,5 +1,6 @@
 use crate::domain::entry::VersionVector;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 const DELETED_FILE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -7,14 +8,15 @@ const DELETED_FILE_HASH: &str = "00000000000000000000000000000000000000000000000
 pub struct FileInfo {
     pub name: String,
     pub hash: String,
-    pub version_vector: VersionVector,
+    pub vv: VersionVector,
 }
 
 impl FileInfo {
-    pub fn absent(name: String, version: u32) -> Self {
+    pub fn absent(name: String, _version: u32) -> Self {
         Self {
             name,
             hash: DELETED_FILE_HASH.to_string(),
+            vv: HashMap::new(),
         }
     }
 
