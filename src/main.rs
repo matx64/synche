@@ -9,8 +9,8 @@ use crate::application::Synchronizer;
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
-    let state = config::init();
+    let config = config::init();
 
-    let mut synchronizer = Synchronizer::new_default(state).await;
+    let mut synchronizer = Synchronizer::new_default(config).await;
     synchronizer.run().await
 }

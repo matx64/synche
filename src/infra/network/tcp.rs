@@ -19,19 +19,16 @@ const TCP_PORT: u16 = 8889;
 
 pub struct TcpTransporter {
     listener: TcpListener,
-    device_id: Uuid,
+    local_id: Uuid,
 }
 
 impl TcpTransporter {
-    pub async fn new(device_id: Uuid) -> Self {
+    pub async fn new(local_id: Uuid) -> Self {
         let listener = TcpListener::bind(format!("0.0.0.0:{TCP_PORT}"))
             .await
             .unwrap();
 
-        Self {
-            listener,
-            device_id,
-        }
+        Self { listener, local_id }
     }
 }
 
@@ -72,7 +69,7 @@ impl TransportInterface for TcpTransporter {
 
         info!(kind = ?kind, ip = ?addr.ip(), "[⬆️SEND]");
 
-        stream.write_all(self.device_id.as_bytes()).await?;
+        stream.write_all(self.local_id.as_bytes()).await?;
         stream.write_all(&[kind.as_u8()]).await?;
         stream
             .write_all(&(contents.len() as u32).to_be_bytes())
@@ -103,7 +100,7 @@ impl TransportInterface for TcpTransporter {
         info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️SEND]");
 
         // Write self peer id
-        stream.write_all(self.device_id.as_bytes()).await?;
+        stream.write_all(self.local_id.as_bytes()).await?;
 
         // Write sync kind
         stream.write_all(&[kind.as_u8()]).await?;
@@ -139,7 +136,7 @@ impl TransportInterface for TcpTransporter {
         info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️SEND]");
 
         // Write self peer id
-        stream.write_all(self.device_id.as_bytes()).await?;
+        stream.write_all(self.local_id.as_bytes()).await?;
 
         // Write sync kind
         stream.write_all(&[kind.as_u8()]).await?;
@@ -173,7 +170,7 @@ impl TransportInterface for TcpTransporter {
         info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️SEND]");
 
         // Write self peer id
-        stream.write_all(self.device_id.as_bytes()).await?;
+        stream.write_all(self.local_id.as_bytes()).await?;
 
         // Write sync kind
         stream.write_all(&[kind.as_u8()]).await?;

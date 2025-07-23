@@ -13,35 +13,35 @@ use std::{
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-pub struct AppState {
+pub struct Config {
     pub entry_manager: EntryManager,
     pub peer_manager: PeerManager,
     pub constants: AppConstants,
 }
 
 pub struct AppConstants {
-    pub device_id: Uuid,
+    pub local_id: Uuid,
     pub base_dir: PathBuf,
     pub tmp_dir: PathBuf,
     pub broadcast_interval_secs: u64,
 }
 
-pub fn init() -> AppState {
+pub fn init() -> Config {
     let cfg_path = ".synche";
     let base_dir = "synche-files";
 
-    let (device_id, configured_dirs) = load_config_file(cfg_path);
+    let (local_id, configured_dirs) = load_config_file(cfg_path);
     let (base_dir, tmp_dir) = create_dirs(base_dir);
 
     tracing_subscriber::fmt::init();
 
-    let (dirs, files) = build_entries(configured_dirs, &base_dir).unwrap();
+    let (dirs, files) = build_entries(local_id, configured_dirs, &base_dir).unwrap();
 
-    AppState {
-        entry_manager: EntryManager::new(dirs, files),
+    Config {
+        entry_manager: EntryManager::new(local_id, dirs, files),
         peer_manager: PeerManager::new(),
         constants: AppConstants {
-            device_id,
+            local_id,
             base_dir: base_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
             broadcast_interval_secs: 5,
@@ -55,7 +55,7 @@ fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
     let settings_dirs = serde_json::from_str(&settings_json).expect("Failed to parse config file");
 
     let id_path = PathBuf::from(cfg_base).join("device.id");
-    let device_id = match fs::read_to_string(&id_path) {
+    let local_id = match fs::read_to_string(&id_path) {
         Ok(id) => Uuid::parse_str(&id).unwrap(),
         Err(_) => {
             let id = Uuid::new_v4();
@@ -64,7 +64,7 @@ fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
         }
     };
 
-    (device_id, settings_dirs)
+    (local_id, settings_dirs)
 }
 
 fn create_dirs(base_dir: &str) -> (PathBuf, PathBuf) {
@@ -78,6 +78,7 @@ fn create_dirs(base_dir: &str) -> (PathBuf, PathBuf) {
 }
 
 fn build_entries(
+    local_id: Uuid,
     directories: Vec<ConfiguredDirectory>,
     base_dir: &Path,
 ) -> io::Result<(HashMap<String, Directory>, HashMap<String, FileInfo>)> {
@@ -93,7 +94,7 @@ fn build_entries(
 
         if path.is_dir() {
             dirs.insert(dir.name.clone(), Directory { name: dir.name });
-            build_dir(&path, &abs_base_path, &mut files)?;
+            build_dir(local_id, &path, &abs_base_path, &mut files)?;
         }
     }
 
@@ -101,6 +102,7 @@ fn build_entries(
 }
 
 fn build_dir(
+    local_id: Uuid,
     dir_path: &PathBuf,
     abs_base_path: &PathBuf,
     files: &mut HashMap<String, FileInfo>,
@@ -113,9 +115,9 @@ fn build_dir(
         }
 
         if path.is_file() {
-            build_file(&path.to_path_buf(), abs_base_path, files)?;
+            build_file(local_id, &path.to_path_buf(), abs_base_path, files)?;
         } else if path.is_dir() {
-            build_dir(&path.to_path_buf(), abs_base_path, files)?;
+            build_dir(local_id, &path.to_path_buf(), abs_base_path, files)?;
         }
     }
 
@@ -123,6 +125,7 @@ fn build_dir(
 }
 
 fn build_file(
+    local_id: Uuid,
     path: &PathBuf,
     abs_base_path: &PathBuf,
     files: &mut HashMap<String, FileInfo>,
@@ -130,13 +133,15 @@ fn build_file(
     let hash = compute_hash(path)?;
     let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
+    let mut vv = HashMap::new();
+    vv.insert(local_id, 0);
+
     files.insert(
         relative_path.clone(),
         FileInfo {
             name: relative_path,
             hash,
-            version: 0,
-            last_modified_by: None,
+            vv,
         },
     );
     Ok(())

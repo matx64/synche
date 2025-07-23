@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 pub struct PresenceService<T: PresenceInterface> {
     presence_adapter: T,
-    device_id: Uuid,
+    local_id: Uuid,
     peer_manager: Arc<PeerManager>,
     handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
     broadcast_interval_secs: u64,
@@ -23,14 +23,14 @@ pub struct PresenceService<T: PresenceInterface> {
 impl<T: PresenceInterface> PresenceService<T> {
     pub fn new(
         presence_adapter: T,
-        device_id: Uuid,
+        local_id: Uuid,
         peer_manager: Arc<PeerManager>,
         handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
         broadcast_interval_secs: u64,
     ) -> Self {
         Self {
             presence_adapter,
-            device_id,
+            local_id,
             peer_manager,
             handshake_tx,
             broadcast_interval_secs,
@@ -38,7 +38,7 @@ impl<T: PresenceInterface> PresenceService<T> {
     }
 
     pub async fn run_broadcast(&self) -> io::Result<()> {
-        let msg = format!("ping:{}", &self.device_id);
+        let msg = format!("ping:{}", &self.local_id);
         let msg = msg.as_bytes();
         let mut retries: usize = 0;
 

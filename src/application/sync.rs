@@ -7,7 +7,7 @@ use crate::{
         },
         watcher::{FileWatcher, FileWatcherInterface},
     },
-    config::AppState,
+    config::Config,
     infra::{
         network::{tcp::TcpTransporter, udp::UdpBroadcaster},
         watcher::notify::NotifyFileWatcher,
@@ -25,35 +25,35 @@ pub struct Synchronizer<W: FileWatcherInterface, P: PresenceInterface, T: Transp
 
 impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synchronizer<W, P, T> {
     pub fn new(
-        state: AppState,
+        config: Config,
         watch_adapter: W,
         presence_adapter: P,
         transport_adapter: T,
     ) -> Self {
-        let entry_manager = Arc::new(state.entry_manager);
-        let peer_manager = Arc::new(state.peer_manager);
+        let entry_manager = Arc::new(config.entry_manager);
+        let peer_manager = Arc::new(config.peer_manager);
         let transport_adapter = Arc::new(transport_adapter);
 
         let (transport_sender, sender_channels) = TransportSender::new(
             transport_adapter.clone(),
             entry_manager.clone(),
             peer_manager.clone(),
-            state.constants.base_dir.clone(),
+            config.constants.base_dir.clone(),
         );
 
         let file_watcher = FileWatcher::new(
             watch_adapter,
             entry_manager.clone(),
             sender_channels.watch_tx.clone(),
-            state.constants.base_dir.clone(),
+            config.constants.base_dir.clone(),
         );
 
         let presence_service = PresenceService::new(
             presence_adapter,
-            state.constants.device_id,
+            config.constants.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
-            state.constants.broadcast_interval_secs,
+            config.constants.broadcast_interval_secs,
         );
 
         let transport_receiver = TransportReceiver::new(
@@ -61,8 +61,8 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
             entry_manager,
             peer_manager,
             sender_channels,
-            state.constants.base_dir,
-            state.constants.tmp_dir,
+            config.constants.base_dir,
+            config.constants.tmp_dir,
         );
 
         Self {
@@ -90,10 +90,10 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
 }
 
 impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
-    pub async fn new_default(state: AppState) -> Self {
-        let transporter = TcpTransporter::new(state.constants.device_id).await;
+    pub async fn new_default(config: Config) -> Self {
+        let transporter = TcpTransporter::new(config.constants.local_id).await;
         Self::new(
-            state,
+            config,
             NotifyFileWatcher::new(),
             UdpBroadcaster::new().await,
             transporter,
