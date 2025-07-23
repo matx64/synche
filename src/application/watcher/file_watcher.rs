@@ -138,8 +138,9 @@ impl<T: FileWatcherInterface> FileWatcher<T> {
                 self.send_metadata(file).await;
             }
         } else if self.entry_manager.get_file(&relative_path).is_some() {
-            let removed = self.entry_manager.remove_file(&relative_path);
-            self.send_metadata(removed).await;
+            if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
+                self.send_metadata(removed).await;
+            }
         }
     }
 

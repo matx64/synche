@@ -71,15 +71,19 @@ impl EntryManager {
         result
     }
 
-    pub fn remove_file(&self, name: &str) -> FileInfo {
-        if let Ok(mut files) = self.files.write() {
-            match files.remove(name) {
-                Some(removed) => FileInfo::absent(removed.name, removed.version + 1),
-                None => FileInfo::absent(name.to_owned(), 0),
+    pub fn remove_file(&self, name: &str) -> Option<FileInfo> {
+        self.files.write().ok().and_then(|mut files| {
+            if let Some(mut removed) = files.remove(name) {
+                if let Some(old_version) = removed.vv.get(&self.local_id) {
+                    removed.vv.insert(self.local_id, *old_version + 1);
+                    Some(FileInfo::absent(name.to_owned(), removed.vv))
+                } else {
+                    None
+                }
+            } else {
+                None
             }
-        } else {
-            FileInfo::absent(name.to_owned(), 0)
-        }
+        })
     }
 
     pub fn remove_dir(&self, deleted: &str) -> Vec<FileInfo> {
@@ -94,8 +98,11 @@ impl EntryManager {
                 .collect();
 
             for name in to_remove {
-                if let Some(removed) = files.remove(&name) {
-                    removed_files.push(FileInfo::absent(name, removed.version + 1));
+                if let Some(mut removed) = files.remove(&name) {
+                    if let Some(old_version) = removed.vv.get(&self.local_id) {
+                        removed.vv.insert(self.local_id, *old_version + 1);
+                        removed_files.push(FileInfo::absent(name, removed.vv));
+                    }
                 }
             }
         }
