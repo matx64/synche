@@ -1,8 +1,11 @@
 use crate::{
-    domain::{Directory, FileInfo, Peer},
+    domain::{Directory, FileInfo, Peer, entry::VersionVectorCmp},
     proto::transport::PeerSyncData,
 };
-use std::{collections::HashMap, sync::RwLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::RwLock,
+};
 use uuid::Uuid;
 
 pub struct EntryManager {
@@ -81,17 +84,77 @@ impl EntryManager {
     ) -> Vec<FileInfo> {
         let mut result = Vec::new();
 
-        if let Ok(files) = self.files.read() {
-            for file in files.values() {
+        if let Ok(mut files) = self.files.write() {
+            for file in files.values_mut() {
                 if let Some(peer_file) = peer_files.get(&file.name) {
-                    // TODO: version vector
+                    let cmp = self.handle_handshake_version_vector(peer.id, peer_file, file);
+
+                    // TODO: Handle Conflict
+
+                    if matches!(cmp, VersionVectorCmp::KeepSelf) {
+                        result.push(file.to_owned());
+                    }
                 } else if peer.directories.contains_key(&file.get_dir()) {
+                    file.vv.insert(peer.id, 0);
                     result.push(file.to_owned());
                 }
             }
         }
 
         result
+    }
+
+    pub fn handle_handshake_version_vector(
+        &self,
+        peer_id: Uuid,
+        peer_file: &FileInfo,
+        local_file: &mut FileInfo,
+    ) -> VersionVectorCmp {
+        if local_file.hash == peer_file.hash {
+            self.merge_versions(peer_id, peer_file, local_file);
+            return VersionVectorCmp::Equal;
+        }
+
+        let all_peers: HashSet<Uuid> = local_file
+            .vv
+            .keys()
+            .chain(peer_file.vv.keys())
+            .cloned()
+            .collect();
+
+        let is_local_dominant = all_peers.iter().all(|p| {
+            let local_v = local_file.vv.get(p).unwrap_or(&0);
+            let peer_v = peer_file.vv.get(p).unwrap_or(&0);
+            local_v >= peer_v
+        });
+        let is_peer_dominant = all_peers.iter().all(|p| {
+            let peer_v = peer_file.vv.get(p).unwrap_or(&0);
+            let local_v = local_file.vv.get(p).unwrap_or(&0);
+            peer_v >= local_v
+        });
+
+        if is_local_dominant && is_peer_dominant {
+            self.merge_versions(peer_id, peer_file, local_file);
+            VersionVectorCmp::Conflict
+        } else if is_local_dominant {
+            self.merge_versions(peer_id, peer_file, local_file);
+            VersionVectorCmp::KeepSelf
+        } else if is_local_dominant {
+            local_file.vv = peer_file.vv.clone();
+            local_file.vv.entry(self.local_id).or_insert(0);
+            VersionVectorCmp::KeepPeer
+        } else {
+            self.merge_versions(peer_id, peer_file, local_file);
+            VersionVectorCmp::Conflict
+        }
+    }
+
+    fn merge_versions(&self, peer_id: Uuid, peer_file: &FileInfo, local_file: &mut FileInfo) {
+        for (pid, pv) in &peer_file.vv {
+            let local_version = local_file.vv.entry(*pid).or_insert(0);
+            *local_version = (*local_version).max(*pv);
+        }
+        local_file.vv.entry(peer_id).or_insert(0);
     }
 
     pub fn remove_file(&self, name: &str) -> Option<FileInfo> {
