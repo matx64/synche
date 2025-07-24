@@ -6,6 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::RwLock,
 };
+use tracing::warn;
 use uuid::Uuid;
 
 pub struct EntryManager {
@@ -90,6 +91,9 @@ impl EntryManager {
                     let cmp = self.handle_handshake_version_vector(peer.id, peer_file, file);
 
                     // TODO: Handle Conflict
+                    if matches!(cmp, VersionVectorCmp::Conflict) {
+                        warn!("CONFLICT IN FILE: {}", file.name);
+                    }
 
                     if matches!(cmp, VersionVectorCmp::KeepSelf) {
                         result.push(file.to_owned());
@@ -139,7 +143,7 @@ impl EntryManager {
         } else if is_local_dominant {
             self.merge_versions(peer_id, peer_file, local_file);
             VersionVectorCmp::KeepSelf
-        } else if is_local_dominant {
+        } else if is_peer_dominant {
             local_file.vv = peer_file.vv.clone();
             local_file.vv.entry(self.local_id).or_insert(0);
             VersionVectorCmp::KeepPeer

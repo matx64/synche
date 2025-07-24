@@ -103,7 +103,6 @@ impl<T: FileWatcherInterface> FileWatcher<T> {
 
         if file.hash != disk_hash {
             if let Some(file) = self.entry_manager.file_modified(&relative_path, disk_hash) {
-                self.entry_manager.insert_file(file.clone());
                 self.send_metadata(file).await;
             }
         }

@@ -133,15 +133,12 @@ fn build_file(
     let hash = compute_hash(path)?;
     let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
-    let mut vv = HashMap::new();
-    vv.insert(local_id, 0);
-
     files.insert(
         relative_path.clone(),
         FileInfo {
             name: relative_path,
             hash,
-            vv,
+            vv: HashMap::from([(local_id, 0)]),
         },
     );
     Ok(())
