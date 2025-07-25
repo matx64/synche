@@ -42,7 +42,7 @@ impl PresenceService {
                 }
 
                 _ => {
-                    info!("🖥️ Connected Peers: {:?}", self.peer_manager.list());
+                    info!("🖥️  Connected Peers: {:?}", self.peer_manager.list());
                 }
             }
         }

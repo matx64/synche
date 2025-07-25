@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tokio::io;
 use uuid::Uuid;
 
-const MDNS_PORT: u16 = 5353;
+const MDNS_PORT: u16 = 8888;
 
 pub struct MdnsAdapter {
     daemon: ServiceDaemon,
@@ -29,14 +29,15 @@ impl MdnsAdapter {
 
     pub fn advertise(&self) {
         let local_ip = local_ip_address::local_ip().unwrap();
+        let hostname = hostname::get().unwrap().to_string_lossy().to_string() + ".local.";
 
         let service_info = ServiceInfo::new(
             &self.service_type,
             &self.local_id.to_string(),
-            &format!("{local_ip}.local."),
+            &hostname,
             local_ip,
             MDNS_PORT,
-            HashMap::new(),
+            None::<HashMap<String, String>>,
         )
         .unwrap();
 
@@ -51,7 +52,8 @@ impl MdnsAdapter {
 
     pub fn get_peer_id(&self, fullname: &str) -> Option<Uuid> {
         fullname
-            .strip_suffix(".local.")
-            .and_then(|pid| Uuid::parse_str(pid).ok())
+            .split('.')
+            .next()
+            .and_then(|id| Uuid::parse_str(id).ok())
     }
 }
