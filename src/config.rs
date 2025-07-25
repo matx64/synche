@@ -29,9 +29,10 @@ pub struct AppConstants {
 pub fn init() -> Config {
     let cfg_path = ".synche";
     let base_dir = "synche-files";
+    let tmp_dir = ".tmp";
 
     let (local_id, configured_dirs) = load_config_file(cfg_path);
-    let (base_dir, tmp_dir) = create_dirs(base_dir);
+    let (base_dir, tmp_dir) = create_dirs(base_dir, tmp_dir);
 
     tracing_subscriber::fmt::init();
 
@@ -59,7 +60,7 @@ fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
         Ok(id) => Uuid::parse_str(&id).unwrap(),
         Err(_) => {
             let id = Uuid::new_v4();
-            fs::write(id_path, id.as_bytes()).expect("Failed to write device.id file");
+            fs::write(id_path, id.to_string()).expect("Failed to write device.id file");
             id
         }
     };
@@ -67,8 +68,8 @@ fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
     (local_id, settings_dirs)
 }
 
-fn create_dirs(base_dir: &str) -> (PathBuf, PathBuf) {
-    let tmp_dir = std::env::temp_dir().join(base_dir);
+fn create_dirs(base_dir: &str, tmp_dir: &str) -> (PathBuf, PathBuf) {
+    let tmp_dir = PathBuf::new().join(tmp_dir);
     let base_dir = PathBuf::new().join(base_dir);
 
     fs::create_dir_all(&tmp_dir).unwrap();
