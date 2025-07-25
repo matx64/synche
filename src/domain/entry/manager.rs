@@ -88,7 +88,7 @@ impl EntryManager {
         if let Ok(mut files) = self.files.write() {
             for file in files.values_mut() {
                 if let Some(peer_file) = peer_files.get(&file.name) {
-                    let cmp = self.handle_handshake_version_vector(peer.id, peer_file, file);
+                    let cmp = self.compare_vv(peer.id, peer_file, file);
 
                     // TODO: Handle Conflict
                     if matches!(cmp, VersionVectorCmp::Conflict) {
@@ -108,7 +108,14 @@ impl EntryManager {
         result
     }
 
-    pub fn handle_handshake_version_vector(
+    pub fn handle_metadata(&self, peer_id: Uuid, peer_file: &FileInfo) -> VersionVectorCmp {
+        match self.files.write().unwrap().get_mut(&peer_file.name) {
+            Some(local_file) => self.compare_vv(peer_id, peer_file, local_file),
+            None => VersionVectorCmp::KeepPeer,
+        }
+    }
+
+    pub fn compare_vv(
         &self,
         peer_id: Uuid,
         peer_file: &FileInfo,

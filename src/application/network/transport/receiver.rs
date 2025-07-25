@@ -3,7 +3,7 @@ use crate::{
         TransportInterface,
         transport::interface::{TransportData, TransportSenders},
     },
-    domain::{EntryManager, Peer, PeerManager},
+    domain::{EntryManager, Peer, PeerManager, entry::VersionVectorCmp},
     proto::transport::{SyncFileKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -102,38 +102,30 @@ impl<T: TransportInterface> TransportReceiver<T> {
 
         let is_deleted = peer_file.is_deleted();
 
-        // TODO: version vector
-        match self.entry_manager.get_file(&peer_file.name) {
-            Some(local_file) => {
-                // if local_file.hash != peer_file.hash {
-                //     if local_file.version < peer_file.version {
-                //         if is_deleted {
-                //             self.remove_file(&peer_file.name).await?;
-                //         } else {
-                //             self.senders
-                //                 .request_tx
-                //                 .send((data.src_addr, peer_file))
-                //                 .await
-                //                 .map_err(io::Error::other)?;
-                //         }
-                //     } else if local_file.version == peer_file.version {
-                //         // TODO: Handle Conflict
-                //         warn!("FILE VERSION CONFLICT: {}", local_file.name);
-                //     }
-                // }
-            }
+        if is_deleted && self.entry_manager.get_file(&peer_file.name).is_none() {
+            return Ok(());
+        }
 
-            None => {
-                if !is_deleted {
+        let cmp = self.entry_manager.handle_metadata(data.src_id, &peer_file);
+        match cmp {
+            VersionVectorCmp::KeepPeer => {
+                if is_deleted {
+                    self.remove_file(&peer_file.name).await
+                } else {
                     self.senders
                         .request_tx
                         .send((data.src_addr, peer_file))
                         .await
-                        .map_err(io::Error::other)?;
+                        .map_err(io::Error::other)
                 }
             }
+            VersionVectorCmp::Conflict => {
+                // TODO: Conflict
+                warn!("Metadata Conflict in file: {}", peer_file.name);
+                Ok(())
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     pub async fn handle_request(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
@@ -184,15 +176,9 @@ impl<T: TransportInterface> TransportReceiver<T> {
     }
 
     pub async fn remove_file(&self, file_name: &str) -> io::Result<()> {
-        let removed = self.entry_manager.remove_file(file_name);
+        let _ = self.entry_manager.remove_file(file_name);
 
         let path = self.base_dir.join(file_name);
-        let _ = fs::remove_file(path).await;
-
-        self.senders
-            .watch_tx
-            .send(removed)
-            .await
-            .map_err(io::Error::other)
+        fs::remove_file(path).await
     }
 }
