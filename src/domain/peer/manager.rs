@@ -1,5 +1,10 @@
 use crate::domain::{FileInfo, Peer};
-use std::{collections::HashMap, net::SocketAddr, sync::RwLock, time::SystemTime};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    sync::RwLock,
+    time::SystemTime,
+};
 use uuid::Uuid;
 
 pub struct PeerManager {
@@ -13,6 +18,13 @@ impl PeerManager {
             peers: RwLock::new(HashMap::new()),
             peer_timeout_secs: 15,
         }
+    }
+
+    pub fn list(&self) -> Vec<(Uuid, IpAddr)> {
+        self.peers
+            .read()
+            .map(|peers| peers.values().map(|p| (p.id, p.addr.ip())).collect())
+            .unwrap_or_default()
     }
 
     pub fn insert(&self, peer: Peer) {
@@ -52,19 +64,9 @@ impl PeerManager {
         result
     }
 
-    pub fn retain(&self) -> Vec<String> {
-        self.peers
-            .write()
-            .map(|mut peers| {
-                peers.retain(|_, peer| {
-                    peer.last_seen
-                        .elapsed()
-                        .map(|e| e.as_secs() <= self.peer_timeout_secs)
-                        .unwrap_or(true)
-                });
-
-                peers.keys().map(|k| k.to_string()).collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
+    pub fn remove(&self, id: &Uuid) {
+        if let Ok(mut peers) = self.peers.write() {
+            peers.remove(id);
+        }
     }
 }

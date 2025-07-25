@@ -1,16 +1,18 @@
 use mdns_sd::{Receiver, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::collections::HashMap;
-use tracing::{error, info};
+use tokio::io;
 use uuid::Uuid;
 
-pub struct MdnsPresence {
+const MDNS_PORT: u16 = 5353;
+
+pub struct MdnsAdapter {
     daemon: ServiceDaemon,
     local_id: Uuid,
     service_type: String,
     receiver: Receiver<ServiceEvent>,
 }
 
-impl MdnsPresence {
+impl MdnsAdapter {
     pub fn new(local_id: Uuid) -> Self {
         let daemon = ServiceDaemon::new().expect("Failed to create mdns daemon");
 
@@ -33,7 +35,7 @@ impl MdnsPresence {
             &self.local_id.to_string(),
             &format!("{local_ip}.local."),
             local_ip,
-            5353,
+            MDNS_PORT,
             HashMap::new(),
         )
         .unwrap();
@@ -43,33 +45,13 @@ impl MdnsPresence {
             .expect("Failed to register mdns service");
     }
 
-    pub async fn recv(&self) -> tokio::io::Result<()> {
-        loop {
-            match self.receiver.recv_async().await {
-                Ok(event) => match event {
-                    ServiceEvent::SearchStarted(hostname) => {
-                        info!("ServiceEvent::SearchStarted = {}", hostname);
-                    }
-                    ServiceEvent::ServiceFound(service_type, fullname) => {
-                        info!("ServiceEvent::ServiceFound = {} {}", service_type, fullname);
-                    }
-                    ServiceEvent::ServiceResolved(service_info) => {
-                        info!("ServiceEvent::ServiceResolved = {:?}", service_info);
-                    }
-                    ServiceEvent::ServiceRemoved(service_type, fullname) => {
-                        info!(
-                            "ServiceEvent::ServiceRemoved = {} {}",
-                            service_type, fullname
-                        );
-                    }
-                    ServiceEvent::SearchStopped(hostname) => {
-                        info!("ServiceEvent::SearchStopped = {}", hostname);
-                    }
-                },
-                Err(err) => {
-                    error!("mDNS error: {}", err);
-                }
-            };
-        }
+    pub async fn recv(&self) -> io::Result<ServiceEvent> {
+        self.receiver.recv_async().await.map_err(io::Error::other)
+    }
+
+    pub fn get_peer_id(&self, fullname: &str) -> Option<Uuid> {
+        fullname
+            .strip_suffix(".local.")
+            .and_then(|pid| Uuid::parse_str(pid).ok())
     }
 }

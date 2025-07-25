@@ -1,35 +1,27 @@
 use crate::{
     application::{
         network::{
-            PresenceInterface, TransportInterface,
+            TransportInterface,
             presence::PresenceService,
             transport::{TransportReceiver, TransportSender},
         },
         watcher::{FileWatcher, FileWatcherInterface},
     },
     config::Config,
-    infra::{
-        network::{tcp::TcpTransporter, udp::UdpBroadcaster},
-        watcher::notify::NotifyFileWatcher,
-    },
+    infra::{network::tcp::TcpTransporter, watcher::notify::NotifyFileWatcher},
 };
 use std::sync::Arc;
 use tokio::io;
 
-pub struct Synchronizer<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> {
+pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface> {
     file_watcher: FileWatcher<W>,
-    presence_service: PresenceService<P>,
+    presence_service: PresenceService,
     transport_sender: TransportSender<T>,
     transport_receiver: TransportReceiver<T>,
 }
 
-impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synchronizer<W, P, T> {
-    pub fn new(
-        config: Config,
-        watch_adapter: W,
-        presence_adapter: P,
-        transport_adapter: T,
-    ) -> Self {
+impl<W: FileWatcherInterface, T: TransportInterface> Synchronizer<W, T> {
+    pub fn new(config: Config, watch_adapter: W, transport_adapter: T) -> Self {
         let entry_manager = Arc::new(config.entry_manager);
         let peer_manager = Arc::new(config.peer_manager);
         let transport_adapter = Arc::new(transport_adapter);
@@ -49,11 +41,9 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
         );
 
         let presence_service = PresenceService::new(
-            presence_adapter,
             config.constants.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
-            config.constants.broadcast_interval_secs,
         );
 
         let transport_receiver = TransportReceiver::new(
@@ -80,23 +70,16 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
             self.transport_sender.send_handshakes(),
             self.transport_sender.send_requests(),
             self.transport_sender.send_files(),
-            self.presence_service.run_recv(),
-            self.presence_service.run_broadcast(),
-            self.presence_service.monitor_peers(),
+            self.presence_service.run(),
             self.file_watcher.run(),
         )?;
         Ok(())
     }
 }
 
-impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
+impl Synchronizer<NotifyFileWatcher, TcpTransporter> {
     pub async fn new_default(config: Config) -> Self {
         let transporter = TcpTransporter::new(config.constants.local_id).await;
-        Self::new(
-            config,
-            NotifyFileWatcher::new(),
-            UdpBroadcaster::new().await,
-            transporter,
-        )
+        Self::new(config, NotifyFileWatcher::new(), transporter)
     }
 }
