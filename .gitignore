@@ -1,5 +1,5 @@
 /target
 /synche-files
-/tmp
+/.tmp
 /.synche/settings.json
 /.synche/device.id
