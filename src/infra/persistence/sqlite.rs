@@ -104,3 +104,64 @@ impl From<serde_json::Error> for PersistenceError {
         Self::Failure(value.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    fn sample_file(name: &str) -> FileInfo {
+        FileInfo {
+            name: name.to_string(),
+            hash: "abc123".to_string(),
+            vv: HashMap::from([(Uuid::new_v4(), 0)]),
+        }
+    }
+
+    fn init_db() -> SqliteDb {
+        SqliteDb::new(":memory:").expect("Failed to create in-memory db")
+    }
+
+    #[test]
+    fn test_insert_and_get_file() {
+        let db = init_db();
+        let file = sample_file("file1.txt");
+
+        db.insert_or_replace_file(&file).unwrap();
+        let loaded = db.get_file("file1.txt").unwrap().unwrap();
+
+        assert_eq!(loaded.name, file.name);
+        assert_eq!(loaded.hash, file.hash);
+        assert_eq!(loaded.vv, file.vv);
+    }
+
+    #[test]
+    fn test_remove_file() {
+        let db = init_db();
+        let file = sample_file("file2.txt");
+
+        db.insert_or_replace_file(&file).unwrap();
+        let removed = db.remove_file("file2.txt").unwrap();
+
+        assert_eq!(removed.unwrap().name, file.name);
+        assert!(db.get_file("file2.txt").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_list_all_files() {
+        let db = init_db();
+        let file1 = sample_file("fileA.txt");
+        let file2 = sample_file("fileB.txt");
+
+        db.insert_or_replace_file(&file1).unwrap();
+        db.insert_or_replace_file(&file2).unwrap();
+
+        let mut files = db.list_all_files().unwrap();
+        files.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].name, "fileA.txt");
+        assert_eq!(files[1].name, "fileB.txt");
+    }
+}
