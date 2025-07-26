@@ -1,5 +1,6 @@
 use crate::{
     application::{
+        EntryManager, PeerManager,
         network::{
             PresenceInterface, TransportInterface,
             presence::PresenceService,
@@ -30,8 +31,12 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
         presence_adapter: P,
         transport_adapter: T,
     ) -> Self {
-        let entry_manager = Arc::new(config.entry_manager);
-        let peer_manager = Arc::new(config.peer_manager);
+        let entry_manager = Arc::new(EntryManager::new(
+            config.constants.local_id,
+            config.directories,
+            config.filesystem_files,
+        ));
+        let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
 
         let (transport_sender, sender_channels) = TransportSender::new(

@@ -1,9 +1,12 @@
 use crate::{
-    application::network::{
-        TransportInterface,
-        transport::interface::{TransportReceivers, TransportSenders},
+    application::{
+        EntryManager, PeerManager,
+        network::{
+            TransportInterface,
+            transport::interface::{TransportReceivers, TransportSenders},
+        },
     },
-    domain::{EntryManager, FileInfo, PeerManager},
+    domain::FileInfo,
     proto::transport::{SyncHandshakeKind, SyncKind},
 };
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};

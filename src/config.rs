@@ -1,5 +1,5 @@
 use crate::{
-    domain::{ConfiguredDirectory, Directory, EntryManager, FileInfo, PeerManager},
+    domain::{ConfiguredDirectory, Directory, FileInfo},
     utils::fs::{compute_hash, get_relative_path},
 };
 use std::{
@@ -14,8 +14,8 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub struct Config {
-    pub entry_manager: EntryManager,
-    pub peer_manager: PeerManager,
+    pub directories: HashMap<String, Directory>,
+    pub filesystem_files: HashMap<String, FileInfo>,
     pub constants: AppConstants,
 }
 
@@ -39,8 +39,8 @@ pub fn init() -> Config {
     let (dirs, files) = build_entries(local_id, configured_dirs, &base_dir).unwrap();
 
     Config {
-        entry_manager: EntryManager::new(local_id, dirs, files),
-        peer_manager: PeerManager::new(),
+        directories: dirs,
+        filesystem_files: files,
         constants: AppConstants {
             local_id,
             base_dir: base_dir.to_owned(),

@@ -1,9 +1,12 @@
 use crate::{
-    application::network::{
-        TransportInterface,
-        transport::interface::{TransportData, TransportSenders},
+    application::{
+        EntryManager, PeerManager,
+        network::{
+            TransportInterface,
+            transport::interface::{TransportData, TransportSenders},
+        },
     },
-    domain::{EntryManager, Peer, PeerManager, entry::VersionVectorCmp},
+    domain::{Peer, entry::VersionVectorCmp},
     proto::transport::{SyncFileKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};

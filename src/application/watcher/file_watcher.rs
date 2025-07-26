@@ -1,6 +1,6 @@
 use crate::{
-    application::watcher::FileWatcherInterface,
-    domain::{EntryManager, FileInfo, filesystem::FileChangeEvent},
+    application::{EntryManager, watcher::FileWatcherInterface},
+    domain::{FileInfo, filesystem::FileChangeEvent},
     utils::fs::{compute_hash, get_relative_path},
 };
 use std::{io, path::PathBuf, sync::Arc};

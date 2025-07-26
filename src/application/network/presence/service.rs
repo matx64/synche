@@ -1,5 +1,5 @@
 use crate::{
-    application::network::PresenceInterface, domain::PeerManager,
+    application::{PeerManager, network::PresenceInterface},
     proto::transport::SyncHandshakeKind,
 };
 use local_ip_address::{list_afinet_netifas, local_ip};
