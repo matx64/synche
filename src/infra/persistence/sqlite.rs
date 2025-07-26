@@ -55,6 +55,42 @@ impl PersistenceInterface for SqliteDb {
             Ok(None)
         }
     }
+
+    fn list_all_files(&self) -> PersistenceResult<Vec<FileInfo>> {
+        let mut stmt = self.conn.prepare("SELECT name, hash, vv FROM files")?;
+
+        let file_iter = stmt.query_map([], |row| {
+            let name: String = row.get(0)?;
+            let hash: String = row.get(1)?;
+            let vv_json: String = row.get(2)?;
+            let vv: VersionVector = serde_json::from_str(&vv_json).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    vv_json.len(),
+                    rusqlite::types::Type::Text,
+                    Box::new(err),
+                )
+            })?;
+            Ok(FileInfo { name, hash, vv })
+        })?;
+
+        let mut files = Vec::new();
+        for file in file_iter {
+            files.push(file?);
+        }
+
+        Ok(files)
+    }
+
+    fn remove_file(&self, name: &str) -> PersistenceResult<Option<FileInfo>> {
+        let Some(file) = self.get_file(name)? else {
+            return Ok(None);
+        };
+
+        self.conn
+            .execute("DELETE FROM files WHERE name = ?1", params![name])?;
+
+        Ok(Some(file))
+    }
 }
 
 impl From<rusqlite::Error> for PersistenceError {
