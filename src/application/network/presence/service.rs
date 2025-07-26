@@ -82,4 +82,8 @@ impl PresenceService {
         info!(id = ?peer_id, "Peer Disconnected");
         Ok(())
     }
+
+    pub fn shutdown(&self) {
+        self.mdns_adapter.shutdown();
+    }
 }

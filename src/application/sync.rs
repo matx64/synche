@@ -75,6 +75,10 @@ impl<W: FileWatcherInterface, T: TransportInterface> Synchronizer<W, T> {
         )?;
         Ok(())
     }
+
+    pub fn shutdown(&self) {
+        self.presence_service.shutdown();
+    }
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpTransporter> {

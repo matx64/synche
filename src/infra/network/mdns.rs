@@ -1,6 +1,7 @@
 use mdns_sd::{Receiver, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::collections::HashMap;
 use tokio::io;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 const MDNS_PORT: u16 = 8888;
@@ -55,5 +56,18 @@ impl MdnsAdapter {
             .split('.')
             .next()
             .and_then(|id| Uuid::parse_str(id).ok())
+    }
+
+    pub fn shutdown(&self) {
+        for _ in 0..3 {
+            match self.daemon.shutdown() {
+                Err(mdns_sd::Error::Again) => continue,
+                _ => {
+                    info!("mDNS daemon shutdown");
+                    return;
+                }
+            }
+        }
+        warn!("Failed to shutdown mDNS daemon after 3 attempts");
     }
 }
