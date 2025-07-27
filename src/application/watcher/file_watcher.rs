@@ -123,10 +123,13 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         };
 
-        if !path.exists() && self.entry_manager.get_file(&relative_path).is_some() {
-            self.handle_deleted(path).await;
-        } else {
-            self.handle_created(path).await;
+        let exists = path.exists();
+        let is_tracked = self.entry_manager.get_file(&relative_path).is_some();
+
+        match (exists, is_tracked) {
+            (false, true) => self.handle_deleted(path).await,
+            (true, false) => self.handle_created(path).await,
+            _ => {}
         }
     }
 
