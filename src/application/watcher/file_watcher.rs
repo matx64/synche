@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{io, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc::Sender;
-use tracing::error;
+use tracing::{error, info};
 
 pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
@@ -45,6 +45,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
         loop {
             if let Some(event) = self.watch_adapter.next().await {
+                info!("File Change Event: {event:?}");
                 match event {
                     FileChangeEvent::Created(path) => {
                         self.handle_created(path).await;
@@ -119,15 +120,15 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         }
 
-        if self.entry_manager.is_dir(&relative_path) {
+        if self.entry_manager.get_file(&relative_path).is_some() {
+            if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
+                self.send_metadata(removed).await;
+            }
+        } else {
             let removed_files = self.entry_manager.remove_dir(&relative_path);
 
             for file in removed_files {
                 self.send_metadata(file).await;
-            }
-        } else if self.entry_manager.get_file(&relative_path).is_some() {
-            if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
-                self.send_metadata(removed).await;
             }
         }
     }

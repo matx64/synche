@@ -74,7 +74,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                     let mut watch_rx = self.receivers.watch_rx.lock().await;
                     watch_rx.recv().await
                 } => {
-                    info!("🗃️ Adding changed file to buffer: {}", file.name);
+                    info!("🗃️  Adding changed file to buffer: {}", file.name);
                     buffer.insert(file.name.clone(), file);
                 },
 

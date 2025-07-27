@@ -68,13 +68,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .unwrap_or_default()
     }
 
-    pub fn is_dir(&self, name: &str) -> bool {
-        self.directories
-            .read()
-            .map(|dirs| dirs.get(name).is_some())
-            .unwrap_or_default()
-    }
-
     pub fn insert_file(&self, file: &FileInfo) {
         self.db.insert_or_replace_file(file).unwrap();
     }
