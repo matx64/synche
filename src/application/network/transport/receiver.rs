@@ -73,25 +73,25 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .read_handshake(&mut data.stream)
             .await?;
 
-        let peer = Peer::new(data.src_id, data.src_addr, Some(sync_data.directories));
+        let peer = Peer::new(data.src_id, data.src_ip, Some(sync_data.directories));
         self.peer_manager.insert(peer.clone());
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
             self.senders
                 .handshake_tx
-                .send((data.src_addr, SyncHandshakeKind::Response))
+                .send((data.src_ip, SyncHandshakeKind::Response))
                 .await
                 .map_err(io::Error::other)?;
         }
 
-        info!("Synching peer: {}", data.src_addr.ip());
+        info!("Synching peer: {}", data.src_ip);
 
         let files_to_send = self.entry_manager.get_files_to_send(&peer, sync_data.files);
 
         for file in files_to_send {
             self.senders
                 .transfer_tx
-                .send((data.src_addr, file))
+                .send((data.src_ip, file))
                 .await
                 .map_err(io::Error::other)?;
         }
@@ -118,7 +118,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
                 } else {
                     self.senders
                         .request_tx
-                        .send((data.src_addr, peer_file))
+                        .send((data.src_ip, peer_file))
                         .await
                         .map_err(io::Error::other)
                 }
@@ -142,7 +142,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             if file.hash == requested_file.hash {
                 self.senders
                     .transfer_tx
-                    .send((data.src_addr, requested_file))
+                    .send((data.src_ip, requested_file))
                     .await
                     .map_err(io::Error::other)?;
             }

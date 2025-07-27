@@ -10,7 +10,7 @@ use crate::{
     domain::FileInfo,
     proto::transport::{SyncHandshakeKind, SyncKind},
 };
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     fs::File,
     io::{self, AsyncReadExt},
@@ -38,9 +38,9 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         base_dir: PathBuf,
     ) -> (Self, TransportSenders) {
         let (watch_tx, watch_rx) = mpsc::channel::<FileInfo>(100);
-        let (handshake_tx, handshake_rx) = mpsc::channel::<(SocketAddr, SyncHandshakeKind)>(100);
-        let (request_tx, request_rx) = mpsc::channel::<(SocketAddr, FileInfo)>(100);
-        let (transfer_tx, transfer_rx) = mpsc::channel::<(SocketAddr, FileInfo)>(100);
+        let (handshake_tx, handshake_rx) = mpsc::channel::<(IpAddr, SyncHandshakeKind)>(100);
+        let (request_tx, request_rx) = mpsc::channel::<(IpAddr, FileInfo)>(100);
+        let (transfer_tx, transfer_rx) = mpsc::channel::<(IpAddr, FileInfo)>(100);
 
         (
             Self {

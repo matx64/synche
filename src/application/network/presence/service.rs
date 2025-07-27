@@ -3,11 +3,7 @@ use crate::{
     proto::transport::SyncHandshakeKind,
 };
 use local_ip_address::{list_afinet_netifas, local_ip};
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::Duration,
-};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, sync::mpsc::Sender, time};
 use tracing::{error, info};
 use uuid::Uuid;
@@ -16,7 +12,7 @@ pub struct PresenceService<T: PresenceInterface> {
     presence_adapter: T,
     local_id: Uuid,
     peer_manager: Arc<PeerManager>,
-    handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
+    handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
     broadcast_interval_secs: u64,
 }
 
@@ -25,7 +21,7 @@ impl<T: PresenceInterface> PresenceService<T> {
         presence_adapter: T,
         local_id: Uuid,
         peer_manager: Arc<PeerManager>,
-        handshake_tx: Sender<(SocketAddr, SyncHandshakeKind)>,
+        handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
         broadcast_interval_secs: u64,
     ) -> Self {
         Self {
@@ -63,8 +59,7 @@ impl<T: PresenceInterface> PresenceService<T> {
         let ifas = list_afinet_netifas().unwrap();
 
         loop {
-            let (msg, src_addr) = self.presence_adapter.recv().await?;
-            let src_ip = src_addr.ip();
+            let (msg, src_ip) = self.presence_adapter.recv().await?;
 
             if self.is_host(&ifas, src_ip) {
                 continue;
@@ -80,11 +75,11 @@ impl<T: PresenceInterface> PresenceService<T> {
             };
 
             let send_handshake =
-                self.peer_manager.insert_or_update(peer_id, src_addr) && local_ip < src_ip;
+                self.peer_manager.insert_or_update(peer_id, src_ip) && local_ip < src_ip;
 
             if send_handshake {
                 self.handshake_tx
-                    .send((src_addr, SyncHandshakeKind::Request))
+                    .send((src_ip, SyncHandshakeKind::Request))
                     .await
                     .map_err(io::Error::other)?;
             }
@@ -98,7 +93,7 @@ impl<T: PresenceInterface> PresenceService<T> {
         }
     }
 
-    fn is_host(&self, ifas: &[(String, IpAddr)], addr: IpAddr) -> bool {
-        ifas.iter().any(|ifa| ifa.1 == addr)
+    fn is_host(&self, ifas: &[(String, IpAddr)], ip: IpAddr) -> bool {
+        ifas.iter().any(|ifa| ifa.1 == ip)
     }
 }

@@ -1,13 +1,16 @@
 use crate::{
     application::network::{
         TransportInterface,
-        transport::interface::{TransportData, TransportStreamExt},
+        transport::interface::{TransportData, TransportStream},
     },
     domain::FileInfo,
     proto::transport::{PeerSyncData, SyncFileKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
-use std::{io::ErrorKind, net::SocketAddr};
+use std::{
+    io::ErrorKind,
+    net::{IpAddr, SocketAddr},
+};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -37,6 +40,7 @@ impl TransportInterface for TcpTransporter {
 
     async fn recv(&self) -> io::Result<TransportData<Self::Stream>> {
         let (mut stream, src_addr) = self.listener.accept().await?;
+        let src_ip = src_addr.ip();
 
         let mut src_id_buf = [0u8; 16];
         stream.read_exact(&mut src_id_buf).await?;
@@ -46,11 +50,11 @@ impl TransportInterface for TcpTransporter {
         stream.read_exact(&mut kind_buf).await?;
 
         let kind = SyncKind::try_from(kind_buf[0])?;
-        info!(kind = ?kind, id = ?src_id, ip = ?src_addr.ip(), "[🔔 RECV]");
+        info!(kind = ?kind, id = ?src_id, ip = ?src_ip, "[🔔 RECV]");
 
         Ok(TransportData {
             src_id,
-            src_addr,
+            src_ip,
             kind,
             stream,
         })
@@ -58,16 +62,16 @@ impl TransportInterface for TcpTransporter {
 
     async fn send_handshake(
         &self,
-        mut addr: SocketAddr,
+        addr: IpAddr,
         kind: SyncKind,
         data: PeerSyncData,
     ) -> io::Result<()> {
-        addr.set_port(TCP_PORT);
-        let mut stream = TcpStream::connect(addr).await?;
+        let socket = SocketAddr::new(addr, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
 
         let contents = serde_json::to_vec(&data)?;
 
-        info!(kind = ?kind, ip = ?addr.ip(), "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, "[⬆️  SEND]");
 
         stream.write_all(self.local_id.as_bytes()).await?;
         stream.write_all(&[kind.as_u8()]).await?;
@@ -90,14 +94,14 @@ impl TransportInterface for TcpTransporter {
         serde_json::from_str(&data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 
-    async fn send_metadata(&self, mut addr: SocketAddr, file: &FileInfo) -> io::Result<()> {
-        addr.set_port(TCP_PORT);
-        let mut stream = TcpStream::connect(addr).await?;
+    async fn send_metadata(&self, addr: IpAddr, file: &FileInfo) -> io::Result<()> {
+        let socket = SocketAddr::new(addr, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
 
         let metadata_json = serde_json::to_vec(file)?;
         let kind = SyncKind::File(SyncFileKind::Metadata);
 
-        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, file_name = ?&file.name, "[⬆️  SEND]");
 
         // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
@@ -126,14 +130,14 @@ impl TransportInterface for TcpTransporter {
         Ok(metadata)
     }
 
-    async fn send_request(&self, mut addr: SocketAddr, file: &FileInfo) -> io::Result<()> {
-        addr.set_port(TCP_PORT);
-        let mut stream = TcpStream::connect(addr).await?;
+    async fn send_request(&self, addr: IpAddr, file: &FileInfo) -> io::Result<()> {
+        let socket = SocketAddr::new(addr, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
 
         let metadata_json = serde_json::to_vec(file)?;
         let kind = SyncKind::File(SyncFileKind::Request);
 
-        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, file_name = ?&file.name, "[⬆️  SEND]");
 
         // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
@@ -154,20 +158,15 @@ impl TransportInterface for TcpTransporter {
         self.read_metadata(stream).await
     }
 
-    async fn send_file(
-        &self,
-        mut addr: SocketAddr,
-        file: &FileInfo,
-        contents: &[u8],
-    ) -> io::Result<()> {
-        addr.set_port(TCP_PORT);
-        let mut stream = TcpStream::connect(addr).await?;
+    async fn send_file(&self, addr: IpAddr, file: &FileInfo, contents: &[u8]) -> io::Result<()> {
+        let socket = SocketAddr::new(addr, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
 
         let metadata_json = serde_json::to_vec(file)?;
         let kind = SyncKind::File(SyncFileKind::Transfer);
         let file_size = contents.len() as u64;
 
-        info!(kind = ?kind, ip = ?addr.ip(), file_name = ?&file.name, "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, file_name = ?&file.name, "[⬆️  SEND]");
 
         // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
@@ -213,8 +212,4 @@ impl TransportInterface for TcpTransporter {
     }
 }
 
-impl TransportStreamExt for TcpStream {
-    fn peer_addr(&self) -> io::Result<SocketAddr> {
-        TcpStream::peer_addr(self)
-    }
-}
+impl TransportStream for TcpStream {}

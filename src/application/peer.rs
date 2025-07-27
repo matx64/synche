@@ -1,5 +1,5 @@
 use crate::domain::{FileInfo, Peer};
-use std::{collections::HashMap, net::SocketAddr, sync::RwLock, time::SystemTime};
+use std::{collections::HashMap, net::IpAddr, sync::RwLock, time::SystemTime};
 use uuid::Uuid;
 
 pub struct PeerManager {
@@ -21,7 +21,7 @@ impl PeerManager {
         }
     }
 
-    pub fn insert_or_update(&self, id: Uuid, addr: SocketAddr) -> bool {
+    pub fn insert_or_update(&self, id: Uuid, addr: IpAddr) -> bool {
         self.peers.write().is_ok_and(|mut peers| {
             if let Some(peer) = peers.get_mut(&id) {
                 peer.last_seen = SystemTime::now();
@@ -36,7 +36,7 @@ impl PeerManager {
     pub fn build_sync_map<'a>(
         &self,
         buffer: &'a HashMap<String, FileInfo>,
-    ) -> HashMap<SocketAddr, Vec<&'a FileInfo>> {
+    ) -> HashMap<IpAddr, Vec<&'a FileInfo>> {
         let mut result = HashMap::new();
 
         if let Ok(peers) = self.peers.read() {

@@ -1,17 +1,17 @@
 use crate::domain::Directory;
-use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
+use std::{collections::HashMap, net::IpAddr, time::SystemTime};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct Peer {
     pub id: Uuid,
-    pub addr: SocketAddr,
+    pub addr: IpAddr,
     pub directories: HashMap<String, Directory>,
     pub last_seen: SystemTime,
 }
 
 impl Peer {
-    pub fn new(id: Uuid, addr: SocketAddr, dirs: Option<Vec<Directory>>) -> Self {
+    pub fn new(id: Uuid, addr: IpAddr, dirs: Option<Vec<Directory>>) -> Self {
         let directories = dirs
             .map(|dirs| {
                 dirs.into_iter()
