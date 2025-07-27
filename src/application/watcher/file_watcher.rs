@@ -50,8 +50,11 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                     FileChangeEvent::Created(path) => {
                         self.handle_created(path).await;
                     }
-                    FileChangeEvent::Modified(path) => {
-                        self.handle_modified(path).await;
+                    FileChangeEvent::ModifiedData(path) => {
+                        self.handle_modified_data(path).await;
+                    }
+                    FileChangeEvent::ModifiedName(path) => {
+                        self.handle_modified_name(path).await;
                     }
                     FileChangeEvent::Deleted(path) => {
                         self.handle_deleted(path).await;
@@ -83,7 +86,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.send_metadata(file).await;
     }
 
-    async fn handle_modified(&self, path: PathBuf) {
+    async fn handle_modified_data(&self, path: PathBuf) {
         if path.is_dir() {
             return;
         }
@@ -108,6 +111,22 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             if let Some(file) = self.entry_manager.file_modified(&relative_path, disk_hash) {
                 self.send_metadata(file).await;
             }
+        }
+    }
+
+    async fn handle_modified_name(&self, path: PathBuf) {
+        if path.is_dir() {
+            return;
+        }
+
+        let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
+            return;
+        };
+
+        if !path.exists() && self.entry_manager.get_file(&relative_path).is_some() {
+            self.handle_deleted(path).await;
+        } else {
+            self.handle_created(path).await;
         }
     }
 

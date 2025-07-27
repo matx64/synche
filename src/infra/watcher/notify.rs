@@ -55,10 +55,9 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
         match event.kind {
             EventKind::Create(CreateKind::File) => Some(FileChangeEvent::Created(path)),
-            EventKind::Modify(ModifyKind::Data(_)) => Some(FileChangeEvent::Modified(path)),
-            EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_) => {
-                Some(FileChangeEvent::Deleted(path))
-            }
+            EventKind::Modify(ModifyKind::Data(_)) => Some(FileChangeEvent::ModifiedData(path)),
+            EventKind::Modify(ModifyKind::Name(_)) => Some(FileChangeEvent::ModifiedName(path)),
+            EventKind::Remove(_) => Some(FileChangeEvent::Deleted(path)),
             _ => None,
         }
     }
