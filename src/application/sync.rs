@@ -113,7 +113,7 @@ impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter, SqliteDb> {
             NotifyFileWatcher::new(),
             UdpBroadcaster::new().await,
             transporter,
-            SqliteDb::new(":memory:").unwrap(),
+            SqliteDb::new(".synche/db.db").unwrap(),
         )
     }
 }
