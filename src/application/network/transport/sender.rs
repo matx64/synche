@@ -64,7 +64,17 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         )
     }
 
-    pub async fn send_file_changes(&self) -> io::Result<()> {
+    pub async fn run(&self) -> io::Result<()> {
+        tokio::try_join!(
+            self.send_handshakes(),
+            self.send_file_changes(),
+            self.send_requests(),
+            self.send_files()
+        )?;
+        Ok(())
+    }
+
+    async fn send_file_changes(&self) -> io::Result<()> {
         let mut buffer = HashMap::<String, FileInfo>::new();
         let mut interval = time::interval(Duration::from_secs(5));
 
@@ -97,7 +107,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         }
     }
 
-    pub async fn send_handshakes(&self) -> io::Result<()> {
+    async fn send_handshakes(&self) -> io::Result<()> {
         loop {
             if let Some((addr, kind)) = self.receivers.handshake_rx.lock().await.recv().await {
                 let data = self.entry_manager.get_sync_data();
@@ -108,7 +118,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         }
     }
 
-    pub async fn send_requests(&self) -> io::Result<()> {
+    async fn send_requests(&self) -> io::Result<()> {
         loop {
             if let Some((addr, file)) = self.receivers.request_rx.lock().await.recv().await {
                 self.transport_adapter.send_request(addr, &file).await?;
@@ -116,7 +126,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         }
     }
 
-    pub async fn send_files(&self) -> io::Result<()> {
+    async fn send_files(&self) -> io::Result<()> {
         loop {
             if let Some((addr, file)) = self.receivers.transfer_rx.lock().await.recv().await {
                 let path = self.base_dir.join(&file.name);

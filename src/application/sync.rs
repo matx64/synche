@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use std::sync::Arc;
-use tokio::io;
+use tokio::{io, sync};
 
 pub struct Synchronizer<
     W: FileWatcherInterface,
@@ -29,6 +29,8 @@ pub struct Synchronizer<
     presence_service: PresenceService<P>,
     transport_sender: TransportSender<T, D>,
     transport_receiver: TransportReceiver<T, D>,
+    _shutdown_tx: sync::watch::Sender<bool>,
+    _shutdown_rx: sync::watch::Receiver<bool>,
 }
 
 impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: PersistenceInterface>
@@ -81,24 +83,23 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
             config.constants.tmp_dir,
         );
 
+        let (_shutdown_tx, _shutdown_rx) = sync::watch::channel(false);
+
         Self {
             file_watcher,
             presence_service,
             transport_sender,
             transport_receiver,
+            _shutdown_tx,
+            _shutdown_rx,
         }
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
         tokio::try_join!(
-            self.transport_receiver.recv(),
-            self.transport_sender.send_file_changes(),
-            self.transport_sender.send_handshakes(),
-            self.transport_sender.send_requests(),
-            self.transport_sender.send_files(),
-            self.presence_service.run_recv(),
-            self.presence_service.run_broadcast(),
-            self.presence_service.monitor_peers(),
+            self.transport_receiver.run(),
+            self.transport_sender.run(),
+            self.presence_service.run(),
             self.file_watcher.run(),
         )?;
         Ok(())

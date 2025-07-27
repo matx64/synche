@@ -33,7 +33,12 @@ impl<T: PresenceInterface> PresenceService<T> {
         }
     }
 
-    pub async fn run_broadcast(&self) -> io::Result<()> {
+    pub async fn run(&self) -> io::Result<()> {
+        tokio::try_join!(self.run_recv(), self.run_broadcast(), self.monitor_peers())?;
+        Ok(())
+    }
+
+    async fn run_broadcast(&self) -> io::Result<()> {
         let msg = format!("ping:{}", &self.local_id);
         let msg = msg.as_bytes();
         let mut retries: usize = 0;
@@ -54,7 +59,7 @@ impl<T: PresenceInterface> PresenceService<T> {
         }
     }
 
-    pub async fn run_recv(&self) -> io::Result<()> {
+    async fn run_recv(&self) -> io::Result<()> {
         let local_ip = local_ip().unwrap();
         let ifas = list_afinet_netifas().unwrap();
 
@@ -86,7 +91,7 @@ impl<T: PresenceInterface> PresenceService<T> {
         }
     }
 
-    pub async fn monitor_peers(&self) -> io::Result<()> {
+    async fn monitor_peers(&self) -> io::Result<()> {
         loop {
             info!("🖥️  Connected Peers: {:?}", self.peer_manager.retain());
             time::sleep(Duration::from_secs(10)).await;

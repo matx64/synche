@@ -45,7 +45,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         }
     }
 
-    pub async fn recv(&self) -> io::Result<()> {
+    pub async fn run(&self) -> io::Result<()> {
         loop {
             let data = self.transport_adapter.recv().await?;
 
