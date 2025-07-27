@@ -21,8 +21,39 @@ impl<D: PersistenceInterface> EntryManager<D> {
         db: D,
         local_id: Uuid,
         directories: HashMap<String, Directory>,
-        _filesystem_files: HashMap<String, FileInfo>,
+        filesystem_files: HashMap<String, FileInfo>,
     ) -> Self {
+        let mut files: HashMap<String, FileInfo> = db
+            .list_all_files()
+            .unwrap()
+            .into_iter()
+            .map(|f| (f.name.clone(), f))
+            .collect();
+
+        for (name, file) in &mut files {
+            match filesystem_files.get(name) {
+                Some(fs_file) if fs_file.hash != file.hash => {
+                    *file.vv.entry(local_id).or_insert(0) += 1;
+                    db.insert_or_replace_file(&FileInfo {
+                        name: file.name.clone(),
+                        hash: fs_file.hash.clone(),
+                        vv: file.vv.clone(),
+                    })
+                    .unwrap();
+                }
+                None => {
+                    db.remove_file(&file.name).unwrap();
+                }
+                _ => {}
+            }
+        }
+
+        for (name, fs_file) in filesystem_files {
+            if !files.contains_key(&name) {
+                db.insert_or_replace_file(&fs_file).unwrap();
+            }
+        }
+
         Self {
             db,
             local_id,

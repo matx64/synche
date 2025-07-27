@@ -93,7 +93,7 @@ impl<T: PresenceInterface> PresenceService<T> {
 
     pub async fn monitor_peers(&self) -> io::Result<()> {
         loop {
-            info!("🖥️ Connected Peers: {:?}", self.peer_manager.retain());
+            info!("🖥️  Connected Peers: {:?}", self.peer_manager.retain());
             time::sleep(Duration::from_secs(10)).await;
         }
     }
