@@ -1,4 +1,5 @@
 use crate::{
+    application::persistence::interface::PersistenceInterface,
     domain::{Directory, FileInfo, Peer, entry::VersionVectorCmp},
     proto::transport::PeerSyncData,
 };
@@ -9,22 +10,18 @@ use std::{
 use tracing::warn;
 use uuid::Uuid;
 
-pub struct EntryManager {
+pub struct EntryManager<P: PersistenceInterface> {
+    db: P,
     local_id: Uuid,
     directories: RwLock<HashMap<String, Directory>>,
-    files: RwLock<HashMap<String, FileInfo>>,
 }
 
-impl EntryManager {
-    pub fn new(
-        local_id: Uuid,
-        directories: HashMap<String, Directory>,
-        files: HashMap<String, FileInfo>,
-    ) -> Self {
+impl<P: PersistenceInterface> EntryManager<P> {
+    pub fn new(db: P, local_id: Uuid, directories: HashMap<String, Directory>) -> Self {
         Self {
+            db,
             local_id,
             directories: RwLock::new(directories),
-            files: RwLock::new(files),
         }
     }
 
@@ -42,10 +39,8 @@ impl EntryManager {
             .unwrap_or_default()
     }
 
-    pub fn insert_file(&self, file: FileInfo) {
-        if let Ok(mut files) = self.files.write() {
-            files.insert(file.name.clone(), file);
-        }
+    pub fn insert_file(&self, file: &FileInfo) {
+        self.db.insert_or_replace_file(&file).unwrap();
     }
 
     pub fn file_created(&self, name: &str, hash: String) -> FileInfo {
@@ -55,27 +50,27 @@ impl EntryManager {
             vv: HashMap::from([(self.local_id, 0)]),
         };
 
-        self.insert_file(file.clone());
+        self.insert_file(&file);
         file
     }
 
     pub fn file_modified(&self, name: &str, hash: String) -> Option<FileInfo> {
-        self.files.write().ok().and_then(|mut files| {
-            if let Some(file) = files.get_mut(name) {
-                file.hash = hash;
-                *file.vv.entry(self.local_id).or_insert(0) += 1;
-                Some(file.clone())
-            } else {
-                None
-            }
+        self.get_file(name).map(|mut file| {
+            *file.vv.entry(self.local_id).or_insert(0) += 1;
+
+            let updated = FileInfo {
+                name: file.name,
+                vv: file.vv,
+                hash,
+            };
+
+            self.insert_file(&updated);
+            updated
         })
     }
 
     pub fn get_file(&self, name: &str) -> Option<FileInfo> {
-        self.files
-            .read()
-            .map(|files| files.get(name).cloned())
-            .unwrap_or_default()
+        self.db.get_file(name).unwrap()
     }
 
     pub fn get_files_to_send(
@@ -85,23 +80,25 @@ impl EntryManager {
     ) -> Vec<FileInfo> {
         let mut result = Vec::new();
 
-        if let Ok(mut files) = self.files.write() {
-            for file in files.values_mut() {
-                if let Some(peer_file) = peer_files.get(&file.name) {
-                    let cmp = self.compare_vv(peer.id, peer_file, file);
+        let files = self.db.list_all_files().unwrap();
+        for mut file in files {
+            if let Some(peer_file) = peer_files.get(&file.name) {
+                let cmp = self.compare_vv(peer.id, peer_file, &mut file);
 
-                    // TODO: Handle Conflict
-                    if matches!(cmp, VersionVectorCmp::Conflict) {
-                        warn!("CONFLICT IN FILE: {}", file.name);
-                    }
+                self.db.insert_or_replace_file(&file).unwrap();
 
-                    if matches!(cmp, VersionVectorCmp::KeepSelf) {
-                        result.push(file.to_owned());
-                    }
-                } else if peer.directories.contains_key(&file.get_dir()) {
-                    file.vv.insert(peer.id, 0);
+                // TODO: Handle Conflict
+                if matches!(cmp, VersionVectorCmp::Conflict) {
+                    warn!("CONFLICT IN FILE: {}", file.name);
+                }
+
+                if matches!(cmp, VersionVectorCmp::KeepSelf) {
                     result.push(file.to_owned());
                 }
+            } else if peer.directories.contains_key(&file.get_dir()) {
+                file.vv.insert(peer.id, 0);
+                self.db.insert_or_replace_file(&file).unwrap();
+                result.push(file);
             }
         }
 
@@ -109,9 +106,12 @@ impl EntryManager {
     }
 
     pub fn handle_metadata(&self, peer_id: Uuid, peer_file: &FileInfo) -> VersionVectorCmp {
-        match self.files.write().unwrap().get_mut(&peer_file.name) {
-            Some(local_file) => self.compare_vv(peer_id, peer_file, local_file),
-            None => VersionVectorCmp::KeepPeer,
+        if let Some(mut local_file) = self.get_file(&peer_file.name) {
+            let cmp = self.compare_vv(peer_id, peer_file, &mut local_file);
+            self.db.insert_or_replace_file(&local_file);
+            cmp
+        } else {
+            VersionVectorCmp::KeepPeer
         }
     }
 
@@ -169,38 +169,33 @@ impl EntryManager {
     }
 
     pub fn remove_file(&self, name: &str) -> Option<FileInfo> {
-        self.files.write().ok().and_then(|mut files| {
-            if let Some(mut removed) = files.remove(name) {
-                if let Some(old_version) = removed.vv.get(&self.local_id) {
-                    removed.vv.insert(self.local_id, *old_version + 1);
-                    Some(FileInfo::absent(name.to_owned(), removed.vv))
-                } else {
-                    None
-                }
+        if let Some(mut removed) = self.db.remove_file(name).unwrap() {
+            if let Some(old_local_v) = removed.vv.get(&self.local_id) {
+                removed.vv.insert(self.local_id, *old_local_v + 1);
+                Some(FileInfo::absent(removed.name, removed.vv))
             } else {
                 None
             }
-        })
+        } else {
+            None
+        }
     }
 
     pub fn remove_dir(&self, deleted: &str) -> Vec<FileInfo> {
         let mut removed_files = Vec::new();
 
-        if let Ok(mut files) = self.files.write() {
-            let prefix = format!("{deleted}/");
-            let to_remove: Vec<String> = files
-                .keys()
-                .filter(|name| name.starts_with(&prefix))
-                .cloned()
-                .collect();
+        let files = self.db.list_all_files().unwrap();
 
-            for name in to_remove {
-                if let Some(mut removed) = files.remove(&name) {
-                    if let Some(old_version) = removed.vv.get(&self.local_id) {
-                        removed.vv.insert(self.local_id, *old_version + 1);
-                        removed_files.push(FileInfo::absent(name, removed.vv));
-                    }
-                }
+        let prefix = format!("{deleted}/");
+        let to_remove: Vec<FileInfo> = files
+            .into_iter()
+            .filter(|f| f.name.starts_with(&prefix))
+            .collect();
+
+        for file in to_remove {
+            if let Some(mut removed) = self.db.remove_file(&file.name).unwrap() {
+                *removed.vv.entry(self.local_id).or_insert(0) += 1;
+                removed_files.push(FileInfo::absent(removed.name, removed.vv));
             }
         }
 
@@ -215,16 +210,12 @@ impl EntryManager {
             .unwrap_or_default();
 
         let files = self
-            .files
-            .read()
-            .map(|files| {
-                files
-                    .values()
-                    .cloned()
-                    .map(|f| (f.name.clone(), f))
-                    .collect::<HashMap<_, _>>()
-            })
-            .unwrap_or_default();
+            .db
+            .list_all_files()
+            .unwrap()
+            .into_iter()
+            .map(|f| (f.name.clone(), f))
+            .collect::<HashMap<String, FileInfo>>();
 
         PeerSyncData { directories, files }
     }
