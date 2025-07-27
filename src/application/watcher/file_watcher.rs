@@ -1,5 +1,7 @@
 use crate::{
-    application::{EntryManager, watcher::FileWatcherInterface},
+    application::{
+        EntryManager, persistence::interface::PersistenceInterface, watcher::FileWatcherInterface,
+    },
     domain::{FileInfo, filesystem::FileChangeEvent},
     utils::fs::{compute_hash, get_relative_path},
 };
@@ -7,18 +9,18 @@ use std::{io, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc::Sender;
 use tracing::error;
 
-pub struct FileWatcher<T: FileWatcherInterface> {
+pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
-    entry_manager: Arc<EntryManager>,
+    entry_manager: Arc<EntryManager<D>>,
     watch_tx: Sender<FileInfo>,
     base_dir: PathBuf,
     base_dir_absolute: PathBuf,
 }
 
-impl<T: FileWatcherInterface> FileWatcher<T> {
+impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     pub fn new(
         watch_adapter: T,
-        entry_manager: Arc<EntryManager>,
+        entry_manager: Arc<EntryManager<D>>,
         watch_tx: Sender<FileInfo>,
         base_dir: PathBuf,
     ) -> Self {

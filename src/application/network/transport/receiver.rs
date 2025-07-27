@@ -5,6 +5,7 @@ use crate::{
             TransportInterface,
             transport::interface::{TransportData, TransportSenders},
         },
+        persistence::interface::PersistenceInterface,
     },
     domain::{Peer, entry::VersionVectorCmp},
     proto::transport::{SyncFileKind, SyncHandshakeKind, SyncKind},
@@ -16,19 +17,19 @@ use tokio::{
 };
 use tracing::{info, warn};
 
-pub struct TransportReceiver<T: TransportInterface> {
+pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
-    entry_manager: Arc<EntryManager>,
+    entry_manager: Arc<EntryManager<D>>,
     peer_manager: Arc<PeerManager>,
     senders: TransportSenders,
     base_dir: PathBuf,
     tmp_dir: PathBuf,
 }
 
-impl<T: TransportInterface> TransportReceiver<T> {
+impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     pub fn new(
         transport_adapter: Arc<T>,
-        entry_manager: Arc<EntryManager>,
+        entry_manager: Arc<EntryManager<D>>,
         peer_manager: Arc<PeerManager>,
         senders: TransportSenders,
         base_dir: PathBuf,
@@ -152,7 +153,7 @@ impl<T: TransportInterface> TransportReceiver<T> {
     pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
         let (file, contents) = self.transport_adapter.read_file(&mut data.stream).await?;
 
-        self.entry_manager.insert_file(file.clone());
+        self.entry_manager.insert_file(&file);
 
         let original_path = self.base_dir.join(&file.name);
         let tmp_path = self.tmp_dir.join(&file.name);

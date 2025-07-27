@@ -6,32 +6,43 @@ use crate::{
             presence::PresenceService,
             transport::{TransportReceiver, TransportSender},
         },
+        persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, FileWatcherInterface},
     },
     config::Config,
     infra::{
         network::{tcp::TcpTransporter, udp::UdpBroadcaster},
+        persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
 };
 use std::sync::Arc;
 use tokio::io;
 
-pub struct Synchronizer<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> {
-    file_watcher: FileWatcher<W>,
+pub struct Synchronizer<
+    W: FileWatcherInterface,
+    P: PresenceInterface,
+    T: TransportInterface,
+    D: PersistenceInterface,
+> {
+    file_watcher: FileWatcher<W, D>,
     presence_service: PresenceService<P>,
-    transport_sender: TransportSender<T>,
-    transport_receiver: TransportReceiver<T>,
+    transport_sender: TransportSender<T, D>,
+    transport_receiver: TransportReceiver<T, D>,
 }
 
-impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synchronizer<W, P, T> {
+impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: PersistenceInterface>
+    Synchronizer<W, P, T, D>
+{
     pub fn new(
         config: Config,
         watch_adapter: W,
         presence_adapter: P,
         transport_adapter: T,
+        persistence_adapter: D,
     ) -> Self {
         let entry_manager = Arc::new(EntryManager::new(
+            persistence_adapter,
             config.constants.local_id,
             config.directories,
             config.filesystem_files,
@@ -94,7 +105,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface> Synch
     }
 }
 
-impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
+impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter, SqliteDb> {
     pub async fn new_default(config: Config) -> Self {
         let transporter = TcpTransporter::new(config.constants.local_id).await;
         Self::new(
@@ -102,6 +113,7 @@ impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter> {
             NotifyFileWatcher::new(),
             UdpBroadcaster::new().await,
             transporter,
+            SqliteDb::new(":memory:").unwrap(),
         )
     }
 }

@@ -5,6 +5,7 @@ use crate::{
             TransportInterface,
             transport::interface::{TransportReceivers, TransportSenders},
         },
+        persistence::interface::PersistenceInterface,
     },
     domain::FileInfo,
     proto::transport::{SyncHandshakeKind, SyncKind},
@@ -21,18 +22,18 @@ use tokio::{
 };
 use tracing::info;
 
-pub struct TransportSender<T: TransportInterface> {
+pub struct TransportSender<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
-    entry_manager: Arc<EntryManager>,
+    entry_manager: Arc<EntryManager<D>>,
     peer_manager: Arc<PeerManager>,
     receivers: TransportReceivers,
     base_dir: PathBuf,
 }
 
-impl<T: TransportInterface> TransportSender<T> {
+impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     pub fn new(
         transport_adapter: Arc<T>,
-        entry_manager: Arc<EntryManager>,
+        entry_manager: Arc<EntryManager<D>>,
         peer_manager: Arc<PeerManager>,
         base_dir: PathBuf,
     ) -> (Self, TransportSenders) {

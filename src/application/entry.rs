@@ -10,14 +10,19 @@ use std::{
 use tracing::warn;
 use uuid::Uuid;
 
-pub struct EntryManager<P: PersistenceInterface> {
-    db: P,
+pub struct EntryManager<D: PersistenceInterface> {
+    db: D,
     local_id: Uuid,
     directories: RwLock<HashMap<String, Directory>>,
 }
 
-impl<P: PersistenceInterface> EntryManager<P> {
-    pub fn new(db: P, local_id: Uuid, directories: HashMap<String, Directory>) -> Self {
+impl<D: PersistenceInterface> EntryManager<D> {
+    pub fn new(
+        db: D,
+        local_id: Uuid,
+        directories: HashMap<String, Directory>,
+        _filesystem_files: HashMap<String, FileInfo>,
+    ) -> Self {
         Self {
             db,
             local_id,
@@ -40,7 +45,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub fn insert_file(&self, file: &FileInfo) {
-        self.db.insert_or_replace_file(&file).unwrap();
+        self.db.insert_or_replace_file(file).unwrap();
     }
 
     pub fn file_created(&self, name: &str, hash: String) -> FileInfo {
@@ -108,7 +113,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub fn handle_metadata(&self, peer_id: Uuid, peer_file: &FileInfo) -> VersionVectorCmp {
         if let Some(mut local_file) = self.get_file(&peer_file.name) {
             let cmp = self.compare_vv(peer_id, peer_file, &mut local_file);
-            self.db.insert_or_replace_file(&local_file);
+            self.db.insert_or_replace_file(&local_file).unwrap();
             cmp
         } else {
             VersionVectorCmp::KeepPeer
