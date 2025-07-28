@@ -2,7 +2,10 @@ use crate::{
     application::{
         EntryManager, persistence::interface::PersistenceInterface, watcher::FileWatcherInterface,
     },
-    domain::{FileInfo, filesystem::FileChangeEvent},
+    domain::{
+        FileInfo,
+        filesystem::{ModifiedNamePaths, WatcherEvent},
+    },
     utils::fs::{compute_hash, get_relative_path},
 };
 use std::{io, path::PathBuf, sync::Arc};
@@ -47,24 +50,30 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             if let Some(event) = self.watch_adapter.next().await {
                 info!("File Change Event: {event:?}");
                 match event {
-                    FileChangeEvent::Created(path) => {
-                        self.handle_created(path).await;
+                    WatcherEvent::CreatedFile(path) => {
+                        self.handle_created_file(path).await;
                     }
-                    FileChangeEvent::ModifiedData(path) => {
-                        self.handle_modified_data(path).await;
+                    WatcherEvent::ModifiedContent(path) => {
+                        self.handle_modified_content(path).await;
                     }
-                    FileChangeEvent::ModifiedName(path) => {
-                        self.handle_modified_name(path).await;
+                    WatcherEvent::ModifiedFileName(paths) => {
+                        self.handle_modified_file_name(paths).await;
                     }
-                    FileChangeEvent::Deleted(path) => {
-                        self.handle_deleted(path).await;
+                    WatcherEvent::ModifiedDirName(paths) => {
+                        self.handle_modified_dir_name(paths).await;
+                    }
+                    WatcherEvent::RemovedFile(path) => {
+                        self.handle_removed_file(path).await;
+                    }
+                    WatcherEvent::RemovedDir(path) => {
+                        self.handle_removed_dir(path).await;
                     }
                 }
             }
         }
     }
 
-    async fn handle_created(&self, path: PathBuf) {
+    async fn handle_created_file(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
             return;
         };
@@ -86,11 +95,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.send_metadata(file).await;
     }
 
-    async fn handle_modified_data(&self, path: PathBuf) {
-        if path.is_dir() {
-            return;
-        }
-
+    async fn handle_modified_content(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
             return;
         };
@@ -114,44 +119,32 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_modified_name(&self, path: PathBuf) {
-        if path.is_dir() {
-            return;
-        }
+    async fn handle_modified_file_name(&self, paths: ModifiedNamePaths) {
+        self.handle_removed_file(paths.from).await;
+        self.handle_created_file(paths.to).await;
+    }
 
+    async fn handle_modified_dir_name(&self, paths: ModifiedNamePaths) {}
+
+    async fn handle_removed_file(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
             return;
         };
 
-        let exists = path.exists();
-        let is_tracked = self.entry_manager.get_file(&relative_path).is_some();
-
-        match (exists, is_tracked) {
-            (false, true) => self.handle_deleted(path).await,
-            (true, false) => self.handle_created(path).await,
-            _ => {}
+        if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
+            self.send_metadata(removed).await;
         }
     }
 
-    async fn handle_deleted(&self, path: PathBuf) {
+    async fn handle_removed_dir(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
             return;
         };
 
-        if path.exists() {
-            return;
-        }
+        let removed_files = self.entry_manager.remove_dir(&relative_path);
 
-        if self.entry_manager.get_file(&relative_path).is_some() {
-            if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
-                self.send_metadata(removed).await;
-            }
-        } else {
-            let removed_files = self.entry_manager.remove_dir(&relative_path);
-
-            for file in removed_files {
-                self.send_metadata(file).await;
-            }
+        for file in removed_files {
+            self.send_metadata(file).await;
         }
     }
 

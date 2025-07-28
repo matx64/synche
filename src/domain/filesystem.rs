@@ -1,9 +1,17 @@
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub enum FileChangeEvent {
-    Created(PathBuf),
-    ModifiedData(PathBuf),
-    ModifiedName(PathBuf),
-    Deleted(PathBuf),
+pub enum WatcherEvent {
+    CreatedFile(PathBuf),
+    ModifiedContent(PathBuf),
+    ModifiedFileName(ModifiedNamePaths),
+    ModifiedDirName(ModifiedNamePaths),
+    RemovedFile(PathBuf),
+    RemovedDir(PathBuf),
+}
+
+#[derive(Debug)]
+pub struct ModifiedNamePaths {
+    pub from: PathBuf,
+    pub to: PathBuf,
 }
