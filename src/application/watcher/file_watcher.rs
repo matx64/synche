@@ -124,7 +124,32 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.handle_created_file(paths.to).await;
     }
 
-    async fn handle_modified_dir_name(&self, paths: ModifiedNamePaths) {}
+    async fn handle_modified_dir_name(&self, paths: ModifiedNamePaths) {
+        let Ok(removed_relative_path) = get_relative_path(&paths.from, &self.base_dir_absolute)
+        else {
+            return;
+        };
+        let Ok(created_relative_path) = get_relative_path(&paths.to, &self.base_dir_absolute)
+        else {
+            return;
+        };
+
+        let removed_files = self.entry_manager.remove_dir(&removed_relative_path);
+
+        for file in removed_files {
+            let new_name = file
+                .name
+                .replace(&removed_relative_path, &created_relative_path);
+
+            let new_path = PathBuf::new().join(&self.base_dir_absolute).join(new_name);
+
+            if new_path.exists() {
+                self.handle_created_file(new_path).await;
+            }
+
+            self.send_metadata(file).await;
+        }
+    }
 
     async fn handle_removed_file(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
