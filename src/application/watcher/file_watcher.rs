@@ -62,11 +62,8 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                     WatcherEvent::ModifiedDirName(paths) => {
                         self.handle_modified_dir_name(paths).await;
                     }
-                    WatcherEvent::RemovedFile(path) => {
-                        self.handle_removed_file(path).await;
-                    }
-                    WatcherEvent::RemovedDir(path) => {
-                        self.handle_removed_dir(path).await;
+                    WatcherEvent::Removed(path) => {
+                        self.handle_removed(path).await;
                     }
                 }
             }
@@ -151,6 +148,24 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
+    async fn handle_removed(&self, path: PathBuf) {
+        let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
+            return;
+        };
+
+        if self.entry_manager.get_file(&relative_path).is_some() {
+            if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
+                self.send_metadata(removed).await;
+            }
+        } else {
+            let removed_files = self.entry_manager.remove_dir(&relative_path);
+
+            for file in removed_files {
+                self.send_metadata(file).await;
+            }
+        }
+    }
+
     async fn handle_removed_file(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
             return;
@@ -158,18 +173,6 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
         if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
             self.send_metadata(removed).await;
-        }
-    }
-
-    async fn handle_removed_dir(&self, path: PathBuf) {
-        let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
-            return;
-        };
-
-        let removed_files = self.entry_manager.remove_dir(&relative_path);
-
-        for file in removed_files {
-            self.send_metadata(file).await;
         }
     }
 

@@ -6,8 +6,7 @@ pub enum WatcherEvent {
     ModifiedContent(PathBuf),
     ModifiedFileName(ModifiedNamePaths),
     ModifiedDirName(ModifiedNamePaths),
-    RemovedFile(PathBuf),
-    RemovedDir(PathBuf),
+    Removed(PathBuf),
 }
 
 #[derive(Debug)]

@@ -4,7 +4,7 @@ use crate::{
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
-    event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode},
+    event::{CreateKind, ModifyKind, RenameMode},
 };
 use std::path::PathBuf;
 use tokio::{
@@ -63,7 +63,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
                 }
             }
 
-            EventKind::Modify(ModifyKind::Data(DataChange::Content)) => {
+            EventKind::Modify(ModifyKind::Data(_)) => {
                 if from.exists() {
                     Some(WatcherEvent::ModifiedContent(from))
                 } else {
@@ -89,15 +89,11 @@ impl FileWatcherInterface for NotifyFileWatcher {
                 Some(modified)
             }
 
-            EventKind::Remove(kind) => {
+            EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
                 if from.exists() {
-                    return None;
-                }
-
-                match kind {
-                    RemoveKind::File => Some(WatcherEvent::RemovedFile(from)),
-                    RemoveKind::Folder => Some(WatcherEvent::RemovedDir(from)),
-                    _ => None,
+                    None
+                } else {
+                    Some(WatcherEvent::Removed(from))
                 }
             }
 
