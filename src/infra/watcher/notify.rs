@@ -55,14 +55,28 @@ impl FileWatcherInterface for NotifyFileWatcher {
         let from = event.paths.first().cloned()?;
 
         match event.kind {
-            EventKind::Create(CreateKind::File) => Some(WatcherEvent::CreatedFile(from)),
+            EventKind::Create(CreateKind::File) => {
+                if from.exists() {
+                    Some(WatcherEvent::CreatedFile(from))
+                } else {
+                    None
+                }
+            }
 
             EventKind::Modify(ModifyKind::Data(DataChange::Content)) => {
-                Some(WatcherEvent::ModifiedContent(from))
+                if from.exists() {
+                    Some(WatcherEvent::ModifiedContent(from))
+                } else {
+                    None
+                }
             }
 
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
                 let to = event.paths.get(1).cloned()?;
+
+                if !to.exists() {
+                    return None;
+                }
 
                 let modified = if to.is_file() {
                     WatcherEvent::ModifiedFileName(ModifiedNamePaths { from, to })
