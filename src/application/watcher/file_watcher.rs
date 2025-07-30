@@ -16,7 +16,6 @@ pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
     entry_manager: Arc<EntryManager<D>>,
     watch_tx: Sender<FileInfo>,
-    base_dir: PathBuf,
     base_dir_absolute: PathBuf,
 }
 
@@ -32,7 +31,6 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             entry_manager,
             watch_tx,
             base_dir_absolute: base_dir.canonicalize().unwrap(),
-            base_dir,
         }
     }
 
@@ -41,10 +39,12 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             .entry_manager
             .list_dirs()
             .iter()
-            .map(|dir| self.base_dir.join(dir))
+            .map(|dir| self.base_dir_absolute.join(dir))
             .collect();
 
-        self.watch_adapter.watch(dirs).await?;
+        self.watch_adapter
+            .watch(self.base_dir_absolute.clone(), dirs)
+            .await?;
 
         loop {
             if let Some(event) = self.watch_adapter.next().await {
