@@ -146,3 +146,104 @@ impl From<serde_json::Error> for PersistenceError {
         PersistenceError::Failure(e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::persistence::interface::PersistenceInterface;
+
+    fn make_db() -> SqliteDb {
+        SqliteDb::new(":memory:").expect("Failed to open in-memory database")
+    }
+
+    fn sample_entry(name: &str) -> EntryInfo {
+        EntryInfo {
+            name: name.to_string(),
+            kind: EntryKind::File,
+            hash: Some("abc123".to_string()),
+            is_deleted: false,
+            vv: VersionVector::default(),
+        }
+    }
+
+    #[test]
+    fn test_insert_and_get_entry() {
+        let db = make_db();
+        let entry = sample_entry("file1.txt");
+
+        db.insert_or_replace_entry(&entry).unwrap();
+        let fetched = db
+            .get_entry(&entry.name)
+            .unwrap()
+            .expect("Entry should exist");
+        assert_eq!(fetched.name, entry.name);
+        assert!(matches!(fetched.kind, EntryKind::File));
+        assert_eq!(fetched.hash, entry.hash);
+        assert_eq!(fetched.is_deleted, entry.is_deleted);
+        assert_eq!(fetched.vv, entry.vv);
+    }
+
+    #[test]
+    fn test_get_nonexistent_entry() {
+        let db = make_db();
+        let result = db.get_entry("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_list_all_entries() {
+        let db = make_db();
+        let e1 = sample_entry("a.txt");
+        let mut e2 = sample_entry("b.txt");
+        e2.kind = EntryKind::Directory;
+        e2.is_deleted = true;
+
+        db.insert_or_replace_entry(&e1).unwrap();
+        db.insert_or_replace_entry(&e2).unwrap();
+
+        let mut all = db.list_all_entries().unwrap();
+        all.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].name, "a.txt");
+        assert!(matches!(all[0].kind, EntryKind::File));
+        assert_eq!(all[1].name, "b.txt");
+        assert!(matches!(all[1].kind, EntryKind::Directory));
+        assert!(all[1].is_deleted);
+    }
+
+    #[test]
+    fn test_overwrite_entry() {
+        let db = make_db();
+        let mut entry = sample_entry("dup.txt");
+        entry.hash = Some("first".to_string());
+        db.insert_or_replace_entry(&entry).unwrap();
+
+        entry.hash = Some("second".to_string());
+        entry.is_deleted = true;
+        db.insert_or_replace_entry(&entry).unwrap();
+
+        let fetched = db
+            .get_entry(&entry.name)
+            .unwrap()
+            .expect("Entry should exist");
+        assert_eq!(fetched.hash, Some("second".to_string()));
+        assert!(fetched.is_deleted);
+    }
+
+    #[test]
+    fn test_remove_entry() {
+        let db = make_db();
+        let entry = sample_entry("toremove.txt");
+        db.insert_or_replace_entry(&entry).unwrap();
+
+        let removed = db
+            .remove_entry(&entry.name)
+            .unwrap()
+            .expect("Entry should be removed");
+        assert_eq!(removed.name, entry.name);
+
+        let after = db.get_entry(&entry.name).unwrap();
+        assert!(after.is_none());
+    }
+}
