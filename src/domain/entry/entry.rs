@@ -27,6 +27,10 @@ impl EntryInfo {
         }
     }
 
+    pub fn is_file(&self) -> bool {
+        matches!(self.kind, EntryKind::File)
+    }
+
     pub fn get_root_parent(&self) -> String {
         self.name.split("/").next().unwrap_or_default().to_owned()
     }

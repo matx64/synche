@@ -7,7 +7,7 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{Peer, entry::VersionVectorCmp},
+    domain::{EntryInfo, Peer, entry::VersionVectorCmp},
     proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -117,19 +117,23 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             VersionVectorCmp::KeepPeer => {
                 if is_deleted {
                     self.remove_entry(&peer_entry.name).await
-                } else {
+                } else if peer_entry.is_file() {
                     self.senders
                         .request_tx
                         .send((data.src_ip, peer_entry))
                         .await
                         .map_err(io::Error::other)
+                } else {
+                    self.create_received_dir(peer_entry).await
                 }
             }
+
             VersionVectorCmp::Conflict => {
                 // TODO: Conflict
                 warn!("Metadata Conflict in entry: {}", peer_entry.name);
                 Ok(())
             }
+
             _ => Ok(()),
         }
     }
@@ -141,7 +145,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .await?;
 
         if let Some(entry) = self.entry_manager.get_entry(&requested_entry.name) {
-            if entry.hash == requested_entry.hash {
+            if entry.is_file() && entry.hash == requested_entry.hash {
                 self.senders
                     .transfer_tx
                     .send((data.src_ip, requested_entry))
@@ -181,10 +185,29 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .map_err(io::Error::other)
     }
 
+    pub async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
+        self.entry_manager.insert_entry(&dir);
+
+        let path = self.base_dir.join(&dir.name);
+        fs::create_dir_all(path).await?;
+
+        self.senders
+            .watch_tx
+            .send(dir)
+            .await
+            .map_err(io::Error::other)
+    }
+
     pub async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
         let _ = self.entry_manager.remove_entry(entry_name);
 
         let path = self.base_dir.join(entry_name);
-        fs::remove_file(path).await
+
+        if path.is_dir() {
+            fs::remove_dir_all(path).await?;
+        } else if path.is_file() {
+            fs::remove_file(path).await?;
+        }
+        Ok(())
     }
 }
