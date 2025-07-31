@@ -4,8 +4,9 @@ use std::path::PathBuf;
 pub enum WatcherEvent {
     CreatedFile(PathBuf),
     ModifiedContent(PathBuf),
-    ModifiedFileName(ModifiedNamePaths),
-    ModifiedDirName(ModifiedNamePaths),
+    RenamedFile(ModifiedNamePaths),
+    RenamedDir(ModifiedNamePaths),
+    RenamedSyncDir(ModifiedNamePaths),
     Removed(PathBuf),
 }
 

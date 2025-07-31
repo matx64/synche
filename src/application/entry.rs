@@ -61,10 +61,10 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub fn list_dirs(&self) -> Vec<String> {
+    pub fn list_dirs(&self) -> HashMap<String, Directory> {
         self.directories
             .read()
-            .map(|dirs| dirs.keys().cloned().collect())
+            .map(|dirs| dirs.clone())
             .unwrap_or_default()
     }
 
@@ -247,5 +247,12 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .collect::<HashMap<String, FileInfo>>();
 
         PeerSyncData { directories, files }
+    }
+
+    pub fn update_dirs(&self, updated: HashMap<String, Directory>) {
+        if let Ok(mut dirs) = self.directories.write() {
+            dirs.clear();
+            *dirs = updated;
+        }
     }
 }

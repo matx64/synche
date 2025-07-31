@@ -38,7 +38,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         let dirs = self
             .entry_manager
             .list_dirs()
-            .iter()
+            .keys()
             .map(|dir| self.base_dir_absolute.join(dir))
             .collect();
 
@@ -56,11 +56,14 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                     WatcherEvent::ModifiedContent(path) => {
                         self.handle_modified_content(path).await;
                     }
-                    WatcherEvent::ModifiedFileName(paths) => {
-                        self.handle_modified_file_name(paths).await;
+                    WatcherEvent::RenamedFile(paths) => {
+                        self.handle_renamed_file(paths).await;
                     }
-                    WatcherEvent::ModifiedDirName(paths) => {
-                        self.handle_modified_dir_name(paths).await;
+                    WatcherEvent::RenamedDir(paths) => {
+                        self.handle_renamed_dir(paths).await;
+                    }
+                    WatcherEvent::RenamedSyncDir(paths) => {
+                        self.handle_renamed_sync_dir(paths).await;
                     }
                     WatcherEvent::Removed(path) => {
                         self.handle_removed(path).await;
@@ -116,12 +119,12 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_modified_file_name(&self, paths: ModifiedNamePaths) {
+    async fn handle_renamed_file(&self, paths: ModifiedNamePaths) {
         self.handle_removed_file(paths.from).await;
         self.handle_created_file(paths.to).await;
     }
 
-    async fn handle_modified_dir_name(&self, paths: ModifiedNamePaths) {
+    async fn handle_renamed_dir(&self, paths: ModifiedNamePaths) {
         let Ok(removed_relative_path) = get_relative_path(&paths.from, &self.base_dir_absolute)
         else {
             return;
@@ -147,6 +150,8 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             self.send_metadata(file).await;
         }
     }
+
+    async fn handle_renamed_sync_dir(&self, paths: ModifiedNamePaths) {}
 
     async fn handle_removed(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {

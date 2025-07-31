@@ -90,10 +90,18 @@ impl NotifyFileWatcher {
 
                 if to.is_dir() {
                     self.sync_dirs.remove(&from);
-                    self.sync_dirs.insert(to);
-                    None
+                    self.sync_dirs.insert(to.clone());
+                    Some(WatcherEvent::RenamedSyncDir(ModifiedNamePaths { from, to }))
                 } else {
                     None
+                }
+            }
+
+            EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+                if from.exists() {
+                    None
+                } else {
+                    Some(WatcherEvent::Removed(from))
                 }
             }
 
@@ -127,9 +135,9 @@ impl NotifyFileWatcher {
                 }
 
                 let modified = if to.is_file() {
-                    WatcherEvent::ModifiedFileName(ModifiedNamePaths { from, to })
+                    WatcherEvent::RenamedFile(ModifiedNamePaths { from, to })
                 } else if to.is_dir() {
-                    WatcherEvent::ModifiedDirName(ModifiedNamePaths { from, to })
+                    WatcherEvent::RenamedDir(ModifiedNamePaths { from, to })
                 } else {
                     return None;
                 };
