@@ -3,7 +3,7 @@ use crate::{
         TransportInterface,
         transport::interface::{TransportData, TransportStream},
     },
-    domain::{EntryInfo, entry::entry::EntryKind},
+    domain::{EntryInfo, EntryKind},
     proto::transport::{PeerHandshakeData, SyncEntryKind, SyncKind},
 };
 use sha2::{Digest, Sha256};

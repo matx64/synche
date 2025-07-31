@@ -3,8 +3,7 @@ use crate::{
         EntryManager, persistence::interface::PersistenceInterface, watcher::FileWatcherInterface,
     },
     domain::{
-        EntryInfo,
-        entry::entry::EntryKind,
+        EntryInfo, EntryKind,
         filesystem::{ModifiedNamePaths, WatcherEvent},
     },
     utils::fs::{compute_hash, get_relative_path},

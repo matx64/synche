@@ -5,5 +5,6 @@ pub mod version;
 pub use directory::ConfiguredDirectory;
 pub use directory::Directory;
 pub use entry::EntryInfo;
+pub use entry::EntryKind;
 pub use version::VersionVector;
 pub use version::VersionVectorCmp;

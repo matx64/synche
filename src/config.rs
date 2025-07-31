@@ -1,5 +1,5 @@
 use crate::{
-    domain::{ConfiguredDirectory, Directory, EntryInfo, entry::entry::EntryKind},
+    domain::{ConfiguredDirectory, Directory, EntryInfo, EntryKind},
     utils::fs::{compute_hash, get_relative_path},
 };
 use std::{

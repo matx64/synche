@@ -1,9 +1,6 @@
 use crate::{
     application::persistence::interface::PersistenceInterface,
-    domain::{
-        Directory, EntryInfo, Peer,
-        entry::{VersionVectorCmp, entry::EntryKind},
-    },
+    domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionVectorCmp},
     proto::transport::PeerHandshakeData,
 };
 use std::{
