@@ -1,5 +1,7 @@
-use crate::domain::entry::VersionVector;
+use crate::domain::entry::{VersionCmp, VersionVector};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryInfo {
@@ -24,6 +26,36 @@ impl EntryInfo {
             vv,
             hash: None,
             is_deleted: true,
+        }
+    }
+
+    pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
+        if self.hash == other.hash {
+            return VersionCmp::Equal;
+        }
+
+        let all_peers: HashSet<Uuid> = self.vv.keys().chain(other.vv.keys()).cloned().collect();
+
+        let is_local_dominant = all_peers.iter().all(|p| {
+            let local_v = self.vv.get(p).unwrap_or(&0);
+            let peer_v = other.vv.get(p).unwrap_or(&0);
+            local_v >= peer_v
+        });
+
+        let is_peer_dominant = all_peers.iter().all(|p| {
+            let peer_v = other.vv.get(p).unwrap_or(&0);
+            let local_v = self.vv.get(p).unwrap_or(&0);
+            peer_v >= local_v
+        });
+
+        if is_local_dominant && is_peer_dominant {
+            VersionCmp::Conflict
+        } else if is_local_dominant {
+            VersionCmp::KeepSelf
+        } else if is_peer_dominant {
+            VersionCmp::KeepOther
+        } else {
+            VersionCmp::Conflict
         }
     }
 

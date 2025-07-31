@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 pub type VersionVector = HashMap<Uuid, u64>;
 
-pub enum VersionVectorCmp {
+pub enum VersionCmp {
     Equal,
     KeepSelf,
-    KeepPeer,
+    KeepOther,
     Conflict,
 }

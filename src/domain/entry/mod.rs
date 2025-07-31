@@ -7,4 +7,4 @@ pub use directory::Directory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;
 pub use version::VersionVector;
-pub use version::VersionVectorCmp;
+pub use version::VersionCmp;

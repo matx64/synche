@@ -1,12 +1,9 @@
 use crate::{
     application::persistence::interface::PersistenceInterface,
-    domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionVectorCmp},
+    domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    sync::RwLock,
-};
+use std::{collections::HashMap, sync::RwLock};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -110,99 +107,67 @@ impl<D: PersistenceInterface> EntryManager<D> {
         self.db.get_entry(name).unwrap()
     }
 
-    pub fn get_entries_to_send(
+    pub fn get_entries_to_request(
         &self,
         peer: &Peer,
         peer_entries: HashMap<String, EntryInfo>,
     ) -> Vec<EntryInfo> {
-        let mut result = Vec::new();
+        let mut to_request = Vec::new();
 
-        let entries = self.db.list_all_entries().unwrap();
-        for mut entry in entries {
-            if let Some(peer_entry) = peer_entries.get(&entry.name) {
-                let cmp = self.compare_vv(peer.id, peer_entry, &mut entry);
+        let dirs = self.directories.read().unwrap();
 
-                self.db.insert_or_replace_entry(&entry).unwrap();
+        for (name, peer_entry) in peer_entries {
+            if dirs.contains_key(&peer_entry.get_root_parent()) {
+                if let Some(mut local_entry) = self.get_entry(&name) {
+                    let cmp = local_entry.compare(&peer_entry);
 
-                // TODO: Handle Conflict
-                if matches!(cmp, VersionVectorCmp::Conflict) {
-                    warn!("CONFLICT IN ENTRY: {}", entry.name);
+                    if matches!(cmp, VersionCmp::Conflict) {
+                        warn!("CONFLICT IN ENTRY: {name}");
+                    }
+
+                    if matches!(cmp, VersionCmp::KeepOther) {
+                        to_request.push(peer_entry);
+                    } else {
+                        self.merge_versions_and_insert(&mut local_entry, &peer_entry, peer.id);
+                    }
+                } else {
+                    to_request.push(peer_entry);
                 }
-
-                if matches!(cmp, VersionVectorCmp::KeepSelf) {
-                    result.push(entry.to_owned());
-                }
-            } else if peer.directories.contains_key(&entry.get_root_parent()) {
-                entry.vv.insert(peer.id, 0);
-                self.db.insert_or_replace_entry(&entry).unwrap();
-                result.push(entry);
             }
         }
 
-        result
+        to_request
     }
 
-    pub fn handle_metadata(&self, peer_id: Uuid, peer_entry: &EntryInfo) -> VersionVectorCmp {
+    pub fn handle_metadata(&self, peer_id: Uuid, peer_entry: &EntryInfo) -> VersionCmp {
         if let Some(mut local_entry) = self.get_entry(&peer_entry.name) {
-            let cmp = self.compare_vv(peer_id, peer_entry, &mut local_entry);
-            self.db.insert_or_replace_entry(&local_entry).unwrap();
+            let cmp = local_entry.compare(peer_entry);
+
+            if matches!(cmp, VersionCmp::Conflict) {
+                warn!("CONFLICT IN ENTRY: {}", local_entry.name);
+            }
+
+            if !matches!(cmp, VersionCmp::KeepOther) {
+                self.merge_versions_and_insert(&mut local_entry, peer_entry, peer_id);
+            }
             cmp
         } else {
-            VersionVectorCmp::KeepPeer
+            VersionCmp::KeepOther
         }
     }
 
-    pub fn compare_vv(
+    pub fn merge_versions_and_insert(
         &self,
-        peer_id: Uuid,
-        peer_entry: &EntryInfo,
         local_entry: &mut EntryInfo,
-    ) -> VersionVectorCmp {
-        if local_entry.hash == peer_entry.hash {
-            self.merge_versions(peer_id, peer_entry, local_entry);
-            return VersionVectorCmp::Equal;
-        }
-
-        let all_peers: HashSet<Uuid> = local_entry
-            .vv
-            .keys()
-            .chain(peer_entry.vv.keys())
-            .cloned()
-            .collect();
-
-        let is_local_dominant = all_peers.iter().all(|p| {
-            let local_v = local_entry.vv.get(p).unwrap_or(&0);
-            let peer_v = peer_entry.vv.get(p).unwrap_or(&0);
-            local_v >= peer_v
-        });
-        let is_peer_dominant = all_peers.iter().all(|p| {
-            let peer_v = peer_entry.vv.get(p).unwrap_or(&0);
-            let local_v = local_entry.vv.get(p).unwrap_or(&0);
-            peer_v >= local_v
-        });
-
-        if is_local_dominant && is_peer_dominant {
-            self.merge_versions(peer_id, peer_entry, local_entry);
-            VersionVectorCmp::Conflict
-        } else if is_local_dominant {
-            self.merge_versions(peer_id, peer_entry, local_entry);
-            VersionVectorCmp::KeepSelf
-        } else if is_peer_dominant {
-            local_entry.vv = peer_entry.vv.clone();
-            local_entry.vv.entry(self.local_id).or_insert(0);
-            VersionVectorCmp::KeepPeer
-        } else {
-            self.merge_versions(peer_id, peer_entry, local_entry);
-            VersionVectorCmp::Conflict
-        }
-    }
-
-    fn merge_versions(&self, peer_id: Uuid, peer_entry: &EntryInfo, local_entry: &mut EntryInfo) {
+        peer_entry: &EntryInfo,
+        peer_id: Uuid,
+    ) {
+        local_entry.vv.entry(peer_id).or_insert(0);
         for (pid, pv) in &peer_entry.vv {
             let local_version = local_entry.vv.entry(*pid).or_insert(0);
             *local_version = (*local_version).max(*pv);
         }
-        local_entry.vv.entry(peer_id).or_insert(0);
+        self.insert_entry(local_entry);
     }
 
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {

@@ -7,7 +7,7 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{EntryInfo, Peer, entry::VersionVectorCmp},
+    domain::{EntryInfo, Peer, entry::VersionCmp},
     proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -15,7 +15,7 @@ use tokio::{
     fs::{self, File},
     io::{self, AsyncWriteExt},
 };
-use tracing::{info, warn};
+use tracing::info;
 
 pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
@@ -68,34 +68,38 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn handle_handshake(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
-        let sync_data = self
+        let peer_hs_data = self
             .transport_adapter
             .read_handshake(&mut data.stream)
             .await?;
 
-        let peer = Peer::new(data.src_id, data.src_ip, Some(sync_data.directories));
+        let peer = Peer::new(data.src_id, data.src_ip, Some(peer_hs_data.directories));
         self.peer_manager.insert(peer.clone());
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
             self.senders
                 .handshake_tx
-                .send((data.src_ip, SyncHandshakeKind::Response))
+                .send((peer.addr, SyncHandshakeKind::Response))
                 .await
                 .map_err(io::Error::other)?;
         }
 
-        info!("Synching peer: {}", data.src_ip);
+        info!("Synching peer: {}", peer.addr);
 
-        let entries_to_send = self
+        let entries_to_request = self
             .entry_manager
-            .get_entries_to_send(&peer, sync_data.entries);
+            .get_entries_to_request(&peer, peer_hs_data.entries);
 
-        for entry in entries_to_send {
-            self.senders
-                .transfer_tx
-                .send((data.src_ip, entry))
-                .await
-                .map_err(io::Error::other)?;
+        for entry in entries_to_request {
+            if entry.is_file() {
+                self.senders
+                    .request_tx
+                    .send((peer.addr, entry))
+                    .await
+                    .map_err(io::Error::other)?;
+            } else {
+                self.create_received_dir(entry).await?;
+            }
         }
         Ok(())
     }
@@ -112,9 +116,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             return Ok(());
         }
 
-        let cmp = self.entry_manager.handle_metadata(data.src_id, &peer_entry);
-        match cmp {
-            VersionVectorCmp::KeepPeer => {
+        match self.entry_manager.handle_metadata(data.src_id, &peer_entry) {
+            VersionCmp::KeepOther => {
                 if is_deleted {
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
@@ -126,12 +129,6 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
                 } else {
                     self.create_received_dir(peer_entry).await
                 }
-            }
-
-            VersionVectorCmp::Conflict => {
-                // TODO: Conflict
-                warn!("Metadata Conflict in entry: {}", peer_entry.name);
-                Ok(())
             }
 
             _ => Ok(()),
