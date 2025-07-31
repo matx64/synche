@@ -137,10 +137,10 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         };
 
-        let removed_files = self.entry_manager.remove_dir(&removed_relative_path);
+        let removed_entries = self.entry_manager.remove_dir(&removed_relative_path);
 
-        for file in removed_files {
-            let new_name = file
+        for entry in removed_entries {
+            let new_name = entry
                 .name
                 .replace(&removed_relative_path, &created_relative_path);
 
@@ -150,11 +150,11 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 self.handle_created_file(new_path).await;
             }
 
-            self.send_metadata(file).await;
+            self.send_metadata(entry).await;
         }
     }
 
-    async fn handle_renamed_sync_dir(&self, paths: ModifiedNamePaths) {}
+    async fn handle_renamed_sync_dir(&self, _paths: ModifiedNamePaths) {}
 
     async fn handle_removed(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
@@ -166,9 +166,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 self.send_metadata(removed).await;
             }
         } else {
-            let removed_files = self.entry_manager.remove_dir(&relative_path);
+            let removed_entries = self.entry_manager.remove_dir(&relative_path);
 
-            for file in removed_files {
+            for file in removed_entries {
                 self.send_metadata(file).await;
             }
         }

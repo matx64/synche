@@ -4,7 +4,7 @@ use crate::{
         transport::interface::{TransportData, TransportStream},
     },
     domain::{EntryInfo, entry::entry::EntryKind},
-    proto::transport::{PeerSyncData, SyncFileKind, SyncKind},
+    proto::transport::{PeerHandshakeData, SyncEntryKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -64,7 +64,7 @@ impl TransportInterface for TcpTransporter {
         &self,
         addr: IpAddr,
         kind: SyncKind,
-        data: PeerSyncData,
+        data: PeerHandshakeData,
     ) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
@@ -81,7 +81,7 @@ impl TransportInterface for TcpTransporter {
         stream.write_all(&contents).await
     }
 
-    async fn read_handshake(&self, stream: &mut TcpStream) -> io::Result<PeerSyncData> {
+    async fn read_handshake(&self, stream: &mut TcpStream) -> io::Result<PeerHandshakeData> {
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
         let len = u32::from_be_bytes(len_buf) as usize;
@@ -94,14 +94,14 @@ impl TransportInterface for TcpTransporter {
         serde_json::from_str(&data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 
-    async fn send_metadata(&self, addr: IpAddr, file: &EntryInfo) -> io::Result<()> {
+    async fn send_metadata(&self, addr: IpAddr, entry: &EntryInfo) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
 
-        let metadata_json = serde_json::to_vec(file)?;
-        let kind = SyncKind::File(SyncFileKind::Metadata);
+        let metadata_json = serde_json::to_vec(entry)?;
+        let kind = SyncKind::Entry(SyncEntryKind::Metadata);
 
-        info!(kind = ?kind, target = ?addr, file_name = ?&file.name, "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, entry_name = ?&entry.name, "[⬆️  SEND]");
 
         // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
@@ -130,14 +130,14 @@ impl TransportInterface for TcpTransporter {
         Ok(metadata)
     }
 
-    async fn send_request(&self, addr: IpAddr, file: &EntryInfo) -> io::Result<()> {
+    async fn send_request(&self, addr: IpAddr, entry: &EntryInfo) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
 
-        let metadata_json = serde_json::to_vec(file)?;
-        let kind = SyncKind::File(SyncFileKind::Request);
+        let metadata_json = serde_json::to_vec(entry)?;
+        let kind = SyncKind::Entry(SyncEntryKind::Request);
 
-        info!(kind = ?kind, target = ?addr, file_name = ?&file.name, "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, entry_name = ?&entry.name, "[⬆️  SEND]");
 
         // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
@@ -158,15 +158,15 @@ impl TransportInterface for TcpTransporter {
         self.read_metadata(stream).await
     }
 
-    async fn send_file(&self, addr: IpAddr, file: &EntryInfo, contents: &[u8]) -> io::Result<()> {
+    async fn send_entry(&self, addr: IpAddr, entry: &EntryInfo, contents: &[u8]) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
 
-        let metadata_json = serde_json::to_vec(file)?;
-        let kind = SyncKind::File(SyncFileKind::Transfer);
-        let file_size = contents.len() as u64;
+        let metadata_json = serde_json::to_vec(entry)?;
+        let kind = SyncKind::Entry(SyncEntryKind::Transfer);
+        let entry_size = contents.len() as u64;
 
-        info!(kind = ?kind, target = ?addr, file_name = ?&file.name, "[⬆️  SEND]");
+        info!(kind = ?kind, target = ?addr, entry_name = ?&entry.name, "[⬆️  SEND]");
 
         // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
@@ -182,26 +182,26 @@ impl TransportInterface for TcpTransporter {
         // Write metadata json
         stream.write_all(&metadata_json).await?;
 
-        // Write file size
-        stream.write_all(&u64::to_be_bytes(file_size)).await?;
+        // Write entry size
+        stream.write_all(&u64::to_be_bytes(entry_size)).await?;
 
-        // Write file contents
+        // Write entry contents
         stream.write_all(contents).await
     }
 
-    async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(EntryInfo, Vec<u8>)> {
+    async fn read_entry(&self, stream: &mut TcpStream) -> io::Result<(EntryInfo, Vec<u8>)> {
         let metadata = self.read_metadata(stream).await?;
 
-        let mut file_size_buf = [0u8; 8];
-        stream.read_exact(&mut file_size_buf).await?;
-        let file_size = u64::from_be_bytes(file_size_buf);
+        let mut entry_size_buf = [0u8; 8];
+        stream.read_exact(&mut entry_size_buf).await?;
+        let entry_size = u64::from_be_bytes(entry_size_buf);
 
-        let mut file_buf = vec![0u8; file_size as usize];
-        stream.read_exact(&mut file_buf).await?;
+        let mut entry_buf = vec![0u8; entry_size as usize];
+        stream.read_exact(&mut entry_buf).await?;
 
         if let Some(hash) = &metadata.hash {
             if !metadata.is_deleted && matches!(metadata.kind, EntryKind::File) {
-                let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
+                let computed_hash = format!("{:x}", Sha256::digest(&entry_buf));
                 if computed_hash != *hash {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -211,7 +211,7 @@ impl TransportInterface for TcpTransporter {
             }
         }
 
-        Ok((metadata, file_buf))
+        Ok((metadata, entry_buf))
     }
 }
 

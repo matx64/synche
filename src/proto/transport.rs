@@ -4,15 +4,15 @@ use std::{collections::HashMap, io::ErrorKind};
 use tokio::io::Error;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PeerSyncData {
+pub struct PeerHandshakeData {
     pub directories: Vec<Directory>,
-    pub files: HashMap<String, EntryInfo>,
+    pub entries: HashMap<String, EntryInfo>,
 }
 
 #[derive(Debug)]
 pub enum SyncKind {
     Handshake(SyncHandshakeKind),
-    File(SyncFileKind),
+    Entry(SyncEntryKind),
 }
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub enum SyncHandshakeKind {
 }
 
 #[derive(Debug)]
-pub enum SyncFileKind {
+pub enum SyncEntryKind {
     Metadata,
     Request,
     Transfer,
@@ -33,9 +33,9 @@ impl SyncKind {
         match self {
             Self::Handshake(SyncHandshakeKind::Request) => 0,
             Self::Handshake(SyncHandshakeKind::Response) => 1,
-            Self::File(SyncFileKind::Metadata) => 2,
-            Self::File(SyncFileKind::Request) => 3,
-            Self::File(SyncFileKind::Transfer) => 4,
+            Self::Entry(SyncEntryKind::Metadata) => 2,
+            Self::Entry(SyncEntryKind::Request) => 3,
+            Self::Entry(SyncEntryKind::Transfer) => 4,
         }
     }
 }
@@ -45,9 +45,9 @@ impl std::fmt::Display for SyncKind {
         match self {
             Self::Handshake(SyncHandshakeKind::Request) => write!(f, "Handshake Request"),
             Self::Handshake(SyncHandshakeKind::Response) => write!(f, "Handshake Response"),
-            Self::File(SyncFileKind::Metadata) => write!(f, "File Metadata"),
-            Self::File(SyncFileKind::Request) => write!(f, "File Request"),
-            Self::File(SyncFileKind::Transfer) => write!(f, "File Transfer"),
+            Self::Entry(SyncEntryKind::Metadata) => write!(f, "Entry Metadata"),
+            Self::Entry(SyncEntryKind::Request) => write!(f, "Entry Request"),
+            Self::Entry(SyncEntryKind::Transfer) => write!(f, "Entry Transfer"),
         }
     }
 }
@@ -58,9 +58,9 @@ impl TryFrom<u8> for SyncKind {
         match value {
             0 => Ok(SyncKind::Handshake(SyncHandshakeKind::Request)),
             1 => Ok(SyncKind::Handshake(SyncHandshakeKind::Response)),
-            2 => Ok(SyncKind::File(SyncFileKind::Metadata)),
-            3 => Ok(SyncKind::File(SyncFileKind::Request)),
-            4 => Ok(SyncKind::File(SyncFileKind::Transfer)),
+            2 => Ok(SyncKind::Entry(SyncEntryKind::Metadata)),
+            3 => Ok(SyncKind::Entry(SyncEntryKind::Request)),
+            4 => Ok(SyncKind::Entry(SyncEntryKind::Transfer)),
             _ => Err(Error::new(
                 ErrorKind::InvalidData,
                 "Invalid SyncDataKind value",

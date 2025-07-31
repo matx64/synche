@@ -8,7 +8,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
     },
     domain::{Peer, entry::VersionVectorCmp},
-    proto::transport::{SyncFileKind, SyncHandshakeKind, SyncKind},
+    proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
@@ -54,13 +54,13 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
                 SyncKind::Handshake(_) => {
                     self.handle_handshake(data).await?;
                 }
-                SyncKind::File(SyncFileKind::Metadata) => {
+                SyncKind::Entry(SyncEntryKind::Metadata) => {
                     self.handle_metadata(data).await?;
                 }
-                SyncKind::File(SyncFileKind::Request) => {
+                SyncKind::Entry(SyncEntryKind::Request) => {
                     self.handle_request(data).await?;
                 }
-                SyncKind::File(SyncFileKind::Transfer) => {
+                SyncKind::Entry(SyncEntryKind::Transfer) => {
                     self.handle_transfer(data).await?;
                 }
             }
@@ -86,14 +86,14 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         info!("Synching peer: {}", data.src_ip);
 
-        let files_to_send = self
+        let entries_to_send = self
             .entry_manager
-            .get_entries_to_send(&peer, sync_data.files);
+            .get_entries_to_send(&peer, sync_data.entries);
 
-        for file in files_to_send {
+        for entry in entries_to_send {
             self.senders
                 .transfer_tx
-                .send((data.src_ip, file))
+                .send((data.src_ip, entry))
                 .await
                 .map_err(io::Error::other)?;
         }
@@ -101,33 +101,33 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn handle_metadata(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
-        let peer_file = self
+        let peer_entry = self
             .transport_adapter
             .read_metadata(&mut data.stream)
             .await?;
 
-        let is_deleted = peer_file.is_deleted();
+        let is_deleted = peer_entry.is_deleted;
 
-        if is_deleted && self.entry_manager.get_entry(&peer_file.name).is_none() {
+        if is_deleted && self.entry_manager.get_entry(&peer_entry.name).is_none() {
             return Ok(());
         }
 
-        let cmp = self.entry_manager.handle_metadata(data.src_id, &peer_file);
+        let cmp = self.entry_manager.handle_metadata(data.src_id, &peer_entry);
         match cmp {
             VersionVectorCmp::KeepPeer => {
                 if is_deleted {
-                    self.remove_file(&peer_file.name).await
+                    self.remove_entry(&peer_entry.name).await
                 } else {
                     self.senders
                         .request_tx
-                        .send((data.src_ip, peer_file))
+                        .send((data.src_ip, peer_entry))
                         .await
                         .map_err(io::Error::other)
                 }
             }
             VersionVectorCmp::Conflict => {
                 // TODO: Conflict
-                warn!("Metadata Conflict in file: {}", peer_file.name);
+                warn!("Metadata Conflict in entry: {}", peer_entry.name);
                 Ok(())
             }
             _ => Ok(()),
@@ -135,16 +135,16 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn handle_request(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
-        let requested_file = self
+        let requested_entry = self
             .transport_adapter
             .read_request(&mut data.stream)
             .await?;
 
-        if let Some(file) = self.entry_manager.get_entry(&requested_file.name) {
-            if file.hash == requested_file.hash {
+        if let Some(entry) = self.entry_manager.get_entry(&requested_entry.name) {
+            if entry.hash == requested_entry.hash {
                 self.senders
                     .transfer_tx
-                    .send((data.src_ip, requested_file))
+                    .send((data.src_ip, requested_entry))
                     .await
                     .map_err(io::Error::other)?;
             }
@@ -153,12 +153,12 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
-        let (file, contents) = self.transport_adapter.read_file(&mut data.stream).await?;
+        let (entry, contents) = self.transport_adapter.read_entry(&mut data.stream).await?;
 
-        self.entry_manager.insert_entry(&file);
+        self.entry_manager.insert_entry(&entry);
 
-        let original_path = self.base_dir.join(&file.name);
-        let tmp_path = self.tmp_dir.join(&file.name);
+        let original_path = self.base_dir.join(&entry.name);
+        let tmp_path = self.tmp_dir.join(&entry.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
@@ -176,15 +176,15 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         self.senders
             .watch_tx
-            .send(file)
+            .send(entry)
             .await
             .map_err(io::Error::other)
     }
 
-    pub async fn remove_file(&self, file_name: &str) -> io::Result<()> {
-        let _ = self.entry_manager.remove_entry(file_name);
+    pub async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
+        let _ = self.entry_manager.remove_entry(entry_name);
 
-        let path = self.base_dir.join(file_name);
+        let path = self.base_dir.join(entry_name);
         fs::remove_file(path).await
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     domain::EntryInfo,
-    proto::transport::{PeerSyncData, SyncHandshakeKind, SyncKind},
+    proto::transport::{PeerHandshakeData, SyncHandshakeKind, SyncKind},
 };
 use std::net::IpAddr;
 use tokio::{
@@ -21,18 +21,18 @@ pub trait TransportInterface {
         &self,
         addr: IpAddr,
         kind: SyncKind,
-        data: PeerSyncData,
+        data: PeerHandshakeData,
     ) -> io::Result<()>;
-    async fn read_handshake(&self, stream: &mut Self::Stream) -> io::Result<PeerSyncData>;
+    async fn read_handshake(&self, stream: &mut Self::Stream) -> io::Result<PeerHandshakeData>;
 
-    async fn send_metadata(&self, addr: IpAddr, file: &EntryInfo) -> io::Result<()>;
+    async fn send_metadata(&self, addr: IpAddr, entry: &EntryInfo) -> io::Result<()>;
     async fn read_metadata(&self, stream: &mut Self::Stream) -> io::Result<EntryInfo>;
 
-    async fn send_request(&self, addr: IpAddr, file: &EntryInfo) -> io::Result<()>;
+    async fn send_request(&self, addr: IpAddr, entry: &EntryInfo) -> io::Result<()>;
     async fn read_request(&self, stream: &mut Self::Stream) -> io::Result<EntryInfo>;
 
-    async fn send_file(&self, addr: IpAddr, file: &EntryInfo, contents: &[u8]) -> io::Result<()>;
-    async fn read_file(&self, stream: &mut Self::Stream) -> io::Result<(EntryInfo, Vec<u8>)>;
+    async fn send_entry(&self, addr: IpAddr, entry: &EntryInfo, contents: &[u8]) -> io::Result<()>;
+    async fn read_entry(&self, stream: &mut Self::Stream) -> io::Result<(EntryInfo, Vec<u8>)>;
 }
 
 pub trait TransportStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}

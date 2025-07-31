@@ -67,25 +67,25 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     pub async fn run(&self) -> io::Result<()> {
         tokio::try_join!(
             self.send_handshakes(),
-            self.send_file_changes(),
+            self.send_entry_changes(),
             self.send_requests(),
             self.send_files()
         )?;
         Ok(())
     }
 
-    async fn send_file_changes(&self) -> io::Result<()> {
+    async fn send_entry_changes(&self) -> io::Result<()> {
         let mut buffer = HashMap::<String, EntryInfo>::new();
         let mut interval = time::interval(Duration::from_secs(5));
 
         loop {
             tokio::select! {
-                Some(file) = async {
+                Some(entry) = async {
                     let mut watch_rx = self.receivers.watch_rx.lock().await;
                     watch_rx.recv().await
                 } => {
-                    info!("🗃️  Adding changed file to buffer: {}", file.name);
-                    buffer.insert(file.name.clone(), file);
+                    info!("🗃️  Adding changed entry to buffer: {}", entry.name);
+                    buffer.insert(entry.name.clone(), entry);
                 },
 
                 _ = interval.tick() => {
@@ -95,9 +95,9 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
 
                     let sync_map = self.peer_manager.build_sync_map(&buffer);
 
-                    for (addr, files) in sync_map {
-                        for file in files {
-                            self.transport_adapter.send_metadata(addr, file).await?;
+                    for (addr, entries) in sync_map {
+                        for entry in entries {
+                            self.transport_adapter.send_metadata(addr, entry).await?;
                         }
                     }
 
@@ -120,18 +120,18 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
 
     async fn send_requests(&self) -> io::Result<()> {
         loop {
-            if let Some((addr, file)) = self.receivers.request_rx.lock().await.recv().await {
-                self.transport_adapter.send_request(addr, &file).await?;
+            if let Some((addr, entry)) = self.receivers.request_rx.lock().await.recv().await {
+                self.transport_adapter.send_request(addr, &entry).await?;
             }
         }
     }
 
     async fn send_files(&self) -> io::Result<()> {
         loop {
-            if let Some((addr, file)) = self.receivers.transfer_rx.lock().await.recv().await {
-                let path = self.base_dir.join(&file.name);
+            if let Some((addr, entry)) = self.receivers.transfer_rx.lock().await.recv().await {
+                let path = self.base_dir.join(&entry.name);
 
-                if !path.exists() {
+                if !path.exists() || !path.is_file() {
                     continue;
                 }
 
@@ -140,7 +140,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                 fs_file.read_to_end(&mut buffer).await?;
 
                 self.transport_adapter
-                    .send_file(addr, &file, &buffer)
+                    .send_entry(addr, &entry, &buffer)
                     .await?;
             }
         }

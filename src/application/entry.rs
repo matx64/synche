@@ -4,7 +4,7 @@ use crate::{
         Directory, EntryInfo, Peer,
         entry::{VersionVectorCmp, entry::EntryKind},
     },
-    proto::transport::PeerSyncData,
+    proto::transport::PeerHandshakeData,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -242,14 +242,14 @@ impl<D: PersistenceInterface> EntryManager<D> {
         removed_entries
     }
 
-    pub fn get_sync_data(&self) -> PeerSyncData {
+    pub fn get_sync_data(&self) -> PeerHandshakeData {
         let directories = self
             .directories
             .read()
             .map(|dirs| dirs.values().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
 
-        let files = self
+        let entries = self
             .db
             .list_all_entries()
             .unwrap()
@@ -257,7 +257,10 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .map(|f| (f.name.clone(), f))
             .collect::<HashMap<String, EntryInfo>>();
 
-        PeerSyncData { directories, files }
+        PeerHandshakeData {
+            directories,
+            entries,
+        }
     }
 
     pub fn update_dirs(&self, updated: HashMap<String, Directory>) {
