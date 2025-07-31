@@ -53,6 +53,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                     WatcherEvent::CreatedFile(path) => {
                         self.handle_created_file(path).await;
                     }
+                    WatcherEvent::CreatedDir(path) => {
+                        self.handle_created_dir(path).await;
+                    }
                     WatcherEvent::ModifiedFileContent(path) => {
                         self.handle_modified_file_content(path).await;
                     }
@@ -95,6 +98,22 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             .entry_created(&relative_path, EntryKind::File, disk_hash);
 
         self.send_metadata(file).await;
+    }
+
+    async fn handle_created_dir(&self, path: PathBuf) {
+        let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
+            return;
+        };
+
+        if self.entry_manager.get_entry(&relative_path).is_some() {
+            return;
+        }
+
+        let dir = self
+            .entry_manager
+            .entry_created(&relative_path, EntryKind::Directory, None);
+
+        self.send_metadata(dir).await;
     }
 
     async fn handle_modified_file_content(&self, path: PathBuf) {

@@ -222,17 +222,12 @@ impl<D: PersistenceInterface> EntryManager<D> {
         let mut removed_entries = Vec::new();
 
         let entries = self.db.list_all_entries().unwrap();
-
-        let prefix = format!("{deleted}/");
-        let to_remove: Vec<EntryInfo> = entries
-            .into_iter()
-            .filter(|f| f.name.starts_with(&prefix))
-            .collect();
-
-        for entry in to_remove {
-            if let Some(mut removed) = self.db.remove_entry(&entry.name).unwrap() {
-                *removed.vv.entry(self.local_id).or_insert(0) += 1;
-                removed_entries.push(EntryInfo::absent(removed.name, removed.kind, removed.vv));
+        for entry in entries {
+            if entry.name.starts_with(deleted) {
+                if let Some(mut removed) = self.db.remove_entry(&entry.name).unwrap() {
+                    *removed.vv.entry(self.local_id).or_insert(0) += 1;
+                    removed_entries.push(EntryInfo::absent(removed.name, removed.kind, removed.vv));
+                }
             }
         }
 
@@ -260,7 +255,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub fn update_dirs(&self, updated: HashMap<String, Directory>) {
+    pub fn _update_dirs(&self, updated: HashMap<String, Directory>) {
         if let Ok(mut dirs) = self.directories.write() {
             dirs.clear();
             *dirs = updated;

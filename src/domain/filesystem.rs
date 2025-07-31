@@ -3,6 +3,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum WatcherEvent {
     CreatedFile(PathBuf),
+    CreatedDir(PathBuf),
     ModifiedFileContent(PathBuf),
     RenamedFile(ModifiedNamePaths),
     RenamedDir(ModifiedNamePaths),

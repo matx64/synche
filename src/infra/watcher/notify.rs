@@ -23,15 +23,12 @@ pub struct NotifyFileWatcher {
 impl FileWatcherInterface for NotifyFileWatcher {
     async fn watch(&mut self, base_dir: PathBuf, dirs: Vec<PathBuf>) -> io::Result<()> {
         self.base_dir_absolute = base_dir;
-        self.sync_dirs.clear();
 
         self.watcher
             .watch(&self.base_dir_absolute, RecursiveMode::Recursive)
             .unwrap();
+        self.sync_dirs = dirs.into_iter().collect();
 
-        for dir in dirs {
-            self.sync_dirs.insert(dir);
-        }
         Ok(())
     }
 
@@ -111,20 +108,14 @@ impl NotifyFileWatcher {
 
     fn handle_event(&self, event: Event, from: PathBuf) -> Option<WatcherEvent> {
         match event.kind {
-            EventKind::Create(CreateKind::File) => {
-                if from.exists() {
-                    Some(WatcherEvent::CreatedFile(from))
-                } else {
-                    None
-                }
-            }
+            EventKind::Create(kind) if from.exists() => match kind {
+                CreateKind::File => Some(WatcherEvent::CreatedFile(from)),
+                CreateKind::Folder => Some(WatcherEvent::CreatedDir(from)),
+                _ => None,
+            },
 
-            EventKind::Modify(ModifyKind::Data(_)) => {
-                if from.exists() && from.is_file() {
-                    Some(WatcherEvent::ModifiedFileContent(from))
-                } else {
-                    None
-                }
+            EventKind::Modify(ModifyKind::Data(_)) if from.exists() && from.is_file() => {
+                Some(WatcherEvent::ModifiedFileContent(from))
             }
 
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
@@ -145,12 +136,10 @@ impl NotifyFileWatcher {
                 Some(modified)
             }
 
-            EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
-                if from.exists() {
-                    None
-                } else {
-                    Some(WatcherEvent::Removed(from))
-                }
+            EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From))
+                if !from.exists() =>
+            {
+                Some(WatcherEvent::Removed(from))
             }
 
             _ => None,
