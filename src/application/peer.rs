@@ -1,4 +1,4 @@
-use crate::domain::{FileInfo, Peer};
+use crate::domain::{EntryInfo, Peer};
 use std::{collections::HashMap, net::IpAddr, sync::RwLock, time::SystemTime};
 use uuid::Uuid;
 
@@ -35,14 +35,14 @@ impl PeerManager {
 
     pub fn build_sync_map<'a>(
         &self,
-        buffer: &'a HashMap<String, FileInfo>,
-    ) -> HashMap<IpAddr, Vec<&'a FileInfo>> {
+        buffer: &'a HashMap<String, EntryInfo>,
+    ) -> HashMap<IpAddr, Vec<&'a EntryInfo>> {
         let mut result = HashMap::new();
 
         if let Ok(peers) = self.peers.read() {
             for peer in peers.values() {
                 for file in buffer.values() {
-                    if peer.directories.contains_key(&file.get_dir()) {
+                    if peer.directories.contains_key(&file.get_root_parent()) {
                         result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                     }
                 }

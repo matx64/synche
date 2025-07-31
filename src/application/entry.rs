@@ -1,6 +1,6 @@
 use crate::{
     application::persistence::interface::PersistenceInterface,
-    domain::{Directory, FileInfo, Peer, entry::VersionVectorCmp},
+    domain::{Directory, EntryInfo, Peer, entry::VersionVectorCmp},
     proto::transport::PeerSyncData,
 };
 use std::{
@@ -21,9 +21,9 @@ impl<D: PersistenceInterface> EntryManager<D> {
         db: D,
         local_id: Uuid,
         directories: HashMap<String, Directory>,
-        filesystem_files: HashMap<String, FileInfo>,
+        filesystem_files: HashMap<String, EntryInfo>,
     ) -> Self {
-        let mut files: HashMap<String, FileInfo> = db
+        let mut files: HashMap<String, EntryInfo> = db
             .list_all_files()
             .unwrap()
             .into_iter()
@@ -34,7 +34,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             match filesystem_files.get(name) {
                 Some(fs_file) if fs_file.hash != file.hash => {
                     *file.vv.entry(local_id).or_insert(0) += 1;
-                    db.insert_or_replace_file(&FileInfo {
+                    db.insert_or_replace_file(&EntryInfo {
                         name: file.name.clone(),
                         hash: fs_file.hash.clone(),
                         vv: file.vv.clone(),
@@ -68,12 +68,12 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .unwrap_or_default()
     }
 
-    pub fn insert_file(&self, file: &FileInfo) {
+    pub fn insert_file(&self, file: &EntryInfo) {
         self.db.insert_or_replace_file(file).unwrap();
     }
 
-    pub fn file_created(&self, name: &str, hash: String) -> FileInfo {
-        let file = FileInfo {
+    pub fn file_created(&self, name: &str, hash: String) -> EntryInfo {
+        let file = EntryInfo {
             name: name.to_owned(),
             hash,
             vv: HashMap::from([(self.local_id, 0)]),
@@ -83,11 +83,11 @@ impl<D: PersistenceInterface> EntryManager<D> {
         file
     }
 
-    pub fn file_modified(&self, name: &str, hash: String) -> Option<FileInfo> {
+    pub fn file_modified(&self, name: &str, hash: String) -> Option<EntryInfo> {
         self.get_file(name).map(|mut file| {
             *file.vv.entry(self.local_id).or_insert(0) += 1;
 
-            let updated = FileInfo {
+            let updated = EntryInfo {
                 name: file.name,
                 vv: file.vv,
                 hash,
@@ -98,15 +98,15 @@ impl<D: PersistenceInterface> EntryManager<D> {
         })
     }
 
-    pub fn get_file(&self, name: &str) -> Option<FileInfo> {
+    pub fn get_file(&self, name: &str) -> Option<EntryInfo> {
         self.db.get_file(name).unwrap()
     }
 
     pub fn get_files_to_send(
         &self,
         peer: &Peer,
-        peer_files: HashMap<String, FileInfo>,
-    ) -> Vec<FileInfo> {
+        peer_files: HashMap<String, EntryInfo>,
+    ) -> Vec<EntryInfo> {
         let mut result = Vec::new();
 
         let files = self.db.list_all_files().unwrap();
@@ -124,7 +124,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 if matches!(cmp, VersionVectorCmp::KeepSelf) {
                     result.push(file.to_owned());
                 }
-            } else if peer.directories.contains_key(&file.get_dir()) {
+            } else if peer.directories.contains_key(&file.get_root_parent()) {
                 file.vv.insert(peer.id, 0);
                 self.db.insert_or_replace_file(&file).unwrap();
                 result.push(file);
@@ -134,7 +134,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         result
     }
 
-    pub fn handle_metadata(&self, peer_id: Uuid, peer_file: &FileInfo) -> VersionVectorCmp {
+    pub fn handle_metadata(&self, peer_id: Uuid, peer_file: &EntryInfo) -> VersionVectorCmp {
         if let Some(mut local_file) = self.get_file(&peer_file.name) {
             let cmp = self.compare_vv(peer_id, peer_file, &mut local_file);
             self.db.insert_or_replace_file(&local_file).unwrap();
@@ -147,8 +147,8 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn compare_vv(
         &self,
         peer_id: Uuid,
-        peer_file: &FileInfo,
-        local_file: &mut FileInfo,
+        peer_file: &EntryInfo,
+        local_file: &mut EntryInfo,
     ) -> VersionVectorCmp {
         if local_file.hash == peer_file.hash {
             self.merge_versions(peer_id, peer_file, local_file);
@@ -189,7 +189,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    fn merge_versions(&self, peer_id: Uuid, peer_file: &FileInfo, local_file: &mut FileInfo) {
+    fn merge_versions(&self, peer_id: Uuid, peer_file: &EntryInfo, local_file: &mut EntryInfo) {
         for (pid, pv) in &peer_file.vv {
             let local_version = local_file.vv.entry(*pid).or_insert(0);
             *local_version = (*local_version).max(*pv);
@@ -197,11 +197,11 @@ impl<D: PersistenceInterface> EntryManager<D> {
         local_file.vv.entry(peer_id).or_insert(0);
     }
 
-    pub fn remove_file(&self, name: &str) -> Option<FileInfo> {
+    pub fn remove_file(&self, name: &str) -> Option<EntryInfo> {
         if let Some(mut removed) = self.db.remove_file(name).unwrap() {
             if let Some(old_local_v) = removed.vv.get(&self.local_id) {
                 removed.vv.insert(self.local_id, *old_local_v + 1);
-                Some(FileInfo::absent(removed.name, removed.vv))
+                Some(EntryInfo::absent(removed.name, removed.vv))
             } else {
                 None
             }
@@ -210,13 +210,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub fn remove_dir(&self, deleted: &str) -> Vec<FileInfo> {
+    pub fn remove_dir(&self, deleted: &str) -> Vec<EntryInfo> {
         let mut removed_files = Vec::new();
 
         let files = self.db.list_all_files().unwrap();
 
         let prefix = format!("{deleted}/");
-        let to_remove: Vec<FileInfo> = files
+        let to_remove: Vec<EntryInfo> = files
             .into_iter()
             .filter(|f| f.name.starts_with(&prefix))
             .collect();
@@ -224,7 +224,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         for file in to_remove {
             if let Some(mut removed) = self.db.remove_file(&file.name).unwrap() {
                 *removed.vv.entry(self.local_id).or_insert(0) += 1;
-                removed_files.push(FileInfo::absent(removed.name, removed.vv));
+                removed_files.push(EntryInfo::absent(removed.name, removed.vv));
             }
         }
 
@@ -244,7 +244,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
-            .collect::<HashMap<String, FileInfo>>();
+            .collect::<HashMap<String, EntryInfo>>();
 
         PeerSyncData { directories, files }
     }

@@ -2,7 +2,7 @@ use crate::{
     application::persistence::interface::{
         PersistenceError, PersistenceInterface, PersistenceResult,
     },
-    domain::{FileInfo, entry::VersionVector},
+    domain::{EntryInfo, entry::VersionVector},
 };
 use rusqlite::{Connection, params};
 
@@ -28,7 +28,7 @@ impl SqliteDb {
 }
 
 impl PersistenceInterface for SqliteDb {
-    fn insert_or_replace_file(&self, file: &FileInfo) -> PersistenceResult<()> {
+    fn insert_or_replace_file(&self, file: &EntryInfo) -> PersistenceResult<()> {
         let vv_json = serde_json::to_string(&file.vv)?;
 
         self.conn.execute(
@@ -38,7 +38,7 @@ impl PersistenceInterface for SqliteDb {
         Ok(())
     }
 
-    fn get_file(&self, name: &str) -> PersistenceResult<Option<FileInfo>> {
+    fn get_file(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
         let mut stmt = self
             .conn
             .prepare("SELECT name, hash, vv FROM files WHERE name = ?1")?;
@@ -50,13 +50,13 @@ impl PersistenceInterface for SqliteDb {
             let vv_json: String = row.get(2)?;
             let vv: VersionVector = serde_json::from_str(&vv_json)?;
 
-            Ok(Some(FileInfo { name, hash, vv }))
+            Ok(Some(EntryInfo { name, hash, vv }))
         } else {
             Ok(None)
         }
     }
 
-    fn list_all_files(&self) -> PersistenceResult<Vec<FileInfo>> {
+    fn list_all_files(&self) -> PersistenceResult<Vec<EntryInfo>> {
         let mut stmt = self.conn.prepare("SELECT name, hash, vv FROM files")?;
 
         let file_iter = stmt.query_map([], |row| {
@@ -70,7 +70,7 @@ impl PersistenceInterface for SqliteDb {
                     Box::new(err),
                 )
             })?;
-            Ok(FileInfo { name, hash, vv })
+            Ok(EntryInfo { name, hash, vv })
         })?;
 
         let mut files = Vec::new();
@@ -81,7 +81,7 @@ impl PersistenceInterface for SqliteDb {
         Ok(files)
     }
 
-    fn remove_file(&self, name: &str) -> PersistenceResult<Option<FileInfo>> {
+    fn remove_file(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
         let Some(file) = self.get_file(name)? else {
             return Ok(None);
         };
@@ -111,8 +111,8 @@ mod tests {
     use std::collections::HashMap;
     use uuid::Uuid;
 
-    fn sample_file(name: &str) -> FileInfo {
-        FileInfo {
+    fn sample_file(name: &str) -> EntryInfo {
+        EntryInfo {
             name: name.to_string(),
             hash: "abc123".to_string(),
             vv: HashMap::from([(Uuid::new_v4(), 0)]),

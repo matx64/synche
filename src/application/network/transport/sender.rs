@@ -7,7 +7,7 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::FileInfo,
+    domain::EntryInfo,
     proto::transport::{SyncHandshakeKind, SyncKind},
 };
 use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
@@ -37,10 +37,10 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         peer_manager: Arc<PeerManager>,
         base_dir: PathBuf,
     ) -> (Self, TransportSenders) {
-        let (watch_tx, watch_rx) = mpsc::channel::<FileInfo>(100);
+        let (watch_tx, watch_rx) = mpsc::channel::<EntryInfo>(100);
         let (handshake_tx, handshake_rx) = mpsc::channel::<(IpAddr, SyncHandshakeKind)>(100);
-        let (request_tx, request_rx) = mpsc::channel::<(IpAddr, FileInfo)>(100);
-        let (transfer_tx, transfer_rx) = mpsc::channel::<(IpAddr, FileInfo)>(100);
+        let (request_tx, request_rx) = mpsc::channel::<(IpAddr, EntryInfo)>(100);
+        let (transfer_tx, transfer_rx) = mpsc::channel::<(IpAddr, EntryInfo)>(100);
 
         (
             Self {
@@ -75,7 +75,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     }
 
     async fn send_file_changes(&self) -> io::Result<()> {
-        let mut buffer = HashMap::<String, FileInfo>::new();
+        let mut buffer = HashMap::<String, EntryInfo>::new();
         let mut interval = time::interval(Duration::from_secs(5));
 
         loop {

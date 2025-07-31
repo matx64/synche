@@ -47,7 +47,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
             persistence_adapter,
             config.constants.local_id,
             config.directories,
-            config.filesystem_files,
+            config.filesystem_entries,
         ));
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);

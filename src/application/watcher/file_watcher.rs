@@ -3,7 +3,7 @@ use crate::{
         EntryManager, persistence::interface::PersistenceInterface, watcher::FileWatcherInterface,
     },
     domain::{
-        FileInfo,
+        EntryInfo,
         filesystem::{ModifiedNamePaths, WatcherEvent},
     },
     utils::fs::{compute_hash, get_relative_path},
@@ -15,7 +15,7 @@ use tracing::{error, info};
 pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
     entry_manager: Arc<EntryManager<D>>,
-    watch_tx: Sender<FileInfo>,
+    watch_tx: Sender<EntryInfo>,
     base_dir_absolute: PathBuf,
 }
 
@@ -23,7 +23,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     pub fn new(
         watch_adapter: T,
         entry_manager: Arc<EntryManager<D>>,
-        watch_tx: Sender<FileInfo>,
+        watch_tx: Sender<EntryInfo>,
         base_dir: PathBuf,
     ) -> Self {
         Self {
@@ -181,7 +181,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn send_metadata(&self, file: FileInfo) {
+    async fn send_metadata(&self, file: EntryInfo) {
         if let Err(err) = self.watch_tx.send(file).await {
             error!("Failed to buffer metadata {}", err);
         }

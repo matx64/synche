@@ -3,7 +3,7 @@ use crate::{
         TransportInterface,
         transport::interface::{TransportData, TransportStream},
     },
-    domain::FileInfo,
+    domain::{EntryInfo, entry::entry::EntryKind},
     proto::transport::{PeerSyncData, SyncFileKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
@@ -94,7 +94,7 @@ impl TransportInterface for TcpTransporter {
         serde_json::from_str(&data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
     }
 
-    async fn send_metadata(&self, addr: IpAddr, file: &FileInfo) -> io::Result<()> {
+    async fn send_metadata(&self, addr: IpAddr, file: &EntryInfo) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
 
@@ -118,7 +118,7 @@ impl TransportInterface for TcpTransporter {
         stream.write_all(&metadata_json).await
     }
 
-    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<FileInfo> {
+    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<EntryInfo> {
         let mut json_len_buf = [0u8; 4];
         stream.read_exact(&mut json_len_buf).await?;
         let json_len = u32::from_be_bytes(json_len_buf) as usize;
@@ -126,11 +126,11 @@ impl TransportInterface for TcpTransporter {
         let mut json_buf = vec![0u8; json_len];
         stream.read_exact(&mut json_buf).await?;
 
-        let metadata = serde_json::from_slice::<FileInfo>(&json_buf)?;
+        let metadata = serde_json::from_slice::<EntryInfo>(&json_buf)?;
         Ok(metadata)
     }
 
-    async fn send_request(&self, addr: IpAddr, file: &FileInfo) -> io::Result<()> {
+    async fn send_request(&self, addr: IpAddr, file: &EntryInfo) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
 
@@ -154,11 +154,11 @@ impl TransportInterface for TcpTransporter {
         stream.write_all(&metadata_json).await
     }
 
-    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<FileInfo> {
+    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<EntryInfo> {
         self.read_metadata(stream).await
     }
 
-    async fn send_file(&self, addr: IpAddr, file: &FileInfo, contents: &[u8]) -> io::Result<()> {
+    async fn send_file(&self, addr: IpAddr, file: &EntryInfo, contents: &[u8]) -> io::Result<()> {
         let socket = SocketAddr::new(addr, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
 
@@ -189,7 +189,7 @@ impl TransportInterface for TcpTransporter {
         stream.write_all(contents).await
     }
 
-    async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(FileInfo, Vec<u8>)> {
+    async fn read_file(&self, stream: &mut TcpStream) -> io::Result<(EntryInfo, Vec<u8>)> {
         let metadata = self.read_metadata(stream).await?;
 
         let mut file_size_buf = [0u8; 8];
@@ -199,13 +199,16 @@ impl TransportInterface for TcpTransporter {
         let mut file_buf = vec![0u8; file_size as usize];
         stream.read_exact(&mut file_buf).await?;
 
-        // Compute hash for corruption check
-        let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
-        if computed_hash != metadata.hash {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Hash mismatch: data corruption detected",
-            ));
+        if let Some(hash) = &metadata.hash {
+            if !metadata.is_deleted && matches!(metadata.kind, EntryKind::File) {
+                let computed_hash = format!("{:x}", Sha256::digest(&file_buf));
+                if computed_hash != *hash {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Hash mismatch: data corruption detected",
+                    ));
+                }
+            }
         }
 
         Ok((metadata, file_buf))

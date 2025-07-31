@@ -1,5 +1,5 @@
 use crate::{
-    domain::{ConfiguredDirectory, Directory, FileInfo},
+    domain::{ConfiguredDirectory, Directory, EntryInfo, entry::entry::EntryKind},
     utils::fs::{compute_hash, get_relative_path},
 };
 use std::{
@@ -15,7 +15,7 @@ use walkdir::WalkDir;
 
 pub struct Config {
     pub directories: HashMap<String, Directory>,
-    pub filesystem_files: HashMap<String, FileInfo>,
+    pub filesystem_entries: HashMap<String, EntryInfo>,
     pub constants: AppConstants,
 }
 
@@ -36,11 +36,11 @@ pub fn init() -> Config {
 
     tracing_subscriber::fmt::init();
 
-    let (dirs, files) = build_entries(local_id, configured_dirs, &base_dir).unwrap();
+    let (dirs, entries) = build_entries(local_id, configured_dirs, &base_dir).unwrap();
 
     Config {
         directories: dirs,
-        filesystem_files: files,
+        filesystem_entries: entries,
         constants: AppConstants {
             local_id,
             base_dir: base_dir.to_owned(),
@@ -80,33 +80,33 @@ fn create_dirs(base_dir: &str, tmp_dir: &str) -> (PathBuf, PathBuf) {
 
 fn build_entries(
     local_id: Uuid,
-    directories: Vec<ConfiguredDirectory>,
+    configured_dirs: Vec<ConfiguredDirectory>,
     base_dir: &Path,
-) -> io::Result<(HashMap<String, Directory>, HashMap<String, FileInfo>)> {
+) -> io::Result<(HashMap<String, Directory>, HashMap<String, EntryInfo>)> {
     let mut dirs = HashMap::new();
-    let mut files = HashMap::new();
+    let mut entries = HashMap::new();
 
     let abs_base_path = base_dir.canonicalize()?;
 
-    for dir in directories {
+    for dir in configured_dirs {
         let path = base_dir.join(&dir.name);
 
         fs::create_dir_all(&path).unwrap();
 
         if path.is_dir() {
             dirs.insert(dir.name.clone(), Directory { name: dir.name });
-            build_dir(local_id, &path, &abs_base_path, &mut files)?;
+            build_dir(local_id, &path, &abs_base_path, &mut entries)?;
         }
     }
 
-    Ok((dirs, files))
+    Ok((dirs, entries))
 }
 
 fn build_dir(
     local_id: Uuid,
     dir_path: &PathBuf,
     abs_base_path: &PathBuf,
-    files: &mut HashMap<String, FileInfo>,
+    entries: &mut HashMap<String, EntryInfo>,
 ) -> io::Result<()> {
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
         let path = entry.path();
@@ -116,9 +116,20 @@ fn build_dir(
         }
 
         if path.is_file() {
-            build_file(local_id, &path.to_path_buf(), abs_base_path, files)?;
+            build_file(local_id, &path.to_path_buf(), abs_base_path, entries)?;
         } else if path.is_dir() {
-            build_dir(local_id, &path.to_path_buf(), abs_base_path, files)?;
+            let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
+            entries.insert(
+                relative_path.clone(),
+                EntryInfo {
+                    name: relative_path,
+                    kind: EntryKind::Directory,
+                    hash: None,
+                    is_deleted: false,
+                    vv: HashMap::from([(local_id, 0)]),
+                },
+            );
+            build_dir(local_id, &path.to_path_buf(), abs_base_path, entries)?;
         }
     }
 
@@ -129,16 +140,18 @@ fn build_file(
     local_id: Uuid,
     path: &PathBuf,
     abs_base_path: &PathBuf,
-    files: &mut HashMap<String, FileInfo>,
+    entries: &mut HashMap<String, EntryInfo>,
 ) -> io::Result<()> {
     let hash = compute_hash(path)?;
     let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
-    files.insert(
+    entries.insert(
         relative_path.clone(),
-        FileInfo {
+        EntryInfo {
             name: relative_path,
-            hash,
+            kind: EntryKind::File,
+            hash: Some(hash),
+            is_deleted: false,
             vv: HashMap::from([(local_id, 0)]),
         },
     );

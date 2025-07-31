@@ -4,5 +4,5 @@ pub mod peer;
 
 pub use entry::ConfiguredDirectory;
 pub use entry::Directory;
-pub use entry::FileInfo;
+pub use entry::EntryInfo;
 pub use peer::Peer;
