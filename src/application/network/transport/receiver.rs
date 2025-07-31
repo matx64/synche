@@ -86,7 +86,9 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         info!("Synching peer: {}", data.src_ip);
 
-        let files_to_send = self.entry_manager.get_files_to_send(&peer, sync_data.files);
+        let files_to_send = self
+            .entry_manager
+            .get_entries_to_send(&peer, sync_data.files);
 
         for file in files_to_send {
             self.senders
@@ -106,7 +108,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         let is_deleted = peer_file.is_deleted();
 
-        if is_deleted && self.entry_manager.get_file(&peer_file.name).is_none() {
+        if is_deleted && self.entry_manager.get_entry(&peer_file.name).is_none() {
             return Ok(());
         }
 
@@ -138,7 +140,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .read_request(&mut data.stream)
             .await?;
 
-        if let Some(file) = self.entry_manager.get_file(&requested_file.name) {
+        if let Some(file) = self.entry_manager.get_entry(&requested_file.name) {
             if file.hash == requested_file.hash {
                 self.senders
                     .transfer_tx
@@ -153,7 +155,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
         let (file, contents) = self.transport_adapter.read_file(&mut data.stream).await?;
 
-        self.entry_manager.insert_file(&file);
+        self.entry_manager.insert_entry(&file);
 
         let original_path = self.base_dir.join(&file.name);
         let tmp_path = self.tmp_dir.join(&file.name);
@@ -180,7 +182,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn remove_file(&self, file_name: &str) -> io::Result<()> {
-        let _ = self.entry_manager.remove_file(file_name);
+        let _ = self.entry_manager.remove_entry(file_name);
 
         let path = self.base_dir.join(file_name);
         fs::remove_file(path).await

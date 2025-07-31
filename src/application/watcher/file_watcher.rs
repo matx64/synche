@@ -4,6 +4,7 @@ use crate::{
     },
     domain::{
         EntryInfo,
+        entry::entry::EntryKind,
         filesystem::{ModifiedNamePaths, WatcherEvent},
     },
     utils::fs::{compute_hash, get_relative_path},
@@ -53,8 +54,8 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                     WatcherEvent::CreatedFile(path) => {
                         self.handle_created_file(path).await;
                     }
-                    WatcherEvent::ModifiedContent(path) => {
-                        self.handle_modified_content(path).await;
+                    WatcherEvent::ModifiedFileContent(path) => {
+                        self.handle_modified_file_content(path).await;
                     }
                     WatcherEvent::RenamedFile(paths) => {
                         self.handle_renamed_file(paths).await;
@@ -78,34 +79,36 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         };
 
-        if self.entry_manager.get_file(&relative_path).is_some() {
+        if self.entry_manager.get_entry(&relative_path).is_some() {
             return;
         }
 
         let disk_hash = match compute_hash(&path) {
-            Ok(hash) => hash,
+            Ok(hash) => Some(hash),
             Err(err) => {
                 error!("Failed to compute {} hash: {}", relative_path, err);
                 return;
             }
         };
 
-        let file = self.entry_manager.file_created(&relative_path, disk_hash);
+        let file = self
+            .entry_manager
+            .entry_created(&relative_path, EntryKind::File, disk_hash);
 
         self.send_metadata(file).await;
     }
 
-    async fn handle_modified_content(&self, path: PathBuf) {
+    async fn handle_modified_file_content(&self, path: PathBuf) {
         let Ok(relative_path) = get_relative_path(&path, &self.base_dir_absolute) else {
             return;
         };
 
-        let Some(file) = self.entry_manager.get_file(&relative_path) else {
+        let Some(file) = self.entry_manager.get_entry(&relative_path) else {
             return;
         };
 
         let disk_hash = match compute_hash(&path) {
-            Ok(hash) => hash,
+            Ok(hash) => Some(hash),
             Err(err) => {
                 error!("Failed to compute {} hash: {}", relative_path, err);
                 return;
@@ -113,7 +116,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         };
 
         if file.hash != disk_hash {
-            if let Some(file) = self.entry_manager.file_modified(&relative_path, disk_hash) {
+            if let Some(file) = self.entry_manager.entry_modified(&relative_path, disk_hash) {
                 self.send_metadata(file).await;
             }
         }
@@ -158,8 +161,8 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         };
 
-        if self.entry_manager.get_file(&relative_path).is_some() {
-            if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
+        if self.entry_manager.get_entry(&relative_path).is_some() {
+            if let Some(removed) = self.entry_manager.remove_entry(&relative_path) {
                 self.send_metadata(removed).await;
             }
         } else {
@@ -176,7 +179,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         };
 
-        if let Some(removed) = self.entry_manager.remove_file(&relative_path) {
+        if let Some(removed) = self.entry_manager.remove_entry(&relative_path) {
             self.send_metadata(removed).await;
         }
     }

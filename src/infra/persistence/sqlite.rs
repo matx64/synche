@@ -28,7 +28,7 @@ impl SqliteDb {
 }
 
 impl PersistenceInterface for SqliteDb {
-    fn insert_or_replace_file(&self, file: &EntryInfo) -> PersistenceResult<()> {
+    fn insert_or_replace_entry(&self, file: &EntryInfo) -> PersistenceResult<()> {
         let vv_json = serde_json::to_string(&file.vv)?;
 
         self.conn.execute(
@@ -38,7 +38,7 @@ impl PersistenceInterface for SqliteDb {
         Ok(())
     }
 
-    fn get_file(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+    fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
         let mut stmt = self
             .conn
             .prepare("SELECT name, hash, vv FROM files WHERE name = ?1")?;
@@ -56,7 +56,7 @@ impl PersistenceInterface for SqliteDb {
         }
     }
 
-    fn list_all_files(&self) -> PersistenceResult<Vec<EntryInfo>> {
+    fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
         let mut stmt = self.conn.prepare("SELECT name, hash, vv FROM files")?;
 
         let file_iter = stmt.query_map([], |row| {
@@ -81,8 +81,8 @@ impl PersistenceInterface for SqliteDb {
         Ok(files)
     }
 
-    fn remove_file(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
-        let Some(file) = self.get_file(name)? else {
+    fn remove_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+        let Some(file) = self.get_entry(name)? else {
             return Ok(None);
         };
 
@@ -128,8 +128,8 @@ mod tests {
         let db = init_db();
         let file = sample_file("file1.txt");
 
-        db.insert_or_replace_file(&file).unwrap();
-        let loaded = db.get_file("file1.txt").unwrap().unwrap();
+        db.insert_or_replace_entry(&file).unwrap();
+        let loaded = db.get_entry("file1.txt").unwrap().unwrap();
 
         assert_eq!(loaded.name, file.name);
         assert_eq!(loaded.hash, file.hash);
@@ -141,11 +141,11 @@ mod tests {
         let db = init_db();
         let file = sample_file("file2.txt");
 
-        db.insert_or_replace_file(&file).unwrap();
-        let removed = db.remove_file("file2.txt").unwrap();
+        db.insert_or_replace_entry(&file).unwrap();
+        let removed = db.remove_entry("file2.txt").unwrap();
 
         assert_eq!(removed.unwrap().name, file.name);
-        assert!(db.get_file("file2.txt").unwrap().is_none());
+        assert!(db.get_entry("file2.txt").unwrap().is_none());
     }
 
     #[test]
@@ -154,10 +154,10 @@ mod tests {
         let file1 = sample_file("fileA.txt");
         let file2 = sample_file("fileB.txt");
 
-        db.insert_or_replace_file(&file1).unwrap();
-        db.insert_or_replace_file(&file2).unwrap();
+        db.insert_or_replace_entry(&file1).unwrap();
+        db.insert_or_replace_entry(&file2).unwrap();
 
-        let mut files = db.list_all_files().unwrap();
+        let mut files = db.list_all_entries().unwrap();
         files.sort_by(|a, b| a.name.cmp(&b.name));
 
         assert_eq!(files.len(), 2);

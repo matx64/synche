@@ -120,8 +120,8 @@ impl NotifyFileWatcher {
             }
 
             EventKind::Modify(ModifyKind::Data(_)) => {
-                if from.exists() {
-                    Some(WatcherEvent::ModifiedContent(from))
+                if from.exists() && from.is_file() {
+                    Some(WatcherEvent::ModifiedFileContent(from))
                 } else {
                     None
                 }
