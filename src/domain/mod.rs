@@ -1,6 +1,6 @@
 pub mod entry;
-pub mod filesystem;
 pub mod peer;
+pub mod watcher;
 
 pub use entry::ConfiguredDirectory;
 pub use entry::Directory;

@@ -1,4 +1,4 @@
-use crate::domain::filesystem::WatcherEvent;
+use crate::domain::watcher::WatcherEvent;
 use std::path::PathBuf;
 use tokio::io;
 

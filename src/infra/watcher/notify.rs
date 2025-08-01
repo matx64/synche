@@ -1,6 +1,7 @@
 use crate::{
     application::watcher::FileWatcherInterface,
-    domain::filesystem::{ModifiedNamePaths, WatcherEvent},
+    domain::watcher::{ModifiedNamePaths, WatcherEvent, WatcherEventPath},
+    utils::fs::get_relative_path,
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -85,9 +86,12 @@ impl NotifyFileWatcher {
                     return None;
                 }
 
+                let from = self.build_path(from)?;
+                let to = self.build_path(to)?;
+
                 if to.is_dir() {
-                    self.sync_dirs.remove(&from);
-                    self.sync_dirs.insert(to.clone());
+                    self.sync_dirs.remove(&from.absolute);
+                    self.sync_dirs.insert(to.absolute.clone());
                     Some(WatcherEvent::RenamedSyncDir(ModifiedNamePaths { from, to }))
                 } else {
                     None
@@ -98,7 +102,7 @@ impl NotifyFileWatcher {
                 if from.exists() {
                     None
                 } else {
-                    Some(WatcherEvent::Removed(from))
+                    Some(WatcherEvent::Removed(self.build_path(from)?))
                 }
             }
 
@@ -109,13 +113,13 @@ impl NotifyFileWatcher {
     fn handle_event(&self, event: Event, from: PathBuf) -> Option<WatcherEvent> {
         match event.kind {
             EventKind::Create(kind) if from.exists() => match kind {
-                CreateKind::File => Some(WatcherEvent::CreatedFile(from)),
-                CreateKind::Folder => Some(WatcherEvent::CreatedDir(from)),
+                CreateKind::File => Some(WatcherEvent::CreatedFile(self.build_path(from)?)),
+                CreateKind::Folder => Some(WatcherEvent::CreatedDir(self.build_path(from)?)),
                 _ => None,
             },
 
             EventKind::Modify(ModifyKind::Data(_)) if from.exists() && from.is_file() => {
-                Some(WatcherEvent::ModifiedFileContent(from))
+                Some(WatcherEvent::ModifiedFileContent(self.build_path(from)?))
             }
 
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
@@ -124,6 +128,9 @@ impl NotifyFileWatcher {
                 if !to.exists() {
                     return None;
                 }
+
+                let from = self.build_path(from)?;
+                let to = self.build_path(to)?;
 
                 let modified = if to.is_file() {
                     WatcherEvent::RenamedFile(ModifiedNamePaths { from, to })
@@ -141,10 +148,17 @@ impl NotifyFileWatcher {
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
                 if !from.exists() =>
             {
-                Some(WatcherEvent::Removed(from))
+                Some(WatcherEvent::Removed(self.build_path(from)?))
             }
 
             _ => None,
         }
+    }
+
+    fn build_path(&self, path: PathBuf) -> Option<WatcherEventPath> {
+        Some(WatcherEventPath {
+            relative: get_relative_path(&path, &self.base_dir_absolute).ok()?,
+            absolute: path,
+        })
     }
 }
