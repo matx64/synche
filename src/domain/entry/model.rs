@@ -12,7 +12,7 @@ pub struct EntryInfo {
     pub vv: VersionVector,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EntryKind {
     File,
     Directory,
@@ -49,7 +49,15 @@ impl EntryInfo {
         });
 
         if is_local_dominant && is_peer_dominant {
-            VersionCmp::Conflict
+            if self.kind == other.kind && self.is_deleted == other.is_deleted {
+                if matches!(self.kind, EntryKind::Directory) {
+                    VersionCmp::Equal
+                } else {
+                    VersionCmp::Conflict
+                }
+            } else {
+                VersionCmp::Conflict
+            }
         } else if is_local_dominant {
             VersionCmp::KeepSelf
         } else if is_peer_dominant {
