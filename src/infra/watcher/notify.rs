@@ -136,7 +136,9 @@ impl NotifyFileWatcher {
                 Some(modified)
             }
 
-            EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From))
+            EventKind::Remove(_)
+            | EventKind::Modify(ModifyKind::Name(RenameMode::From))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
                 if !from.exists() =>
             {
                 Some(WatcherEvent::Removed(from))
