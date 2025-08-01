@@ -30,7 +30,7 @@ impl EntryInfo {
     }
 
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
-        if self.hash == other.hash {
+        if self.is_file() && other.is_file() && self.hash == other.hash {
             return VersionCmp::Equal;
         }
 
