@@ -23,7 +23,9 @@ impl PeerManager {
 
     pub fn insert(&self, peer: Peer) {
         if let Ok(mut peers) = self.peers.write() {
-            info!("🟢 Peer connected: {}", peer.id);
+            if !peers.contains_key(&peer.id) {
+                info!("🟢 Peer connected: {}", peer.id);
+            }
             peers.insert(peer.id, peer);
         }
     }
