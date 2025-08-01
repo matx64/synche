@@ -5,9 +5,9 @@ pub enum WatcherEvent {
     CreatedFile(WatcherEventPath),
     CreatedDir(WatcherEventPath),
     ModifiedFileContent(WatcherEventPath),
-    RenamedFile(ModifiedNamePaths),
-    RenamedDir(ModifiedNamePaths),
-    RenamedSyncDir(ModifiedNamePaths),
+    RenamedFile((WatcherEventPath, WatcherEventPath)),
+    RenamedDir((WatcherEventPath, WatcherEventPath)),
+    RenamedSyncDir((WatcherEventPath, WatcherEventPath)),
     Removed(WatcherEventPath),
 }
 
@@ -15,12 +15,6 @@ pub enum WatcherEvent {
 pub struct WatcherEventPath {
     pub absolute: PathBuf,
     pub relative: String,
-}
-
-#[derive(Debug)]
-pub struct ModifiedNamePaths {
-    pub from: WatcherEventPath,
-    pub to: WatcherEventPath,
 }
 
 impl WatcherEventPath {

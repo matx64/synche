@@ -4,7 +4,7 @@ use crate::{
     },
     domain::{
         EntryInfo, EntryKind,
-        watcher::{ModifiedNamePaths, WatcherEvent, WatcherEventPath},
+        watcher::{WatcherEvent, WatcherEventPath},
     },
     utils::fs::compute_hash,
 };
@@ -128,16 +128,18 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_renamed_file(&self, paths: ModifiedNamePaths) {
-        self.handle_removed_file(paths.from).await;
-        self.handle_created_file(paths.to).await;
+    async fn handle_renamed_file(&self, paths: (WatcherEventPath, WatcherEventPath)) {
+        self.handle_removed_file(paths.0).await;
+        self.handle_created_file(paths.1).await;
     }
 
-    async fn handle_renamed_dir(&self, paths: ModifiedNamePaths) {
-        let removed_entries = self.entry_manager.remove_dir(&paths.from.relative);
+    async fn handle_renamed_dir(&self, paths: (WatcherEventPath, WatcherEventPath)) {
+        let (from_path, to_path) = paths;
+
+        let removed_entries = self.entry_manager.remove_dir(&from_path.relative);
 
         for entry in removed_entries {
-            let relative = entry.name.replace(&paths.from.relative, &paths.to.relative);
+            let relative = entry.name.replace(&from_path.relative, &to_path.relative);
             let absolute = PathBuf::new().join(&self.base_dir_absolute).join(&relative);
 
             if absolute.exists() {
@@ -149,7 +151,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_renamed_sync_dir(&self, _paths: ModifiedNamePaths) {}
+    async fn handle_renamed_sync_dir(&self, _paths: (WatcherEventPath, WatcherEventPath)) {}
 
     async fn handle_removed(&self, path: WatcherEventPath) {
         if let Some(entry) = self.entry_manager.get_entry(&path.relative) {

@@ -1,6 +1,6 @@
 use crate::{
     application::watcher::FileWatcherInterface,
-    domain::watcher::{ModifiedNamePaths, WatcherEvent, WatcherEventPath},
+    domain::watcher::{WatcherEvent, WatcherEventPath},
     utils::fs::get_relative_path,
 };
 use notify::{
@@ -92,7 +92,7 @@ impl NotifyFileWatcher {
                 if to.is_dir() {
                     self.sync_dirs.remove(&from.absolute);
                     self.sync_dirs.insert(to.absolute.clone());
-                    Some(WatcherEvent::RenamedSyncDir(ModifiedNamePaths { from, to }))
+                    Some(WatcherEvent::RenamedSyncDir((from, to)))
                 } else {
                     None
                 }
@@ -133,9 +133,9 @@ impl NotifyFileWatcher {
                 let to = self.build_path(to)?;
 
                 let modified = if to.is_file() {
-                    WatcherEvent::RenamedFile(ModifiedNamePaths { from, to })
+                    WatcherEvent::RenamedFile((from, to))
                 } else if to.is_dir() {
-                    WatcherEvent::RenamedDir(ModifiedNamePaths { from, to })
+                    WatcherEvent::RenamedDir((from, to))
                 } else {
                     return None;
                 };
