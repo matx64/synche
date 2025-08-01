@@ -156,7 +156,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
         let (entry, contents) = self.transport_adapter.read_entry(&mut data.stream).await?;
 
-        self.entry_manager.insert_entry(&entry);
+        let entry = self.entry_manager.insert_entry(entry);
 
         let original_path = self.base_dir.join(&entry.name);
         let tmp_path = self.tmp_dir.join(&entry.name);
@@ -183,7 +183,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
-        self.entry_manager.insert_entry(&dir);
+        let dir = self.entry_manager.insert_entry(dir);
 
         let path = self.base_dir.join(&dir.name);
         fs::create_dir_all(path).await?;

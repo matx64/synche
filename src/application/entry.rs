@@ -69,8 +69,10 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .unwrap_or_default()
     }
 
-    pub fn insert_entry(&self, entry: &EntryInfo) {
-        self.db.insert_or_replace_entry(entry).unwrap();
+    pub fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
+        entry.vv.entry(self.local_id).or_insert(0);
+        self.db.insert_or_replace_entry(&entry).unwrap();
+        entry
     }
 
     pub fn entry_created(&self, name: &str, kind: EntryKind, hash: Option<String>) -> EntryInfo {
@@ -82,8 +84,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             vv: HashMap::from([(self.local_id, 0)]),
         };
 
-        self.insert_entry(&entry);
-        entry
+        self.insert_entry(entry)
     }
 
     pub fn entry_modified(&self, name: &str, hash: Option<String>) -> Option<EntryInfo> {
@@ -98,8 +99,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 hash,
             };
 
-            self.insert_entry(&updated);
-            updated
+            self.insert_entry(updated)
         })
     }
 
@@ -167,7 +167,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             let local_version = local_entry.vv.entry(*pid).or_insert(0);
             *local_version = (*local_version).max(*pv);
         }
-        self.insert_entry(local_entry);
+        self.db.insert_or_replace_entry(local_entry).unwrap();
     }
 
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
