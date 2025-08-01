@@ -104,6 +104,10 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
         )?;
         Ok(())
     }
+
+    pub async fn shutdown(&mut self) -> io::Result<()> {
+        self.presence_service.shutdown().await
+    }
 }
 
 impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter, SqliteDb> {

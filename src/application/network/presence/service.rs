@@ -2,7 +2,7 @@ use crate::{
     application::{PeerManager, network::PresenceInterface},
     proto::transport::SyncHandshakeKind,
 };
-use local_ip_address::{list_afinet_netifas, local_ip};
+use local_ip_address::list_afinet_netifas;
 use std::{net::IpAddr, sync::Arc, time::Duration};
 use tokio::{io, sync::mpsc::Sender, time};
 use tracing::{error, info};
@@ -13,6 +13,7 @@ pub struct PresenceService<T: PresenceInterface> {
     local_id: Uuid,
     peer_manager: Arc<PeerManager>,
     handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
+    broadcast_msg: Vec<u8>,
     broadcast_interval_secs: u64,
 }
 
@@ -25,6 +26,7 @@ impl<T: PresenceInterface> PresenceService<T> {
         broadcast_interval_secs: u64,
     ) -> Self {
         Self {
+            broadcast_msg: format!("ping:{}", &local_id).as_bytes().to_vec(),
             presence_adapter,
             local_id,
             peer_manager,
@@ -39,12 +41,11 @@ impl<T: PresenceInterface> PresenceService<T> {
     }
 
     async fn run_broadcast(&self) -> io::Result<()> {
-        let msg = format!("ping:{}", &self.local_id);
-        let msg = msg.as_bytes();
         let mut retries: usize = 0;
+        let mut interval = time::interval(Duration::from_secs(self.broadcast_interval_secs));
 
         loop {
-            if let Err(e) = self.presence_adapter.broadcast(msg).await {
+            if let Err(e) = self.presence_adapter.broadcast(&self.broadcast_msg).await {
                 error!("Error sending presence: {}", e);
                 retries += 1;
 
@@ -54,13 +55,11 @@ impl<T: PresenceInterface> PresenceService<T> {
             } else {
                 retries = 0;
             }
-
-            time::sleep(Duration::from_secs(self.broadcast_interval_secs)).await;
+            interval.tick().await;
         }
     }
 
     async fn run_recv(&self) -> io::Result<()> {
-        let local_ip = local_ip().unwrap();
         let ifas = list_afinet_netifas().unwrap();
 
         loop {
@@ -70,17 +69,28 @@ impl<T: PresenceInterface> PresenceService<T> {
                 continue;
             }
 
-            let peer_id = msg
-                .strip_prefix("ping:")
-                .and_then(|id| Uuid::parse_str(id).ok());
+            let is_ping = msg.starts_with("ping:");
+
+            let peer_id = if is_ping {
+                msg.strip_prefix("ping:")
+                    .and_then(|id| Uuid::parse_str(id).ok())
+            } else {
+                msg.strip_prefix("shutdown:")
+                    .and_then(|id| Uuid::parse_str(id).ok())
+            };
 
             let Some(peer_id) = peer_id else {
                 error!("Invalid or missing broadcast ID: {}", msg);
                 continue;
             };
 
+            if !is_ping {
+                self.peer_manager.remove_peer(peer_id);
+                continue;
+            }
+
             let send_handshake =
-                self.peer_manager.insert_or_update(peer_id, src_ip) && local_ip < src_ip;
+                self.peer_manager.insert_or_update(peer_id, src_ip) && self.local_id < peer_id;
 
             if send_handshake {
                 self.handshake_tx
@@ -100,5 +110,10 @@ impl<T: PresenceInterface> PresenceService<T> {
 
     fn is_host(&self, ifas: &[(String, IpAddr)], ip: IpAddr) -> bool {
         ifas.iter().any(|ifa| ifa.1 == ip)
+    }
+
+    pub async fn shutdown(&mut self) -> io::Result<()> {
+        self.broadcast_msg = format!("shutdown:{}", self.local_id).as_bytes().to_vec();
+        self.presence_adapter.broadcast(&self.broadcast_msg).await
     }
 }

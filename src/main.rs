@@ -10,5 +10,16 @@ async fn main() -> tokio::io::Result<()> {
     let config = config::init();
 
     let mut synchronizer = crate::application::Synchronizer::new_default(config).await;
-    synchronizer.run().await
+
+    tokio::select! {
+        res = synchronizer.run() => {
+            res?;
+        },
+
+        _ = tokio::signal::ctrl_c() => {
+            synchronizer.shutdown().await?;
+            tracing::info!("✅ Synche sucessfully shutdown");
+        }
+    };
+    Ok(())
 }
