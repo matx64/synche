@@ -179,15 +179,17 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             return;
         };
 
-        if self.entry_manager.get_entry(&relative_path).is_some() {
-            if let Some(removed) = self.entry_manager.remove_entry(&relative_path) {
-                self.send_metadata(removed).await;
-            }
-        } else {
-            let removed_entries = self.entry_manager.remove_dir(&relative_path);
+        if let Some(entry) = self.entry_manager.get_entry(&relative_path) {
+            if entry.is_file() {
+                if let Some(removed) = self.entry_manager.remove_entry(&relative_path) {
+                    self.send_metadata(removed).await;
+                }
+            } else {
+                let removed_entries = self.entry_manager.remove_dir(&relative_path);
 
-            for file in removed_entries {
-                self.send_metadata(file).await;
+                for file in removed_entries {
+                    self.send_metadata(file).await;
+                }
             }
         }
     }
