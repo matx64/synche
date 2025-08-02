@@ -87,24 +87,24 @@ impl<D: PersistenceInterface> EntryManager<D> {
         self.insert_entry(entry)
     }
 
-    pub fn entry_modified(&self, name: &str, hash: Option<String>) -> Option<EntryInfo> {
-        self.get_entry(name).map(|mut entry| {
-            *entry.vv.entry(self.local_id).or_insert(0) += 1;
+    pub fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
+        entry.hash = hash;
+        *entry.vv.entry(self.local_id).or_insert(0) += 1;
 
-            let updated = EntryInfo {
-                name: entry.name,
-                kind: entry.kind,
-                vv: entry.vv,
-                is_deleted: entry.is_deleted,
-                hash,
-            };
-
-            self.insert_entry(updated)
-        })
+        self.db.insert_or_replace_entry(&entry).unwrap();
+        entry
     }
 
     pub fn get_entry(&self, name: &str) -> Option<EntryInfo> {
         self.db.get_entry(name).unwrap()
+    }
+
+    pub fn entry_exists(&self, name: &str) -> bool {
+        self.db
+            .get_entry(name)
+            .unwrap()
+            .map(|e| !e.is_deleted)
+            .unwrap_or(false)
     }
 
     pub fn get_entries_to_request(

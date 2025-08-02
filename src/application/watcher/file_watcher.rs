@@ -77,17 +77,11 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_created_file(&self, path: WatcherEventPath) {
-        if self.entry_manager.get_entry(&path.relative).is_some() {
+        if self.entry_manager.entry_exists(&path.relative) {
             return self.handle_modified_file_content(path).await;
         }
 
-        let disk_hash = match compute_hash(&path.absolute) {
-            Ok(hash) => Some(hash),
-            Err(err) => {
-                error!("Failed to compute {} hash: {}", path.relative, err);
-                return;
-            }
-        };
+        let disk_hash = Some(compute_hash(&path.absolute).unwrap());
 
         let file = self
             .entry_manager
@@ -97,7 +91,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_created_dir(&self, path: WatcherEventPath) {
-        if self.entry_manager.get_entry(&path.relative).is_some() {
+        if self.entry_manager.entry_exists(&path.relative) {
             return;
         }
 
@@ -109,22 +103,17 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_modified_file_content(&self, path: WatcherEventPath) {
-        let Some(file) = self.entry_manager.get_entry(&path.relative) else {
-            return;
-        };
+        let file = self
+            .entry_manager
+            .get_entry(&path.relative)
+            .filter(|e| !e.is_deleted)
+            .expect("Modified deleted entry");
 
-        let disk_hash = match compute_hash(&path.absolute) {
-            Ok(hash) => Some(hash),
-            Err(err) => {
-                error!("Failed to compute {} hash: {}", path.relative, err);
-                return;
-            }
-        };
+        let disk_hash = Some(compute_hash(&path.absolute).unwrap());
 
         if file.hash != disk_hash {
-            if let Some(file) = self.entry_manager.entry_modified(&path.relative, disk_hash) {
-                self.send_metadata(file).await;
-            }
+            let file = self.entry_manager.entry_modified(file, disk_hash);
+            self.send_metadata(file).await;
         }
     }
 

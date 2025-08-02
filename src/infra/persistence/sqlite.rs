@@ -46,8 +46,7 @@ impl PersistenceInterface for SqliteDb {
         let mut stmt = self.conn.prepare(
             "SELECT name, kind, hash, is_deleted, vv
              FROM entries
-             WHERE name = ?1
-             AND is_deleted = 0",
+             WHERE name = ?1",
         )?;
         let mut rows = stmt.query(params![name])?;
 
