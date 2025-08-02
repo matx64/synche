@@ -21,7 +21,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         filesystem_entries: HashMap<String, EntryInfo>,
     ) -> Self {
         let mut entries: HashMap<String, EntryInfo> = db
-            .list_all_entries()
+            .list_all_entries(true)
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
@@ -186,7 +186,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn remove_dir(&self, deleted: &str) -> Vec<EntryInfo> {
         let mut removed_entries = Vec::new();
 
-        let entries = self.db.list_all_entries().unwrap();
+        let entries = self.db.list_all_entries(false).unwrap();
         for entry in entries {
             if entry.name.starts_with(deleted) {
                 if let Some(mut removed) = self.db.remove_entry(&entry.name).unwrap() {
@@ -208,7 +208,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         let entries = self
             .db
-            .list_all_entries()
+            .list_all_entries(false)
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
