@@ -106,7 +106,7 @@ impl PersistenceInterface for SqliteDb {
         iter.collect::<Result<_, _>>().map_err(Into::into)
     }
 
-    fn remove_entry_soft(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+    fn remove_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
         if let Some(mut entry) = self.get_entry(name)? {
             self.conn.execute(
                 "UPDATE entries SET is_deleted = 1 WHERE name = ?1",
@@ -119,14 +119,10 @@ impl PersistenceInterface for SqliteDb {
         }
     }
 
-    fn remove_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
-        if let Some(entry) = self.get_entry(name)? {
-            self.conn
-                .execute("DELETE FROM entries WHERE name = ?1", params![name])?;
-            Ok(Some(entry))
-        } else {
-            Ok(None)
-        }
+    fn clean_deleted_entries(&self) -> PersistenceResult<()> {
+        self.conn
+            .execute("DELETE FROM entries WHERE is_deleted = 1", [])?;
+        Ok(())
     }
 }
 
@@ -201,13 +197,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_nonexistent_entry() {
-        let db = make_db();
-        let result = db.get_entry("nonexistent").unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
     fn test_list_all_entries() {
         let db = make_db();
         let e1 = sample_entry("a.txt");
@@ -227,6 +216,13 @@ mod tests {
         assert_eq!(all[1].name, "b.txt");
         assert!(matches!(all[1].kind, EntryKind::Directory));
         assert!(all[1].is_deleted);
+
+        db.clean_deleted_entries().unwrap();
+
+        let mut all = db.list_all_entries(true).unwrap();
+        all.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(all.len(), 1);
     }
 
     #[test]

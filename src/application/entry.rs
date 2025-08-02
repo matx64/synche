@@ -172,12 +172,8 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
         if let Some(mut removed) = self.db.remove_entry(name).unwrap() {
-            if let Some(old_local_v) = removed.vv.get(&self.local_id) {
-                removed.vv.insert(self.local_id, *old_local_v + 1);
-                Some(EntryInfo::absent(removed.name, removed.kind, removed.vv))
-            } else {
-                None
-            }
+            *removed.vv.entry(self.local_id).or_insert(0) += 1;
+            Some(removed)
         } else {
             None
         }
@@ -191,7 +187,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             if entry.name.starts_with(deleted) {
                 if let Some(mut removed) = self.db.remove_entry(&entry.name).unwrap() {
                     *removed.vv.entry(self.local_id).or_insert(0) += 1;
-                    removed_entries.push(EntryInfo::absent(removed.name, removed.kind, removed.vv));
+                    removed_entries.push(removed);
                 }
             }
         }

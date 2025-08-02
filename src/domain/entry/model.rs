@@ -19,16 +19,6 @@ pub enum EntryKind {
 }
 
 impl EntryInfo {
-    pub fn absent(name: String, kind: EntryKind, vv: VersionVector) -> Self {
-        Self {
-            name,
-            kind,
-            vv,
-            hash: None,
-            is_deleted: true,
-        }
-    }
-
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
         if self.is_file() && other.is_file() && self.hash == other.hash {
             return VersionCmp::Equal;
