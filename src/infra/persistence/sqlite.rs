@@ -46,7 +46,8 @@ impl PersistenceInterface for SqliteDb {
         let mut stmt = self.conn.prepare(
             "SELECT name, kind, hash, is_deleted, vv
              FROM entries
-             WHERE name = ?1",
+             WHERE name = ?1
+             AND is_deleted = 0",
         )?;
         let mut rows = stmt.query(params![name])?;
 
@@ -70,11 +71,14 @@ impl PersistenceInterface for SqliteDb {
         }
     }
 
-    fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name, kind, hash, is_deleted, vv
-             FROM entries",
-        )?;
+    fn list_all_entries(&self, include_deleted: bool) -> PersistenceResult<Vec<EntryInfo>> {
+        let stmt = if include_deleted {
+            "SELECT name, kind, hash, is_deleted, vv FROM entries"
+        } else {
+            "SELECT name, kind, hash, is_deleted, vv FROM entries WHERE is_deleted = 0"
+        };
+
+        let mut stmt = self.conn.prepare(stmt)?;
 
         let iter = stmt.query_map([], |row| {
             let name: String = row.get(0)?;
@@ -100,6 +104,19 @@ impl PersistenceInterface for SqliteDb {
         })?;
 
         iter.collect::<Result<_, _>>().map_err(Into::into)
+    }
+
+    fn remove_entry_soft(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+        if let Some(mut entry) = self.get_entry(name)? {
+            self.conn.execute(
+                "UPDATE entries SET is_deleted = 1 WHERE name = ?1",
+                params![name],
+            )?;
+            entry.is_deleted = true;
+            Ok(Some(entry))
+        } else {
+            Ok(None)
+        }
     }
 
     fn remove_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
@@ -201,7 +218,7 @@ mod tests {
         db.insert_or_replace_entry(&e1).unwrap();
         db.insert_or_replace_entry(&e2).unwrap();
 
-        let mut all = db.list_all_entries().unwrap();
+        let mut all = db.list_all_entries(true).unwrap();
         all.sort_by(|a, b| a.name.cmp(&b.name));
 
         assert_eq!(all.len(), 2);
@@ -223,12 +240,8 @@ mod tests {
         entry.is_deleted = true;
         db.insert_or_replace_entry(&entry).unwrap();
 
-        let fetched = db
-            .get_entry(&entry.name)
-            .unwrap()
-            .expect("Entry should exist");
-        assert_eq!(fetched.hash, Some("second".to_string()));
-        assert!(fetched.is_deleted);
+        let fetched = db.get_entry(&entry.name).unwrap();
+        assert!(fetched.is_none());
     }
 
     #[test]
