@@ -45,13 +45,13 @@ impl PeerManager {
 
     pub fn build_sync_map<'a>(
         &self,
-        buffer: &'a HashMap<String, EntryInfo>,
+        buffer: &'a Vec<EntryInfo>,
     ) -> HashMap<IpAddr, Vec<&'a EntryInfo>> {
         let mut result = HashMap::new();
 
         if let Ok(peers) = self.peers.read() {
             for peer in peers.values() {
-                for file in buffer.values() {
+                for file in buffer {
                     if peer.directories.contains_key(&file.get_root_parent()) {
                         result.entry(peer.addr).or_insert_with(Vec::new).push(file);
                     }

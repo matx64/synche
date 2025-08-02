@@ -76,7 +76,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
 
     async fn send_entry_changes(&self) -> io::Result<()> {
         let mut buffer = HashMap::<String, EntryInfo>::new();
-        let mut interval = time::interval(Duration::from_secs(5));
+        let mut interval = time::interval(Duration::from_secs(3));
 
         loop {
             tokio::select! {
@@ -93,15 +93,16 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                         continue;
                     }
 
-                    let sync_map = self.peer_manager.build_sync_map(&buffer);
+                    let to_process = buffer.values().cloned().collect();
+                    buffer.clear();
+
+                    let sync_map = self.peer_manager.build_sync_map(&to_process);
 
                     for (addr, entries) in sync_map {
                         for entry in entries {
                             self.transport_adapter.send_metadata(addr, entry).await?;
                         }
                     }
-
-                    buffer.clear();
                 }
             }
         }
@@ -110,7 +111,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     async fn send_handshakes(&self) -> io::Result<()> {
         loop {
             if let Some((addr, kind)) = self.receivers.handshake_rx.lock().await.recv().await {
-                let data = self.entry_manager.get_sync_data();
+                let data = self.entry_manager.get_handshake_data();
                 self.transport_adapter
                     .send_handshake(addr, SyncKind::Handshake(kind), data)
                     .await?;

@@ -199,7 +199,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         removed_entries
     }
 
-    pub fn get_sync_data(&self) -> PeerHandshakeData {
+    pub fn get_handshake_data(&self) -> PeerHandshakeData {
         let directories = self
             .directories
             .read()
