@@ -35,12 +35,12 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
     async fn next(&mut self) -> Option<WatcherEvent> {
         let event = match self.watch_rx.recv().await {
-            Some(Ok(event)) => event,
+            Some(Ok(event)) if !event.kind.is_access() && !event.kind.is_other() => event,
             Some(Err(e)) => {
-                error!("File Watcher error: {}", e);
+                error!("Notify Watcher error: {}", e);
                 return None;
             }
-            None => return None,
+            _ => return None,
         };
 
         let from = event.paths.first().cloned()?;
@@ -48,7 +48,12 @@ impl FileWatcherInterface for NotifyFileWatcher {
         if self.sync_dirs.contains(&from) {
             self.handle_sync_dir_event(event, from)
         } else {
-            self.handle_event(event, from)
+            for dir in self.sync_dirs.iter() {
+                if from.starts_with(dir) {
+                    return self.handle_event(event, from);
+                }
+            }
+            None
         }
     }
 }
@@ -74,9 +79,7 @@ impl NotifyFileWatcher {
     }
 
     fn handle_sync_dir_event(&mut self, event: Event, from: PathBuf) -> Option<WatcherEvent> {
-        if !matches!(event.kind, EventKind::Access(_)) {
-            info!("Notify Event in Sync Directory: {event:?}");
-        }
+        info!("Notify Event in Sync Directory: {event:?}");
 
         match event.kind {
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
