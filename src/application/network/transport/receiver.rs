@@ -110,15 +110,9 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .read_metadata(&mut data.stream)
             .await?;
 
-        let is_deleted = peer_entry.is_deleted;
-
-        if is_deleted && self.entry_manager.get_entry(&peer_entry.name).is_none() {
-            return Ok(());
-        }
-
         match self.entry_manager.handle_metadata(data.src_id, &peer_entry) {
             VersionCmp::KeepOther => {
-                if is_deleted {
+                if peer_entry.is_deleted {
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
                     self.senders
@@ -142,7 +136,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .await?;
 
         if let Some(entry) = self.entry_manager.get_entry(&requested_entry.name) {
-            if entry.is_file() && entry.hash == requested_entry.hash {
+            if !entry.is_deleted && entry.is_file() && entry.hash == requested_entry.hash {
                 self.senders
                     .transfer_tx
                     .send((data.src_ip, requested_entry))
