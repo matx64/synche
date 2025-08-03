@@ -55,6 +55,8 @@ impl<D: PersistenceInterface> EntryManager<D> {
             }
         }
 
+        db.clean_deleted_entries().unwrap();
+
         Self {
             db,
             local_id,
@@ -185,8 +187,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         let entries = self.db.list_all_entries(false).unwrap();
         for entry in entries {
             if entry.name.starts_with(deleted) {
-                if let Some(mut removed) = self.db.remove_entry(&entry.name).unwrap() {
-                    *removed.vv.entry(self.local_id).or_insert(0) += 1;
+                if let Some(removed) = self.remove_entry(&entry.name) {
                     removed_entries.push(removed);
                 }
             }

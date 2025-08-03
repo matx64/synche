@@ -106,15 +106,16 @@ impl PersistenceInterface for SqliteDb {
     }
 
     fn remove_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
-        if let Some(mut entry) = self.get_entry(name)? {
-            self.conn.execute(
-                "UPDATE entries SET is_deleted = 1 WHERE name = ?1",
-                params![name],
-            )?;
-            entry.is_deleted = true;
-            Ok(Some(entry))
-        } else {
-            Ok(None)
+        match self.get_entry(name)? {
+            Some(mut entry) if !entry.is_deleted => {
+                self.conn.execute(
+                    "UPDATE entries SET is_deleted = 1 WHERE name = ?1",
+                    params![name],
+                )?;
+                entry.is_deleted = true;
+                Ok(Some(entry))
+            }
+            _ => Ok(None),
         }
     }
 
