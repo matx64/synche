@@ -1,4 +1,4 @@
-[![logo-256.png](https://i.postimg.cc/28BQwmWt/logo-256.png)](https://postimg.cc/kBqRJ0fN)
+![logo.png](https://i.postimg.cc/mDzfDtcj/logo.png)
 
 ---
 
