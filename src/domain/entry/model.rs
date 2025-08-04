@@ -20,40 +20,47 @@ pub enum EntryKind {
 
 impl EntryInfo {
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
-        if self.is_file() && other.is_file() && self.hash == other.hash {
+        assert_eq!(self.name, other.name);
+
+        if self.kind == other.kind && self.hash == other.hash && self.is_deleted == other.is_deleted
+        {
             return VersionCmp::Equal;
         }
 
         let all_peers: HashSet<Uuid> = self.vv.keys().chain(other.vv.keys()).cloned().collect();
 
-        let is_local_dominant = all_peers.iter().all(|p| {
-            let local_v = self.vv.get(p).unwrap_or(&0);
-            let peer_v = other.vv.get(p).unwrap_or(&0);
-            local_v >= peer_v
-        });
-
-        let is_peer_dominant = all_peers.iter().all(|p| {
-            let peer_v = other.vv.get(p).unwrap_or(&0);
-            let local_v = self.vv.get(p).unwrap_or(&0);
-            peer_v >= local_v
-        });
-
-        if is_local_dominant && is_peer_dominant {
-            if self.kind == other.kind && self.is_deleted == other.is_deleted {
-                if matches!(self.kind, EntryKind::Directory) {
-                    VersionCmp::Equal
-                } else {
-                    VersionCmp::Conflict
-                }
-            } else {
-                VersionCmp::Conflict
+        let (mut lt, mut gt) = (false, false);
+        for peer in &all_peers {
+            let a = *self.vv.get(peer).unwrap_or(&0);
+            let b = *other.vv.get(peer).unwrap_or(&0);
+            if a < b {
+                lt = true;
             }
-        } else if is_local_dominant {
-            VersionCmp::KeepSelf
-        } else if is_peer_dominant {
-            VersionCmp::KeepOther
-        } else {
-            VersionCmp::Conflict
+            if a > b {
+                gt = true;
+            }
+        }
+
+        match (lt, gt) {
+            (false, false) => match self.kind {
+                EntryKind::File => {
+                    if self.is_deleted == other.is_deleted && self.hash == other.hash {
+                        VersionCmp::Equal
+                    } else {
+                        VersionCmp::Conflict
+                    }
+                }
+                EntryKind::Directory => {
+                    if self.is_deleted == other.is_deleted {
+                        VersionCmp::Equal
+                    } else {
+                        VersionCmp::Conflict
+                    }
+                }
+            },
+            (false, true) => VersionCmp::KeepSelf,
+            (true, false) => VersionCmp::KeepOther,
+            (true, true) => VersionCmp::Conflict,
         }
     }
 
