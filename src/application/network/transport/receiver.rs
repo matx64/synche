@@ -135,16 +135,21 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .read_request(&mut data.stream)
             .await?;
 
-        if let Some(entry) = self.entry_manager.get_entry(&requested_entry.name) {
-            if !entry.is_deleted && entry.is_file() && entry.hash == requested_entry.hash {
+        match self.entry_manager.get_entry(&requested_entry.name) {
+            Some(local_entry)
+                if !local_entry.is_deleted
+                    && local_entry.is_file()
+                    && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
+            {
                 self.senders
                     .transfer_tx
-                    .send((data.src_ip, requested_entry))
+                    .send((data.src_ip, local_entry))
                     .await
-                    .map_err(io::Error::other)?;
+                    .map_err(io::Error::other)
             }
+
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
