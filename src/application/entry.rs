@@ -31,18 +31,19 @@ impl<D: PersistenceInterface> EntryManager<D> {
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
                     *entry.vv.entry(local_id).or_insert(0) += 1;
+
                     db.insert_or_replace_entry(&EntryInfo {
                         name: entry.name.clone(),
                         vv: entry.vv.clone(),
                         kind: fs_entry.kind.clone(),
                         hash: fs_entry.hash.clone(),
-                        is_deleted: fs_entry.is_deleted,
+                        is_removed: fs_entry.is_removed,
                     })
                     .unwrap();
                 }
 
                 None => {
-                    db.remove_entry(&entry.name).unwrap();
+                    db.delete_entry(&entry.name).unwrap();
                 }
 
                 _ => {}
@@ -54,8 +55,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 db.insert_or_replace_entry(&fs_entry).unwrap();
             }
         }
-
-        db.clean_deleted_entries().unwrap();
 
         Self {
             db,
@@ -82,7 +81,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             name: name.to_owned(),
             kind,
             hash,
-            is_deleted: false,
+            is_removed: false,
             vv: HashMap::from([(self.local_id, 0)]),
         };
 
@@ -105,7 +104,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         self.db
             .get_entry(name)
             .unwrap()
-            .map(|e| !e.is_deleted)
+            .map(|e| !e.is_removed)
             .unwrap_or(false)
     }
 
@@ -173,23 +172,28 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
-        if let Some(mut removed) = self.db.remove_entry(name).unwrap() {
-            *removed.vv.entry(self.local_id).or_insert(0) += 1;
-            Some(removed)
-        } else {
-            None
-        }
+        self.get_entry(name)
+            .map(|mut entry| {
+                *entry.vv.entry(self.local_id).or_insert(0) += 1;
+                entry.is_removed = true;
+
+                self.db.insert_or_replace_entry(&entry).unwrap();
+                Some(entry)
+            })
+            .unwrap_or_default()
     }
 
     pub fn remove_dir(&self, deleted: &str) -> Vec<EntryInfo> {
         let mut removed_entries = Vec::new();
 
         let entries = self.db.list_all_entries(false).unwrap();
-        for entry in entries {
+        for mut entry in entries {
             if entry.name.starts_with(deleted) {
-                if let Some(removed) = self.remove_entry(&entry.name) {
-                    removed_entries.push(removed);
-                }
+                *entry.vv.entry(self.local_id).or_insert(0) += 1;
+                entry.is_removed = true;
+
+                self.db.insert_or_replace_entry(&entry).unwrap();
+                removed_entries.push(entry);
             }
         }
 

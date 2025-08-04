@@ -106,7 +106,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         let file = self
             .entry_manager
             .get_entry(&path.relative)
-            .filter(|e| !e.is_deleted)
+            .filter(|e| !e.is_removed)
             .expect("Modified deleted entry");
 
         let disk_hash = Some(compute_hash(&path.absolute).unwrap());

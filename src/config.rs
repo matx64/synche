@@ -125,7 +125,7 @@ fn build_dir(
                     name: relative_path,
                     kind: EntryKind::Directory,
                     hash: None,
-                    is_deleted: false,
+                    is_removed: false,
                     vv: HashMap::from([(local_id, 0)]),
                 },
             );
@@ -151,7 +151,7 @@ fn build_file(
             name: relative_path,
             kind: EntryKind::File,
             hash: Some(hash),
-            is_deleted: false,
+            is_removed: false,
             vv: HashMap::from([(local_id, 0)]),
         },
     );

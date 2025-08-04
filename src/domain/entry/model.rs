@@ -8,7 +8,7 @@ pub struct EntryInfo {
     pub name: String,
     pub kind: EntryKind,
     pub hash: Option<String>,
-    pub is_deleted: bool,
+    pub is_removed: bool,
     pub vv: VersionVector,
 }
 
@@ -22,7 +22,7 @@ impl EntryInfo {
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
         assert_eq!(self.name, other.name);
 
-        if self.kind == other.kind && self.hash == other.hash && self.is_deleted == other.is_deleted
+        if self.kind == other.kind && self.hash == other.hash && self.is_removed == other.is_removed
         {
             return VersionCmp::Equal;
         }
@@ -44,14 +44,14 @@ impl EntryInfo {
         match (lt, gt) {
             (false, false) => match self.kind {
                 EntryKind::File => {
-                    if self.is_deleted == other.is_deleted && self.hash == other.hash {
+                    if self.is_removed == other.is_removed && self.hash == other.hash {
                         VersionCmp::Equal
                     } else {
                         VersionCmp::Conflict
                     }
                 }
                 EntryKind::Directory => {
-                    if self.is_deleted == other.is_deleted {
+                    if self.is_removed == other.is_removed {
                         VersionCmp::Equal
                     } else {
                         VersionCmp::Conflict

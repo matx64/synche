@@ -112,7 +112,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         match self.entry_manager.handle_metadata(data.src_id, &peer_entry) {
             VersionCmp::KeepOther => {
-                if peer_entry.is_deleted {
+                if peer_entry.is_removed {
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
                     self.senders
@@ -137,7 +137,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         match self.entry_manager.get_entry(&requested_entry.name) {
             Some(local_entry)
-                if !local_entry.is_deleted
+                if !local_entry.is_removed
                     && local_entry.is_file()
                     && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
             {

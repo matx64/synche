@@ -200,7 +200,7 @@ impl TransportInterface for TcpTransporter {
         stream.read_exact(&mut entry_buf).await?;
 
         if let Some(hash) = &metadata.hash {
-            if !metadata.is_deleted && matches!(metadata.kind, EntryKind::File) {
+            if !metadata.is_removed && matches!(metadata.kind, EntryKind::File) {
                 let computed_hash = format!("{:x}", Sha256::digest(&entry_buf));
                 if computed_hash != *hash {
                     return Err(io::Error::new(
