@@ -106,7 +106,9 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
     }
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
-        self.presence_service.shutdown().await
+        self.presence_service.shutdown().await?;
+        tracing::info!("✅ Synche gracefully shutdown");
+        Ok(())
     }
 }
 

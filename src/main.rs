@@ -5,49 +5,49 @@ mod infra;
 mod proto;
 mod utils;
 
-use tokio::signal::{self, unix::SignalKind};
+use tokio::signal;
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     let config = config::init();
+    let mut synchronizer = application::Synchronizer::new_default(config).await;
 
-    let mut synchronizer = crate::application::Synchronizer::new_default(config).await;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let ctrl_c = signal::ctrl_c();
+        let mut sigterm = signal(SignalKind::terminate()).expect("bind SIGTERM");
+        let mut sighup = signal(SignalKind::hangup()).expect("bind SIGHUP");
 
-    tokio::select! {
-        // Main task
-        res = synchronizer.run() => {
-            res?;
-        }
+        tokio::select! {
+            res = synchronizer.run() => res?,
 
-        // Handle Ctrl+C
-        _ = signal::ctrl_c() => {
-            tracing::info!("🛑 Received Ctrl+C (SIGINT)");
-            synchronizer.shutdown().await?;
-            tracing::info!("✅ Synche gracefully shutdown (Ctrl+C)");
-            return Ok(());
-        }
+            _ = ctrl_c => {
+                tracing::info!("🛑 SIGINT"); synchronizer.shutdown().await?;
+            }
 
-        // Handle SIGTERM (e.g. from systemd or `kill`)
-        _ = async {
-            let mut sigterm = signal::unix::signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
-            sigterm.recv().await;
-        } => {
-            tracing::info!("🛑 Received SIGTERM");
-            synchronizer.shutdown().await?;
-            tracing::info!("✅ Synche gracefully shutdown (SIGTERM)");
-            return Ok(());
-        }
+            _ = sigterm.recv() => {
+                tracing::info!("🛑 SIGTERM"); synchronizer.shutdown().await?;
+            }
 
-        // Handle SIGHUP (e.g. terminal closed)
-        _ = async {
-            let mut sighup = signal::unix::signal(SignalKind::hangup()).expect("Failed to install SIGHUP handler");
-            sighup.recv().await;
-        } => {
-            tracing::info!("📴 Terminal closed or SIGHUP received");
-            synchronizer.shutdown().await?;
-            tracing::info!("✅ Synche gracefully shutdown (SIGHUP)");
-            return Ok(());
+            _ = sighup.recv() => {
+                tracing::info!("🛑 SIGHUP"); synchronizer.shutdown().await?;
+            }
         }
     }
+
+    #[cfg(not(unix))]
+    {
+        let ctrl_c = signal::ctrl_c();
+
+        tokio::select! {
+            res = synchronizer.run() => res?,
+
+            _ = ctrl_c => {
+                tracing::info!("🛑 SIGINT"); synchronizer.shutdown().await?;
+            }
+        }
+    }
+
     Ok(())
 }
