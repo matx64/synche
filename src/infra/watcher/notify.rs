@@ -16,7 +16,7 @@ use tracing::{error, warn};
 
 pub struct NotifyFileWatcher {
     watcher: RecommendedWatcher,
-    watch_rx: Receiver<Result<Event, Error>>,
+    notify_rx: Receiver<Result<Event, Error>>,
     sync_dirs: HashSet<PathBuf>,
     base_dir_absolute: PathBuf,
 }
@@ -34,7 +34,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
     }
 
     async fn next(&mut self) -> Option<WatcherEvent> {
-        let event = match self.watch_rx.recv().await {
+        let event = match self.notify_rx.recv().await {
             Some(Ok(event)) if !event.kind.is_access() && !event.kind.is_other() => event,
             Some(Err(e)) => {
                 error!("Notify Watcher error: {}", e);
@@ -62,11 +62,11 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
 impl NotifyFileWatcher {
     pub fn new() -> Self {
-        let (watch_tx, watch_rx) = mpsc::channel(100);
+        let (notify_tx, notify_rx) = mpsc::channel(100);
 
         let watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
-                let _ = watch_tx.blocking_send(res);
+                let _ = notify_tx.blocking_send(res);
             },
             Config::default(),
         )
@@ -74,7 +74,7 @@ impl NotifyFileWatcher {
 
         Self {
             watcher,
-            watch_rx,
+            notify_rx,
             sync_dirs: HashSet::new(),
             base_dir_absolute: PathBuf::new(),
         }

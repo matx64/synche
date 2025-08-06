@@ -175,7 +175,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         fs::rename(&tmp_path, &original_path).await?;
 
         self.senders
-            .watch_tx
+            .metadata_tx
             .send(entry)
             .await
             .map_err(io::Error::other)
@@ -188,7 +188,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         fs::create_dir_all(path).await?;
 
         self.senders
-            .watch_tx
+            .metadata_tx
             .send(dir)
             .await
             .map_err(io::Error::other)

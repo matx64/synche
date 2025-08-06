@@ -45,14 +45,14 @@ pub struct TransportData<T: TransportStream> {
 }
 
 pub struct TransportSenders {
-    pub watch_tx: Sender<EntryInfo>,
+    pub metadata_tx: Sender<EntryInfo>,
     pub handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
     pub request_tx: Sender<(IpAddr, EntryInfo)>,
     pub transfer_tx: Sender<(IpAddr, EntryInfo)>,
 }
 
 pub struct TransportReceivers {
-    pub watch_rx: Mutex<Receiver<EntryInfo>>,
+    pub metadata_rx: Mutex<Receiver<EntryInfo>>,
     pub handshake_rx: Mutex<Receiver<(IpAddr, SyncHandshakeKind)>>,
     pub request_rx: Mutex<Receiver<(IpAddr, EntryInfo)>>,
     pub transfer_rx: Mutex<Receiver<(IpAddr, EntryInfo)>>,

@@ -37,7 +37,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         peer_manager: Arc<PeerManager>,
         base_dir: PathBuf,
     ) -> (Self, TransportSenders) {
-        let (watch_tx, watch_rx) = mpsc::channel::<EntryInfo>(100);
+        let (metadata_tx, metadata_rx) = mpsc::channel::<EntryInfo>(100);
         let (handshake_tx, handshake_rx) = mpsc::channel::<(IpAddr, SyncHandshakeKind)>(100);
         let (request_tx, request_rx) = mpsc::channel::<(IpAddr, EntryInfo)>(100);
         let (transfer_tx, transfer_rx) = mpsc::channel::<(IpAddr, EntryInfo)>(100);
@@ -49,14 +49,14 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                 peer_manager,
                 base_dir,
                 receivers: TransportReceivers {
-                    watch_rx: Mutex::new(watch_rx),
+                    metadata_rx: Mutex::new(metadata_rx),
                     handshake_rx: Mutex::new(handshake_rx),
                     request_rx: Mutex::new(request_rx),
                     transfer_rx: Mutex::new(transfer_rx),
                 },
             },
             TransportSenders {
-                watch_tx,
+                metadata_tx,
                 handshake_tx,
                 request_tx,
                 transfer_tx,
@@ -81,8 +81,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         loop {
             tokio::select! {
                 Some(entry) = async {
-                    let mut watch_rx = self.receivers.watch_rx.lock().await;
-                    watch_rx.recv().await
+                    let mut metadata_rx = self.receivers.metadata_rx.lock().await;
+                    metadata_rx.recv().await
                 } => {
                     info!("🗃️  Adding changed entry to buffer: {}", entry.name);
                     buffer.insert(entry.name.clone(), entry);

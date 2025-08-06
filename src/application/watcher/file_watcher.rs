@@ -4,7 +4,7 @@ use crate::{
     },
     domain::{
         EntryInfo, EntryKind,
-        watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
+        watcher::{WatcherEventKind, WatcherEventPath},
     },
     utils::fs::compute_hash,
 };
@@ -15,7 +15,7 @@ use tracing::{error, info};
 pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
     entry_manager: Arc<EntryManager<D>>,
-    watch_tx: Sender<EntryInfo>,
+    metadata_tx: Sender<EntryInfo>,
     base_dir_absolute: PathBuf,
 }
 
@@ -23,13 +23,13 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     pub fn new(
         watch_adapter: T,
         entry_manager: Arc<EntryManager<D>>,
-        watch_tx: Sender<EntryInfo>,
+        metadata_tx: Sender<EntryInfo>,
         base_dir: PathBuf,
     ) -> Self {
         Self {
             watch_adapter,
             entry_manager,
-            watch_tx,
+            metadata_tx,
             base_dir_absolute: base_dir.canonicalize().unwrap(),
         }
     }
@@ -155,7 +155,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn send_metadata(&self, file: EntryInfo) {
-        if let Err(err) = self.watch_tx.send(file).await {
+        if let Err(err) = self.metadata_tx.send(file).await {
             error!("Failed to buffer metadata {}", err);
         }
     }

@@ -62,7 +62,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
         let file_watcher = FileWatcher::new(
             watch_adapter,
             entry_manager.clone(),
-            sender_channels.watch_tx.clone(),
+            sender_channels.metadata_tx.clone(),
             config.constants.base_dir.clone(),
         );
 
