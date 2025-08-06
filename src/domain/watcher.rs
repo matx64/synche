@@ -1,14 +1,24 @@
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub enum WatcherEvent {
-    CreatedFile(WatcherEventPath),
-    CreatedDir(WatcherEventPath),
-    ModifiedFileContent(WatcherEventPath),
-    RenamedFile((WatcherEventPath, WatcherEventPath)),
-    RenamedDir((WatcherEventPath, WatcherEventPath)),
-    RenamedSyncDir((WatcherEventPath, WatcherEventPath)),
-    Removed(WatcherEventPath),
+pub struct WatcherEvent {
+    pub kind: WatcherEventKind,
+    pub path: WatcherEventPath,
+}
+
+impl WatcherEvent {
+    pub fn new(kind: WatcherEventKind, path: WatcherEventPath) -> Self {
+        Self { kind, path }
+    }
+}
+
+#[derive(Debug)]
+pub enum WatcherEventKind {
+    CreatedFile,
+    CreatedDir,
+    ModifiedAny,
+    ModifiedFileContent,
+    Removed,
 }
 
 #[derive(Debug)]

@@ -4,7 +4,7 @@ use crate::{
     },
     domain::{
         EntryInfo, EntryKind,
-        watcher::{WatcherEvent, WatcherEventPath},
+        watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
     utils::fs::compute_hash,
 };
@@ -49,27 +49,19 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         loop {
             if let Some(event) = self.watch_adapter.next().await {
                 info!("{event:?}");
-                match event {
-                    WatcherEvent::CreatedFile(path) => {
-                        self.handle_created_file(path).await;
+                match event.kind {
+                    WatcherEventKind::CreatedFile => {
+                        self.handle_created_file(event.path).await;
                     }
-                    WatcherEvent::CreatedDir(path) => {
-                        self.handle_created_dir(path).await;
+                    WatcherEventKind::CreatedDir => {
+                        self.handle_created_dir(event.path).await;
                     }
-                    WatcherEvent::ModifiedFileContent(path) => {
-                        self.handle_modified_file_content(path).await;
+                    WatcherEventKind::ModifiedAny => {}
+                    WatcherEventKind::ModifiedFileContent => {
+                        self.handle_modified_file_content(event.path).await;
                     }
-                    WatcherEvent::RenamedFile(paths) => {
-                        self.handle_renamed_file(paths).await;
-                    }
-                    WatcherEvent::RenamedDir(paths) => {
-                        self.handle_renamed_dir(paths).await;
-                    }
-                    WatcherEvent::RenamedSyncDir(paths) => {
-                        self.handle_renamed_sync_dir(paths).await;
-                    }
-                    WatcherEvent::Removed(path) => {
-                        self.handle_removed(path).await;
+                    WatcherEventKind::Removed => {
+                        self.handle_removed(event.path).await;
                     }
                 }
             }
