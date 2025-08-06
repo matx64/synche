@@ -1,20 +1,24 @@
 use crate::{
     application::{
-        EntryManager, persistence::interface::PersistenceInterface, watcher::FileWatcherInterface,
+        EntryManager,
+        persistence::interface::PersistenceInterface,
+        watcher::{FileWatcherInterface, buffer::WatcherBuffer},
     },
     domain::{
         EntryInfo, EntryKind,
-        watcher::{WatcherEventKind, WatcherEventPath},
+        watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
     utils::fs::compute_hash,
 };
 use std::{io, path::PathBuf, sync::Arc};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
 
 pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
     entry_manager: Arc<EntryManager<D>>,
+    buffer: WatcherBuffer,
+    watch_rx: Receiver<WatcherEvent>,
     metadata_tx: Sender<EntryInfo>,
     base_dir_absolute: PathBuf,
 }
@@ -26,10 +30,14 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         metadata_tx: Sender<EntryInfo>,
         base_dir: PathBuf,
     ) -> Self {
+        let (watch_tx, watch_rx) = mpsc::channel(1000);
+
         Self {
             watch_adapter,
             entry_manager,
+            watch_rx,
             metadata_tx,
+            buffer: WatcherBuffer::new(watch_tx),
             base_dir_absolute: base_dir.canonicalize().unwrap(),
         }
     }
@@ -47,21 +55,27 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             .await?;
 
         loop {
-            if let Some(event) = self.watch_adapter.next().await {
-                info!("{event:?}");
-                match event.kind {
-                    WatcherEventKind::CreatedFile => {
-                        self.handle_created_file(event.path).await;
-                    }
-                    WatcherEventKind::CreatedDir => {
-                        self.handle_created_dir(event.path).await;
-                    }
-                    WatcherEventKind::ModifiedAny => {}
-                    WatcherEventKind::ModifiedFileContent => {
-                        self.handle_modified_file_content(event.path).await;
-                    }
-                    WatcherEventKind::Removed => {
-                        self.handle_removed(event.path).await;
+            tokio::select! {
+                Some(event) = self.watch_adapter.next() => {
+                    self.buffer.insert(event).await;
+                }
+
+                Some(event) = self.watch_rx.recv() => {
+                    info!("{event:?}");
+                    match event.kind {
+                        WatcherEventKind::CreatedFile => {
+                            self.handle_created_file(event.path).await;
+                        }
+                        WatcherEventKind::CreatedDir => {
+                            self.handle_created_dir(event.path).await;
+                        }
+                        WatcherEventKind::ModifiedAny => {}
+                        WatcherEventKind::ModifiedFileContent => {
+                            self.handle_modified_file_content(event.path).await;
+                        }
+                        WatcherEventKind::Removed => {
+                            self.handle_removed(event.path).await;
+                        }
                     }
                 }
             }

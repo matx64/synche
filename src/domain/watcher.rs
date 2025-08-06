@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WatcherEvent {
     pub kind: WatcherEventKind,
     pub path: WatcherEventPath,
@@ -12,7 +12,7 @@ impl WatcherEvent {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum WatcherEventKind {
     CreatedFile,
     CreatedDir,
@@ -21,7 +21,7 @@ pub enum WatcherEventKind {
     Removed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WatcherEventPath {
     pub absolute: PathBuf,
     pub relative: String,
