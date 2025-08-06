@@ -5,7 +5,7 @@ use crate::{
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
-    event::{CreateKind, ModifyKind, RenameMode},
+    event::{ModifyKind, RenameMode},
 };
 use std::{collections::HashSet, path::PathBuf};
 use tokio::{
@@ -79,8 +79,6 @@ impl NotifyFileWatcher {
     }
 
     fn handle_sync_dir_event(&mut self, event: Event, from: PathBuf) -> Option<WatcherEvent> {
-        info!("Notify Event in Sync Directory: {event:?}");
-
         match event.kind {
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
                 let to = event.paths.get(1).cloned()?;
@@ -115,13 +113,21 @@ impl NotifyFileWatcher {
 
     fn handle_event(&self, event: Event, from: PathBuf) -> Option<WatcherEvent> {
         match event.kind {
-            EventKind::Create(kind) if from.exists() => match kind {
-                CreateKind::File => Some(WatcherEvent::CreatedFile(self.build_path(from)?)),
-                CreateKind::Folder => Some(WatcherEvent::CreatedDir(self.build_path(from)?)),
-                _ => None,
-            },
+            EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(RenameMode::To))
+                if from.exists() =>
+            {
+                if from.is_file() {
+                    Some(WatcherEvent::CreatedFile(self.build_path(from)?))
+                } else if from.is_dir() {
+                    Some(WatcherEvent::CreatedDir(self.build_path(from)?))
+                } else {
+                    None
+                }
+            }
 
-            EventKind::Modify(ModifyKind::Data(_)) if from.exists() && from.is_file() => {
+            EventKind::Modify(ModifyKind::Data(_)) | EventKind::Modify(ModifyKind::Any)
+                if from.exists() && from.is_file() =>
+            {
                 Some(WatcherEvent::ModifiedFileContent(self.build_path(from)?))
             }
 
