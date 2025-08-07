@@ -34,25 +34,35 @@ impl FileWatcherInterface for NotifyFileWatcher {
     }
 
     async fn next(&mut self) -> Option<WatcherEvent> {
-        let event = match self.notify_rx.recv().await {
-            Some(Ok(event)) if !event.kind.is_access() && !event.kind.is_other() => event,
-            Some(Err(e)) => {
-                error!("Notify Watcher error: {}", e);
-                return None;
+        while let Some(res) = self.notify_rx.recv().await {
+            match res {
+                Ok(event) if event.kind.is_access() || event.kind.is_other() => {
+                    continue;
+                }
+
+                Ok(event) => {
+                    if let Some(path) = event.paths.first().cloned() {
+                        if !self.sync_dirs.contains(&path)
+                            && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
+                        {
+                            warn!("{:?}", event);
+                            if let Some(w) = self.handle_event(event, path) {
+                                return Some(w);
+                            } else {
+                                continue;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                Err(e) => {
+                    error!("Notify Watcher error: {}", e);
+                    return None;
+                }
             }
-            _ => return None,
-        };
-
-        warn!("{:?}", event);
-
-        let path = event.paths.first().cloned()?;
-
-        if !self.sync_dirs.contains(&path) && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
-        {
-            self.handle_event(event, path)
-        } else {
-            None
         }
+        None
     }
 }
 
@@ -62,7 +72,7 @@ impl NotifyFileWatcher {
 
         let watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
-                let _ = notify_tx.blocking_send(res);
+                notify_tx.blocking_send(res).unwrap();
             },
             Config::default(),
         )
