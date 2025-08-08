@@ -188,7 +188,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         let entries = self.db.list_all_entries(false).unwrap();
         for mut entry in entries {
-            if entry.name.starts_with(deleted) {
+            if entry.name.starts_with(&format!("{}/", deleted)) {
                 *entry.vv.entry(self.local_id).or_insert(0) += 1;
                 entry.is_removed = true;
 
