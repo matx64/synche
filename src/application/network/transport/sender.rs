@@ -10,6 +10,7 @@ use crate::{
     domain::EntryInfo,
     proto::transport::{SyncHandshakeKind, SyncKind},
 };
+use sha2::{Digest, Sha256};
 use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     fs::File,
@@ -20,7 +21,7 @@ use tokio::{
     },
     time,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct TransportSender<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
@@ -139,6 +140,12 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                 let mut fs_file = File::open(path).await?;
                 let mut buffer = Vec::new();
                 fs_file.read_to_end(&mut buffer).await?;
+
+                let hash = format!("{:x}", Sha256::digest(&buffer));
+                if Some(hash) != entry.hash {
+                    warn!("⚠️  Cancelled File Transfer because it was modified during process.");
+                    continue;
+                }
 
                 self.transport_adapter
                     .send_entry(addr, &entry, &buffer)
