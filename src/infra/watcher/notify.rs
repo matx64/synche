@@ -21,6 +21,27 @@ pub struct NotifyFileWatcher {
     base_dir_absolute: PathBuf,
 }
 
+impl NotifyFileWatcher {
+    pub fn new() -> Self {
+        let (notify_tx, notify_rx) = mpsc::channel(100);
+
+        let watcher = RecommendedWatcher::new(
+            move |res: notify::Result<Event>| {
+                notify_tx.blocking_send(res).unwrap();
+            },
+            Config::default(),
+        )
+        .unwrap();
+
+        Self {
+            watcher,
+            notify_rx,
+            sync_dirs: HashSet::new(),
+            base_dir_absolute: PathBuf::new(),
+        }
+    }
+}
+
 impl FileWatcherInterface for NotifyFileWatcher {
     async fn watch(&mut self, base_dir: PathBuf, dirs: Vec<PathBuf>) -> io::Result<()> {
         self.base_dir_absolute = base_dir;
@@ -67,25 +88,6 @@ impl FileWatcherInterface for NotifyFileWatcher {
 }
 
 impl NotifyFileWatcher {
-    pub fn new() -> Self {
-        let (notify_tx, notify_rx) = mpsc::channel(100);
-
-        let watcher = RecommendedWatcher::new(
-            move |res: notify::Result<Event>| {
-                notify_tx.blocking_send(res).unwrap();
-            },
-            Config::default(),
-        )
-        .unwrap();
-
-        Self {
-            watcher,
-            notify_rx,
-            sync_dirs: HashSet::new(),
-            base_dir_absolute: PathBuf::new(),
-        }
-    }
-
     fn handle_event(&self, event: Event, path: PathBuf) -> Option<WatcherEvent> {
         match event.kind {
             EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(RenameMode::To))

@@ -8,11 +8,12 @@ use crate::{
         EntryInfo, EntryKind,
         watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
-    utils::fs::compute_hash,
+    utils::fs::{compute_hash, get_relative_path},
 };
-use std::{io, path::PathBuf, sync::Arc};
+use std::{collections::HashSet, io, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
+use walkdir::WalkDir;
 
 pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
@@ -69,7 +70,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                         WatcherEventKind::CreatedDir => {
                             self.handle_created_dir(event.path).await;
                         }
-                        WatcherEventKind::ModifiedAny => {}
+                        WatcherEventKind::ModifiedAny => {
+                            self.handle_modified_any(event.path).await;
+                        }
                         WatcherEventKind::ModifiedFileContent => {
                             self.handle_modified_file_content(event.path).await;
                         }
@@ -97,15 +100,54 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_created_dir(&self, path: WatcherEventPath) {
-        if self.entry_manager.entry_exists(&path.relative) {
-            return;
+        let mut stack = vec![path];
+        let mut visited = HashSet::new();
+
+        while let Some(path) = stack.pop() {
+            if !visited.insert(path.relative.clone()) {
+                continue;
+            }
+
+            if self.entry_manager.entry_exists(&path.relative) {
+                continue;
+            }
+
+            let dir = self
+                .entry_manager
+                .entry_created(&path.relative, EntryKind::Directory, None);
+
+            self.send_metadata(dir).await;
+
+            for item in WalkDir::new(&path.absolute)
+                .min_depth(1)
+                .max_depth(1)
+                .into_iter()
+                .filter_map(Result::ok)
+            {
+                let item_path = item.path();
+
+                if item_path.is_file() {
+                    self.handle_created_file(WatcherEventPath {
+                        absolute: item_path.to_path_buf(),
+                        relative: get_relative_path(&item_path, &self.base_dir_absolute).unwrap(),
+                    })
+                    .await;
+                } else if item_path.is_dir() {
+                    stack.push(WatcherEventPath {
+                        absolute: item_path.to_path_buf(),
+                        relative: get_relative_path(&item_path, &self.base_dir_absolute).unwrap(),
+                    });
+                }
+            }
         }
+    }
 
-        let dir = self
-            .entry_manager
-            .entry_created(&path.relative, EntryKind::Directory, None);
-
-        self.send_metadata(dir).await;
+    async fn handle_modified_any(&self, path: WatcherEventPath) {
+        if path.is_file() {
+            self.handle_created_file(path).await;
+        } else {
+            self.handle_created_dir(path).await;
+        }
     }
 
     async fn handle_modified_file_content(&self, path: WatcherEventPath) {
@@ -122,38 +164,6 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             self.send_metadata(file).await;
         }
     }
-
-    async fn handle_renamed_file(&self, paths: (WatcherEventPath, WatcherEventPath)) {
-        self.handle_removed(paths.0).await;
-        self.handle_created_file(paths.1).await;
-    }
-
-    async fn handle_renamed_dir(&self, paths: (WatcherEventPath, WatcherEventPath)) {
-        let (removed_path, created_path) = paths;
-
-        let removed_entries = self.entry_manager.remove_dir(&removed_path.relative);
-
-        for entry in removed_entries {
-            let relative = entry
-                .name
-                .replace(&removed_path.relative, &created_path.relative);
-            let absolute = PathBuf::new().join(&self.base_dir_absolute).join(&relative);
-
-            self.send_metadata(entry).await;
-
-            if absolute.exists() {
-                if absolute.is_file() {
-                    self.handle_created_file(WatcherEventPath { absolute, relative })
-                        .await;
-                } else if absolute.is_dir() {
-                    self.handle_created_dir(WatcherEventPath { absolute, relative })
-                        .await;
-                }
-            }
-        }
-    }
-
-    async fn handle_renamed_sync_dir(&self, _paths: (WatcherEventPath, WatcherEventPath)) {}
 
     async fn handle_removed(&self, path: WatcherEventPath) {
         if let Some(removed) = self.entry_manager.remove_entry(&path.relative) {
