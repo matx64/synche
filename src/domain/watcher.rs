@@ -14,11 +14,8 @@ impl WatcherEvent {
 
 #[derive(Debug, Clone)]
 pub enum WatcherEventKind {
-    CreatedFile,
-    CreatedDir,
-    ModifiedAny,
-    ModifiedFileContent,
-    Removed,
+    CreateOrModify,
+    Remove,
 }
 
 #[derive(Debug, Clone)]
@@ -28,15 +25,7 @@ pub struct WatcherEventPath {
 }
 
 impl WatcherEventPath {
-    pub fn _exists(&self) -> bool {
-        self.absolute.exists()
-    }
-
     pub fn is_file(&self) -> bool {
         self.absolute.is_file()
-    }
-
-    pub fn is_dir(&self) -> bool {
-        self.absolute.is_dir()
     }
 }

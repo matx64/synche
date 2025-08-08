@@ -64,20 +64,11 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 Some(event) = self.watch_rx.recv() => {
                     info!("{event:?}");
                     match event.kind {
-                        WatcherEventKind::CreatedFile => {
-                            self.handle_created_file(event.path).await;
+                        WatcherEventKind::CreateOrModify => {
+                            self.handle_create_or_modify(event.path).await;
                         }
-                        WatcherEventKind::CreatedDir => {
-                            self.handle_created_dir(event.path).await;
-                        }
-                        WatcherEventKind::ModifiedAny => {
-                            self.handle_modified_any(event.path).await;
-                        }
-                        WatcherEventKind::ModifiedFileContent => {
-                            self.handle_modified_file_content(event.path).await;
-                        }
-                        WatcherEventKind::Removed => {
-                            self.handle_removed(event.path).await;
+                        WatcherEventKind::Remove => {
+                            self.handle_remove(event.path).await;
                         }
                     }
                 }
@@ -85,11 +76,29 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_created_file(&self, path: WatcherEventPath) {
-        if self.entry_manager.entry_exists(&path.relative) {
-            return self.handle_modified_file_content(path).await;
-        }
+    async fn handle_create_or_modify(&self, path: WatcherEventPath) {
+        match self.entry_manager.get_entry(&path.relative) {
+            None => self.handle_create(path).await,
 
+            Some(entry) if entry.is_removed => self.handle_create(path).await,
+
+            Some(entry) if path.is_file() && entry.is_file() => {
+                self.handle_modify_file(path, entry).await
+            }
+
+            _ => {}
+        }
+    }
+
+    async fn handle_create(&self, path: WatcherEventPath) {
+        if path.is_file() {
+            self.handle_create_file(path).await;
+        } else {
+            self.handle_create_dir(path).await;
+        }
+    }
+
+    async fn handle_create_file(&self, path: WatcherEventPath) {
         let disk_hash = Some(compute_hash(&path.absolute).unwrap());
 
         let file = self
@@ -99,7 +108,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.send_metadata(file).await;
     }
 
-    async fn handle_created_dir(&self, path: WatcherEventPath) {
+    async fn handle_create_dir(&self, path: WatcherEventPath) {
         let mut stack = vec![path];
         let mut visited = HashSet::new();
 
@@ -127,7 +136,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 let item_path = item.path();
 
                 if item_path.is_file() {
-                    self.handle_created_file(WatcherEventPath {
+                    self.handle_create_file(WatcherEventPath {
                         absolute: item_path.to_path_buf(),
                         relative: get_relative_path(&item_path, &self.base_dir_absolute).unwrap(),
                     })
@@ -142,21 +151,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_modified_any(&self, path: WatcherEventPath) {
-        if path.is_file() {
-            self.handle_created_file(path).await;
-        } else {
-            self.handle_created_dir(path).await;
-        }
-    }
-
-    async fn handle_modified_file_content(&self, path: WatcherEventPath) {
-        let file = self
-            .entry_manager
-            .get_entry(&path.relative)
-            .filter(|e| !e.is_removed)
-            .expect("Modified deleted entry");
-
+    async fn handle_modify_file(&self, path: WatcherEventPath, file: EntryInfo) {
         let disk_hash = Some(compute_hash(&path.absolute).unwrap());
 
         if file.hash != disk_hash {
@@ -165,7 +160,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         }
     }
 
-    async fn handle_removed(&self, path: WatcherEventPath) {
+    async fn handle_remove(&self, path: WatcherEventPath) {
         if let Some(removed) = self.entry_manager.remove_entry(&path.relative) {
             if !removed.is_file() {
                 let removed_entries = self.entry_manager.remove_dir(&path.relative);

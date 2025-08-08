@@ -90,33 +90,15 @@ impl FileWatcherInterface for NotifyFileWatcher {
 impl NotifyFileWatcher {
     fn handle_event(&self, event: Event, path: PathBuf) -> Option<WatcherEvent> {
         match event.kind {
-            EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(RenameMode::To))
-                if path.exists() =>
-            {
-                if path.is_file() {
-                    Some(WatcherEvent::new(
-                        WatcherEventKind::CreatedFile,
-                        self.build_path(path)?,
-                    ))
-                } else if path.is_dir() {
-                    Some(WatcherEvent::new(
-                        WatcherEventKind::CreatedDir,
-                        self.build_path(path)?,
-                    ))
-                } else {
-                    None
-                }
-            }
-
-            EventKind::Modify(ModifyKind::Name(RenameMode::Any)) if path.exists() => Some(
-                WatcherEvent::new(WatcherEventKind::ModifiedAny, self.build_path(path)?),
-            ),
-
-            EventKind::Modify(ModifyKind::Data(_)) | EventKind::Modify(ModifyKind::Any)
-                if path.exists() && path.is_file() =>
+            EventKind::Create(_)
+            | EventKind::Modify(ModifyKind::Data(_))
+            | EventKind::Modify(ModifyKind::Any)
+            | EventKind::Modify(ModifyKind::Name(RenameMode::To))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
+                if path.exists() && (path.is_file() || path.is_dir()) =>
             {
                 Some(WatcherEvent::new(
-                    WatcherEventKind::ModifiedFileContent,
+                    WatcherEventKind::CreateOrModify,
                     self.build_path(path)?,
                 ))
             }
@@ -127,7 +109,7 @@ impl NotifyFileWatcher {
                 if !path.exists() =>
             {
                 Some(WatcherEvent::new(
-                    WatcherEventKind::Removed,
+                    WatcherEventKind::Remove,
                     self.build_path(path)?,
                 ))
             }
