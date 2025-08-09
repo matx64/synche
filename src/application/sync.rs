@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use std::sync::Arc;
-use tokio::{io, sync};
+use tokio::io;
 
 pub struct Synchronizer<
     W: FileWatcherInterface,
@@ -25,12 +25,11 @@ pub struct Synchronizer<
     T: TransportInterface,
     D: PersistenceInterface,
 > {
+    entry_manager: Arc<EntryManager<D>>,
     file_watcher: FileWatcher<W, D>,
     presence_service: PresenceService<P>,
     transport_sender: TransportSender<T, D>,
     transport_receiver: TransportReceiver<T, D>,
-    _shutdown_tx: sync::watch::Sender<bool>,
-    _shutdown_rx: sync::watch::Receiver<bool>,
 }
 
 impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: PersistenceInterface>
@@ -76,22 +75,19 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
 
         let transport_receiver = TransportReceiver::new(
             transport_adapter,
-            entry_manager,
+            entry_manager.clone(),
             peer_manager,
             sender_channels,
             config.constants.base_dir,
             config.constants.tmp_dir,
         );
 
-        let (_shutdown_tx, _shutdown_rx) = sync::watch::channel(false);
-
         Self {
+            entry_manager,
             file_watcher,
             presence_service,
             transport_sender,
             transport_receiver,
-            _shutdown_tx,
-            _shutdown_rx,
         }
     }
 
@@ -101,6 +97,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
             self.transport_sender.run(),
             self.presence_service.run(),
             self.file_watcher.run(),
+            self.entry_manager.clean_removed_entries()
         )?;
         Ok(())
     }

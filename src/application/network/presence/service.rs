@@ -50,7 +50,7 @@ impl<T: PresenceInterface> PresenceService<T> {
                 retries += 1;
 
                 if retries >= 3 {
-                    return Err(io::Error::other("Failed to send presence 3 times"));
+                    return Err(io::Error::other("Failed to send presence 3 times in a row"));
                 }
             } else {
                 retries = 0;

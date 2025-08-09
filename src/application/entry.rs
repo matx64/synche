@@ -3,8 +3,9 @@ use crate::{
     domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
-use std::{collections::HashMap, sync::RwLock};
-use tracing::warn;
+use std::{collections::HashMap, io, sync::RwLock, time::Duration};
+use tokio::time::interval;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 pub struct EntryManager<D: PersistenceInterface> {
@@ -20,6 +21,15 @@ impl<D: PersistenceInterface> EntryManager<D> {
         directories: HashMap<String, Directory>,
         filesystem_entries: HashMap<String, EntryInfo>,
     ) -> Self {
+        Self::build_db(&db, local_id, filesystem_entries);
+        Self {
+            db,
+            local_id,
+            directories: RwLock::new(directories),
+        }
+    }
+
+    fn build_db(db: &D, local_id: Uuid, filesystem_entries: HashMap<String, EntryInfo>) {
         let mut entries: HashMap<String, EntryInfo> = db
             .list_all_entries(true)
             .unwrap()
@@ -55,12 +65,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 db.insert_or_replace_entry(&fs_entry).unwrap();
             }
         }
-
-        Self {
-            db,
-            local_id,
-            directories: RwLock::new(directories),
-        }
     }
 
     pub fn list_dirs(&self) -> HashMap<String, Directory> {
@@ -77,15 +81,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub fn entry_created(&self, name: &str, kind: EntryKind, hash: Option<String>) -> EntryInfo {
-        let entry = EntryInfo {
+        self.insert_entry(EntryInfo {
             name: name.to_owned(),
             kind,
             hash,
             is_removed: false,
             vv: HashMap::from([(self.local_id, 0)]),
-        };
-
-        self.insert_entry(entry)
+        })
     }
 
     pub fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
@@ -225,6 +227,30 @@ impl<D: PersistenceInterface> EntryManager<D> {
         if let Ok(mut dirs) = self.directories.write() {
             dirs.clear();
             *dirs = updated;
+        }
+    }
+
+    pub async fn clean_removed_entries(&self) -> io::Result<()> {
+        let mut retries: u8 = 0;
+        let mut interval = interval(Duration::from_secs(120));
+
+        loop {
+            info!("🧹  Cleaning removed entries...");
+
+            if let Err(err) = self.db.clean_removed_entries() {
+                error!("Failed to clean removed entries: {err}");
+                retries += 1;
+
+                if retries >= 3 {
+                    return Err(io::Error::other(
+                        "Failed to clean removed entries 3 times in a row.",
+                    ));
+                }
+            } else {
+                retries = 0;
+            }
+
+            interval.tick().await;
         }
     }
 }
