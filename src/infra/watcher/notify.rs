@@ -62,17 +62,16 @@ impl FileWatcherInterface for NotifyFileWatcher {
                 }
 
                 Ok(event) => {
-                    if let Some(path) = event.paths.first().cloned() {
-                        if !self.sync_dirs.contains(&path)
-                            && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
-                            && !is_ds_store(&path)
-                        {
-                            warn!("{:?}", event);
-                            if let Some(w) = self.handle_event(event, path) {
-                                return Some(w);
-                            } else {
-                                continue;
-                            }
+                    if let Some(path) = event.paths.first().cloned()
+                        && !self.sync_dirs.contains(&path)
+                        && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
+                        && !is_ds_store(&path)
+                    {
+                        warn!("{:?}", event);
+                        if let Some(w) = self.handle_event(event, path) {
+                            return Some(w);
+                        } else {
+                            continue;
                         }
                     }
                     continue;

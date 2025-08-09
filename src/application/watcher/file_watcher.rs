@@ -138,13 +138,13 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 if item_path.is_file() {
                     self.handle_create_file(WatcherEventPath {
                         absolute: item_path.to_path_buf(),
-                        relative: get_relative_path(&item_path, &self.base_dir_absolute).unwrap(),
+                        relative: get_relative_path(item_path, &self.base_dir_absolute).unwrap(),
                     })
                     .await;
                 } else if item_path.is_dir() {
                     stack.push(WatcherEventPath {
                         absolute: item_path.to_path_buf(),
-                        relative: get_relative_path(&item_path, &self.base_dir_absolute).unwrap(),
+                        relative: get_relative_path(item_path, &self.base_dir_absolute).unwrap(),
                     });
                 }
             }

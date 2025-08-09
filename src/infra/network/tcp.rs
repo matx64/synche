@@ -199,15 +199,16 @@ impl TransportInterface for TcpTransporter {
         let mut entry_buf = vec![0u8; entry_size as usize];
         stream.read_exact(&mut entry_buf).await?;
 
-        if let Some(hash) = &metadata.hash {
-            if !metadata.is_removed && matches!(metadata.kind, EntryKind::File) {
-                let computed_hash = format!("{:x}", Sha256::digest(&entry_buf));
-                if computed_hash != *hash {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "Hash mismatch: data corruption detected",
-                    ));
-                }
+        if let Some(hash) = &metadata.hash
+            && !metadata.is_removed
+            && matches!(metadata.kind, EntryKind::File)
+        {
+            let computed_hash = format!("{:x}", Sha256::digest(&entry_buf));
+            if computed_hash != *hash {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Hash mismatch: data corruption detected",
+                ));
             }
         }
 

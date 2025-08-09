@@ -37,10 +37,10 @@ impl WatcherBuffer {
                     }
 
                     for entry_name in ready {
-                        if let Some(removed) = items.remove(&entry_name) {
-                            if let Some(last_event) = removed.events.last().cloned() {
-                                watch_tx.send(last_event).await.unwrap();
-                            }
+                        if let Some(removed) = items.remove(&entry_name)
+                            && let Some(last_event) = removed.events.last().cloned()
+                        {
+                            watch_tx.send(last_event).await.unwrap();
                         }
                     }
                 }
