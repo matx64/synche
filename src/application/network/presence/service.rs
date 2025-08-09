@@ -36,7 +36,7 @@ impl<T: PresenceInterface> PresenceService<T> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        tokio::try_join!(self.run_recv(), self.run_broadcast(), self.monitor_peers())?;
+        tokio::try_join!(self.run_broadcast(), self.run_recv(), self.monitor_peers())?;
         Ok(())
     }
 
@@ -45,6 +45,8 @@ impl<T: PresenceInterface> PresenceService<T> {
         let mut interval = time::interval(Duration::from_secs(self.broadcast_interval_secs));
 
         loop {
+            interval.tick().await;
+
             if let Err(e) = self.presence_adapter.broadcast(&self.broadcast_msg).await {
                 error!("Error sending presence: {}", e);
                 retries += 1;
@@ -55,15 +57,32 @@ impl<T: PresenceInterface> PresenceService<T> {
             } else {
                 retries = 0;
             }
-            interval.tick().await;
         }
     }
 
     async fn run_recv(&self) -> io::Result<()> {
+        let mut retries: u8 = 0;
         let ifas = list_afinet_netifas().unwrap();
 
         loop {
-            let (msg, src_ip) = self.presence_adapter.recv().await?;
+            let (msg, src_ip) = match self.presence_adapter.recv().await {
+                Ok(data) => {
+                    retries = 0;
+                    data
+                }
+
+                Err(err) => {
+                    error!("Receive presence error: {err}");
+                    retries += 1;
+
+                    if retries >= 3 {
+                        return Err(io::Error::other(
+                            "Failed to receive presence 3 times in a row",
+                        ));
+                    }
+                    continue;
+                }
+            };
 
             if self.is_host(&ifas, src_ip) {
                 continue;
@@ -114,6 +133,7 @@ impl<T: PresenceInterface> PresenceService<T> {
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.broadcast_msg = format!("shutdown:{}", self.local_id).as_bytes().to_vec();
-        self.presence_adapter.broadcast(&self.broadcast_msg).await
+        let _ = self.presence_adapter.broadcast(&self.broadcast_msg).await;
+        Ok(())
     }
 }

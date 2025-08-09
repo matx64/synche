@@ -1,7 +1,10 @@
 use std::net::IpAddr;
-use tokio::io::{self};
 
 pub trait PresenceInterface {
-    async fn broadcast(&self, data: &[u8]) -> io::Result<()>;
-    async fn recv(&self) -> io::Result<(String, IpAddr)>;
+    async fn broadcast(&self, data: &[u8]) -> PresenceResult<()>;
+    async fn recv(&self) -> PresenceResult<(String, IpAddr)>;
 }
+
+pub type PresenceResult<T> = Result<T, PresenceError>;
+
+pub type PresenceError = String;

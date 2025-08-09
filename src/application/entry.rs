@@ -235,7 +235,9 @@ impl<D: PersistenceInterface> EntryManager<D> {
         let mut interval = interval(Duration::from_secs(120));
 
         loop {
-            info!("🧹  Cleaning removed entries...");
+            interval.tick().await;
+
+            info!("🧹 Cleaning removed entries...");
 
             if let Err(err) = self.db.clean_removed_entries() {
                 error!("Failed to clean removed entries: {err}");
@@ -249,8 +251,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
             } else {
                 retries = 0;
             }
-
-            interval.tick().await;
         }
     }
 }
