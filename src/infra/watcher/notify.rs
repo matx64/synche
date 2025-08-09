@@ -1,7 +1,7 @@
 use crate::{
     application::watcher::FileWatcherInterface,
     domain::watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
-    utils::fs::get_relative_path,
+    utils::fs::{get_relative_path, is_ds_store},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -65,6 +65,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
                     if let Some(path) = event.paths.first().cloned() {
                         if !self.sync_dirs.contains(&path)
                             && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
+                            && !is_ds_store(&path)
                         {
                             warn!("{:?}", event);
                             if let Some(w) = self.handle_event(event, path) {

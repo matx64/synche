@@ -1,6 +1,6 @@
 use crate::{
     domain::{ConfiguredDirectory, Directory, EntryInfo, EntryKind},
-    utils::fs::{compute_hash, get_relative_path},
+    utils::fs::{compute_hash, get_relative_path, is_ds_store},
 };
 use std::{
     collections::HashMap,
@@ -115,7 +115,7 @@ fn build_dir(
             continue;
         }
 
-        if path.is_file() {
+        if path.is_file() && !is_ds_store(&path) {
             build_file(local_id, &path.to_path_buf(), abs_base_path, entries)?;
         } else if path.is_dir() {
             let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
