@@ -3,8 +3,11 @@ use crate::{
     domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
-use std::{collections::HashMap, io, sync::RwLock, time::Duration};
-use tokio::time::interval;
+use std::{collections::HashMap, io, path::PathBuf, sync::RwLock, time::Duration};
+use tokio::{
+    fs::{self},
+    time::interval,
+};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -12,6 +15,7 @@ pub struct EntryManager<D: PersistenceInterface> {
     db: D,
     local_id: Uuid,
     directories: RwLock<HashMap<String, Directory>>,
+    base_dir: PathBuf,
 }
 
 impl<D: PersistenceInterface> EntryManager<D> {
@@ -20,12 +24,14 @@ impl<D: PersistenceInterface> EntryManager<D> {
         local_id: Uuid,
         directories: HashMap<String, Directory>,
         filesystem_entries: HashMap<String, EntryInfo>,
+        base_dir: PathBuf,
     ) -> Self {
         Self::build_db(&db, local_id, filesystem_entries);
         Self {
             db,
             local_id,
             directories: RwLock::new(directories),
+            base_dir,
         }
     }
 
@@ -110,28 +116,38 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .unwrap_or(false)
     }
 
-    pub fn get_entries_to_request(
+    pub async fn get_entries_to_request(
         &self,
         peer: &Peer,
         peer_entries: HashMap<String, EntryInfo>,
     ) -> Vec<EntryInfo> {
         let mut to_request = Vec::new();
 
-        let dirs = self.directories.read().unwrap();
+        let dirs = {
+            let dirs = self.directories.read().unwrap();
+            dirs.clone()
+        };
 
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_root_parent()) {
                 if let Some(mut local_entry) = self.get_entry(&name) {
-                    let cmp = local_entry.compare(&peer_entry);
+                    match local_entry.compare(&peer_entry) {
+                        VersionCmp::KeepOther => {
+                            to_request.push(peer_entry);
+                        }
 
-                    if matches!(cmp, VersionCmp::Conflict) {
-                        warn!("CONFLICT IN ENTRY: {name}");
-                    }
+                        VersionCmp::Conflict => {
+                            if let Err(e) = self
+                                .handle_conflict(&mut local_entry, &peer_entry, peer.id)
+                                .await
+                            {
+                                error!("Handle Conflict error: {e}");
+                            }
+                        }
 
-                    if matches!(cmp, VersionCmp::KeepOther) {
-                        to_request.push(peer_entry);
-                    } else {
-                        self.merge_versions_and_insert(&mut local_entry, &peer_entry, peer.id);
+                        VersionCmp::Equal | VersionCmp::KeepSelf => {
+                            self.merge_versions_and_insert(&mut local_entry, &peer_entry, peer.id);
+                        }
                     }
                 } else {
                     to_request.push(peer_entry);
@@ -142,21 +158,55 @@ impl<D: PersistenceInterface> EntryManager<D> {
         to_request
     }
 
-    pub fn handle_metadata(&self, peer_id: Uuid, peer_entry: &EntryInfo) -> VersionCmp {
-        if let Some(mut local_entry) = self.get_entry(&peer_entry.name) {
-            let cmp = local_entry.compare(peer_entry);
+    pub async fn handle_conflict(
+        &self,
+        local_entry: &mut EntryInfo,
+        peer_entry: &EntryInfo,
+        peer_id: Uuid,
+    ) -> io::Result<()> {
+        warn!(entry = local_entry.name, peer = ?peer_id, "[⚠️ CONFLICT]");
 
-            if matches!(cmp, VersionCmp::Conflict) {
-                warn!("CONFLICT IN ENTRY: {}", local_entry.name);
+        self.merge_versions_and_insert(local_entry, peer_entry, peer_id);
+
+        if !local_entry.is_removed && (self.local_id < peer_id || peer_entry.is_removed) {
+            let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
+
+            if !path.exists() {
+                return Ok(());
             }
 
-            if !matches!(cmp, VersionCmp::KeepOther) {
+            let new_path =
+                path.with_file_name(format!("{}_CONFLICT_{}", local_entry.name, self.local_id));
+
+            fs::copy(path, new_path).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn handle_metadata(&self, peer_id: Uuid, peer_entry: &EntryInfo) -> VersionCmp {
+        let Some(mut local_entry) = self.get_entry(&peer_entry.name) else {
+            return VersionCmp::KeepOther;
+        };
+
+        let cmp = local_entry.compare(peer_entry);
+
+        match cmp {
+            VersionCmp::Conflict => {
+                if let Err(e) = self
+                    .handle_conflict(&mut local_entry, peer_entry, peer_id)
+                    .await
+                {
+                    error!("Handle Conflict error: {e}");
+                }
+            }
+
+            VersionCmp::Equal | VersionCmp::KeepSelf => {
                 self.merge_versions_and_insert(&mut local_entry, peer_entry, peer_id);
             }
-            cmp
-        } else {
-            VersionCmp::KeepOther
+
+            VersionCmp::KeepOther => {}
         }
+        cmp
     }
 
     pub fn merge_versions_and_insert(

@@ -47,6 +47,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
             config.constants.local_id,
             config.directories,
             config.filesystem_entries,
+            config.constants.base_dir.clone(),
         ));
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
