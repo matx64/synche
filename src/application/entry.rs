@@ -170,7 +170,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         peer_entry: &EntryInfo,
         peer_id: Uuid,
     ) -> io::Result<()> {
-        warn!(entry = local_entry.name, peer = ?peer_id, "[⚠️ CONFLICT]");
+        warn!(entry = local_entry.name, peer = ?peer_id, "[⚠️  CONFLICT]");
 
         self.merge_versions_and_insert(local_entry, peer_entry, peer_id);
 
@@ -243,6 +243,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         self.get_entry(name)
             .map(|mut entry| {
                 *entry.vv.entry(self.local_id).or_insert(0) += 1;
+                entry.hash = None;
                 entry.is_removed = true;
 
                 self.db.insert_or_replace_entry(&entry).unwrap();
@@ -258,6 +259,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         for mut entry in entries {
             if entry.name.starts_with(&format!("{}/", deleted)) {
                 *entry.vv.entry(self.local_id).or_insert(0) += 1;
+                entry.hash = None;
                 entry.is_removed = true;
 
                 self.db.insert_or_replace_entry(&entry).unwrap();
