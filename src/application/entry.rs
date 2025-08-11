@@ -200,8 +200,9 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub async fn handle_metadata(&self, peer_id: Uuid, peer_entry: &EntryInfo) -> VersionCmp {
-        let Some(mut local_entry) = self.get_entry(&peer_entry.name) else {
-            return VersionCmp::KeepOther;
+        let mut local_entry = match self.get_entry(&peer_entry.name) {
+            Some(entry) if !entry.is_removed => entry,
+            _ => return VersionCmp::KeepOther,
         };
 
         let cmp = local_entry.compare(peer_entry);
