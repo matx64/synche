@@ -77,14 +77,17 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         self.peer_manager.insert(peer.clone());
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
-            self.senders
-                .handshake_tx
-                .send((peer.addr, SyncHandshakeKind::Response))
-                .await
-                .map_err(io::Error::other)?;
+            // Can't use handshake_tx because Response must be sent strictly BEFORE syncing
+            self.transport_adapter
+                .send_handshake(
+                    peer.addr,
+                    SyncKind::Handshake(SyncHandshakeKind::Response),
+                    self.entry_manager.get_handshake_data(),
+                )
+                .await?;
         }
 
-        info!("Synching peer: {}", peer.addr);
+        info!(peer = ?peer.id, "🔁  Syncing Peer...");
 
         let entries_to_request = self
             .entry_manager
