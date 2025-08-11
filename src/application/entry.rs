@@ -126,7 +126,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         &self,
         peer: &Peer,
         peer_entries: HashMap<String, EntryInfo>,
-    ) -> Vec<EntryInfo> {
+    ) -> io::Result<Vec<EntryInfo>> {
         let mut to_request = Vec::new();
 
         let dirs = {
@@ -139,8 +139,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 if let Some(mut local_entry) = self.get_entry(&name) {
                     let cmp = self
                         .compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer.id)
-                        .await
-                        .unwrap();
+                        .await?;
 
                     if matches!(cmp, VersionCmp::KeepOther) {
                         to_request.push(peer_entry);
@@ -151,7 +150,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             }
         }
 
-        to_request
+        Ok(to_request)
     }
 
     pub async fn compare_and_resolve_conflict(
@@ -237,7 +236,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             _ => return Ok(VersionCmp::KeepOther),
         };
 
-        self.compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer_id)
+        self.compare_and_resolve_conflict(&mut local_entry, peer_entry, peer_id)
             .await
     }
 

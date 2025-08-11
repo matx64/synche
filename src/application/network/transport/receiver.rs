@@ -92,7 +92,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         let entries_to_request = self
             .entry_manager
             .get_entries_to_request(&peer, peer_hs_data.entries)
-            .await;
+            .await?;
 
         for entry in entries_to_request {
             if entry.is_file() {
@@ -117,7 +117,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         match self
             .entry_manager
             .handle_metadata(data.src_id, &peer_entry)
-            .await
+            .await?
         {
             VersionCmp::KeepOther => {
                 if peer_entry.is_removed {
