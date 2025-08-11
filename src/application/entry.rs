@@ -3,7 +3,13 @@ use crate::{
     domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
-use std::{collections::HashMap, io, path::PathBuf, sync::RwLock, time::Duration};
+use std::{
+    collections::HashMap,
+    io,
+    path::PathBuf,
+    sync::RwLock,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::{
     fs::{self},
     time::interval,
@@ -168,7 +174,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         self.merge_versions_and_insert(local_entry, peer_entry, peer_id);
 
-        if !local_entry.is_removed && (self.local_id < peer_id || peer_entry.is_removed) {
+        if !local_entry.is_removed {
             let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
 
             if !path.exists() {
@@ -178,8 +184,15 @@ impl<D: PersistenceInterface> EntryManager<D> {
             let stem = path.file_stem().unwrap_or_default().to_string_lossy();
             let ext = path.extension().unwrap_or_default().to_string_lossy();
 
-            let new_path =
-                path.with_file_name(format!("{}_CONFLICT_{}.{}", stem, self.local_id, ext));
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let new_path = path.with_file_name(format!(
+                "{}_CONFLICT_{}_{}.{}",
+                stem, now, self.local_id, ext
+            ));
 
             fs::copy(path, new_path).await?;
         }
