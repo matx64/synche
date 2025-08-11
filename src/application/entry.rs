@@ -175,8 +175,11 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 return Ok(());
             }
 
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            let ext = path.extension().unwrap_or_default().to_string_lossy();
+
             let new_path =
-                path.with_file_name(format!("{}_CONFLICT_{}", local_entry.name, self.local_id));
+                path.with_file_name(format!("{}_CONFLICT_{}.{}", stem, self.local_id, ext));
 
             fs::copy(path, new_path).await?;
         }
