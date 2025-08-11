@@ -137,23 +137,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_root_parent()) {
                 if let Some(mut local_entry) = self.get_entry(&name) {
-                    match local_entry.compare(&peer_entry) {
-                        VersionCmp::KeepOther => {
-                            to_request.push(peer_entry);
-                        }
+                    let cmp = self
+                        .compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer.id)
+                        .await
+                        .unwrap();
 
-                        VersionCmp::Conflict => {
-                            if let Err(e) = self
-                                .handle_conflict(&mut local_entry, &peer_entry, peer.id)
-                                .await
-                            {
-                                error!("Handle Conflict error: {e}");
-                            }
-                        }
-
-                        VersionCmp::Equal | VersionCmp::KeepSelf => {
-                            self.merge_versions_and_insert(&mut local_entry, &peer_entry, peer.id);
-                        }
+                    if matches!(cmp, VersionCmp::KeepOther) {
+                        to_request.push(peer_entry);
                     }
                 } else {
                     to_request.push(peer_entry);
@@ -164,66 +154,91 @@ impl<D: PersistenceInterface> EntryManager<D> {
         to_request
     }
 
+    pub async fn compare_and_resolve_conflict(
+        &self,
+        local_entry: &mut EntryInfo,
+        peer_entry: &EntryInfo,
+        peer_id: Uuid,
+    ) -> io::Result<VersionCmp> {
+        let cmp = match local_entry.compare(peer_entry) {
+            VersionCmp::Conflict => {
+                self.handle_conflict(local_entry, peer_entry, peer_id)
+                    .await?
+            }
+            other => other,
+        };
+
+        if matches!(cmp, VersionCmp::Equal | VersionCmp::KeepSelf) {
+            self.merge_versions_and_insert(local_entry, peer_entry, peer_id);
+        }
+
+        Ok(cmp)
+    }
+
     pub async fn handle_conflict(
         &self,
         local_entry: &mut EntryInfo,
         peer_entry: &EntryInfo,
         peer_id: Uuid,
-    ) -> io::Result<()> {
+    ) -> io::Result<VersionCmp> {
         warn!(entry = local_entry.name, peer = ?peer_id, "[⚠️  CONFLICT]");
 
-        self.merge_versions_and_insert(local_entry, peer_entry, peer_id);
-
-        if !local_entry.is_removed {
-            let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
-
-            if !path.exists() {
-                return Ok(());
+        match (local_entry.is_removed, peer_entry.is_removed) {
+            (true, false) => {
+                return Ok(VersionCmp::KeepOther);
             }
 
-            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-            let ext = path.extension().unwrap_or_default().to_string_lossy();
+            (false, true) => {
+                return Ok(VersionCmp::KeepSelf);
+            }
 
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
+            (true, true) => {
+                return Ok(VersionCmp::Equal);
+            }
 
-            let new_path = path.with_file_name(format!(
-                "{}_CONFLICT_{}_{}.{}",
-                stem, now, self.local_id, ext
-            ));
-
-            fs::copy(path, new_path).await?;
+            (false, false) => {}
         }
-        Ok(())
+
+        if self.local_id < peer_id {
+            return Ok(VersionCmp::KeepSelf);
+        }
+
+        let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
+
+        if !path.exists() {
+            return Ok(VersionCmp::KeepOther);
+        }
+
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = path.extension().unwrap_or_default().to_string_lossy();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let new_path = path.with_file_name(format!(
+            "{}_CONFLICT_{}_{}.{}",
+            stem, now, self.local_id, ext
+        ));
+
+        fs::copy(path, new_path).await?;
+
+        Ok(VersionCmp::KeepOther)
     }
 
-    pub async fn handle_metadata(&self, peer_id: Uuid, peer_entry: &EntryInfo) -> VersionCmp {
+    pub async fn handle_metadata(
+        &self,
+        peer_id: Uuid,
+        peer_entry: &EntryInfo,
+    ) -> io::Result<VersionCmp> {
         let mut local_entry = match self.get_entry(&peer_entry.name) {
             Some(entry) if !entry.is_removed => entry,
-            _ => return VersionCmp::KeepOther,
+            _ => return Ok(VersionCmp::KeepOther),
         };
 
-        let cmp = local_entry.compare(peer_entry);
-
-        match cmp {
-            VersionCmp::Conflict => {
-                if let Err(e) = self
-                    .handle_conflict(&mut local_entry, peer_entry, peer_id)
-                    .await
-                {
-                    error!("Handle Conflict error: {e}");
-                }
-            }
-
-            VersionCmp::Equal | VersionCmp::KeepSelf => {
-                self.merge_versions_and_insert(&mut local_entry, peer_entry, peer_id);
-            }
-
-            VersionCmp::KeepOther => {}
-        }
-        cmp
+        self.compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer_id)
+            .await
     }
 
     pub fn merge_versions_and_insert(
