@@ -121,7 +121,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         {
             VersionCmp::KeepOther => {
                 if peer_entry.is_removed {
-                    self.remove_entry(&peer_entry.name).await
+                    self.remove_entry(peer_entry).await
                 } else if peer_entry.is_file() {
                     self.senders
                         .request_tx
@@ -202,10 +202,10 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .map_err(io::Error::other)
     }
 
-    pub async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
-        let _ = self.entry_manager.remove_entry(entry_name);
+    pub async fn remove_entry(&self, entry: EntryInfo) -> io::Result<()> {
+        let entry = self.entry_manager.insert_entry(entry);
 
-        let path = self.base_dir.join(entry_name);
+        let path = self.base_dir.join(entry.name);
 
         if path.is_dir() {
             fs::remove_dir_all(path).await?;

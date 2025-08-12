@@ -105,6 +105,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
         entry.hash = hash;
         *entry.vv.entry(self.local_id).or_insert(0) += 1;
+        entry.is_removed = false;
 
         self.db.insert_or_replace_entry(&entry).unwrap();
         entry
@@ -204,7 +205,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
 
-        if !path.exists() {
+        if !path.exists() || path.is_dir() {
             return Ok(VersionCmp::KeepOther);
         }
 
@@ -231,13 +232,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
         peer_id: Uuid,
         peer_entry: &EntryInfo,
     ) -> io::Result<VersionCmp> {
-        let mut local_entry = match self.get_entry(&peer_entry.name) {
-            Some(entry) if !entry.is_removed => entry,
-            _ => return Ok(VersionCmp::KeepOther),
-        };
-
-        self.compare_and_resolve_conflict(&mut local_entry, peer_entry, peer_id)
-            .await
+        match self.get_entry(&peer_entry.name) {
+            Some(mut local_entry) => {
+                self.compare_and_resolve_conflict(&mut local_entry, peer_entry, peer_id)
+                    .await
+            }
+            None => Ok(VersionCmp::KeepOther),
+        }
     }
 
     pub fn merge_versions_and_insert(
@@ -256,6 +257,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
         self.get_entry(name)
+            .filter(|entry| !entry.is_removed)
             .map(|mut entry| {
                 *entry.vv.entry(self.local_id).or_insert(0) += 1;
                 entry.hash = None;

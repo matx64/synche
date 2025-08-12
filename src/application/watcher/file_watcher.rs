@@ -80,7 +80,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         match self.entry_manager.get_entry(&path.relative) {
             None => self.handle_create(path).await,
 
-            Some(entry) if entry.is_removed => self.handle_create(path).await,
+            Some(entry) if !path.is_file() && !entry.is_file() && entry.is_removed => {
+                self.handle_restore_dir(entry).await
+            }
 
             Some(entry) if path.is_file() && entry.is_file() => {
                 self.handle_modify_file(path, entry).await
@@ -149,6 +151,12 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 }
             }
         }
+    }
+
+    async fn handle_restore_dir(&self, dir: EntryInfo) {
+        let dir = self.entry_manager.entry_modified(dir, None);
+
+        self.send_metadata(dir).await;
     }
 
     async fn handle_modify_file(&self, path: WatcherEventPath, file: EntryInfo) {

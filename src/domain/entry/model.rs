@@ -20,8 +20,6 @@ pub enum EntryKind {
 
 impl EntryInfo {
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
-        assert_eq!(self.name, other.name);
-
         if self.kind == other.kind && self.hash == other.hash && self.is_removed == other.is_removed
         {
             return VersionCmp::Equal;
