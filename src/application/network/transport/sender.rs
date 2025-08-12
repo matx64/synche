@@ -11,7 +11,7 @@ use crate::{
     proto::transport::{SyncHandshakeKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{net::IpAddr, path::PathBuf, sync::Arc};
 use tokio::{
     fs::File,
     io::{self, AsyncReadExt},
@@ -19,9 +19,8 @@ use tokio::{
         Mutex,
         mpsc::{self},
     },
-    time,
 };
-use tracing::{info, warn};
+use tracing::warn;
 
 pub struct TransportSender<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
@@ -68,42 +67,18 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     pub async fn run(&self) -> io::Result<()> {
         tokio::try_join!(
             self.send_handshakes(),
-            self.send_entry_changes(),
+            self.send_metadata(),
             self.send_requests(),
             self.send_files()
         )?;
         Ok(())
     }
 
-    async fn send_entry_changes(&self) -> io::Result<()> {
-        let mut buffer = HashMap::<String, EntryInfo>::new();
-        let mut interval = time::interval(Duration::from_secs(3));
-
+    async fn send_metadata(&self) -> io::Result<()> {
         loop {
-            tokio::select! {
-                Some(entry) = async {
-                    let mut metadata_rx = self.receivers.metadata_rx.lock().await;
-                    metadata_rx.recv().await
-                } => {
-                    info!("🗃️  Adding changed entry to buffer: {}", entry.name);
-                    buffer.insert(entry.name.clone(), entry);
-                },
-
-                _ = interval.tick() => {
-                    if buffer.is_empty() {
-                        continue;
-                    }
-
-                    let to_process = buffer.values().cloned().collect();
-                    buffer.clear();
-
-                    let sync_map = self.peer_manager.build_sync_map(&to_process);
-
-                    for (addr, entries) in sync_map {
-                        for entry in entries {
-                            self.transport_adapter.send_metadata(addr, entry).await?;
-                        }
-                    }
+            if let Some(entry) = self.receivers.metadata_rx.lock().await.recv().await {
+                for addr in self.peer_manager.get_peers_to_send_metadata(&entry) {
+                    self.transport_adapter.send_metadata(addr, &entry).await?;
                 }
             }
         }

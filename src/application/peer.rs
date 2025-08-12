@@ -43,23 +43,19 @@ impl PeerManager {
         })
     }
 
-    pub fn build_sync_map<'a>(
-        &self,
-        buffer: &'a Vec<EntryInfo>,
-    ) -> HashMap<IpAddr, Vec<&'a EntryInfo>> {
-        let mut result = HashMap::new();
+    pub fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
+        let root_dir = entry.get_root_parent();
 
-        if let Ok(peers) = self.peers.read() {
-            for peer in peers.values() {
-                for file in buffer {
-                    if peer.directories.contains_key(&file.get_root_parent()) {
-                        result.entry(peer.addr).or_insert_with(Vec::new).push(file);
-                    }
-                }
-            }
-        }
-
-        result
+        self.peers
+            .read()
+            .map(|peers| {
+                peers
+                    .values()
+                    .filter(|peer| peer.directories.contains_key(&root_dir))
+                    .map(|peer| peer.addr)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn remove_peer(&self, id: Uuid) {
