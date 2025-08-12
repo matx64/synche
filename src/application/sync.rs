@@ -25,7 +25,6 @@ pub struct Synchronizer<
     T: TransportInterface,
     D: PersistenceInterface,
 > {
-    entry_manager: Arc<EntryManager<D>>,
     file_watcher: FileWatcher<W, D>,
     presence_service: PresenceService<P>,
     transport_sender: TransportSender<T, D>,
@@ -76,7 +75,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
 
         let transport_receiver = TransportReceiver::new(
             transport_adapter,
-            entry_manager.clone(),
+            entry_manager,
             peer_manager,
             sender_channels,
             config.constants.base_dir,
@@ -84,7 +83,6 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
         );
 
         Self {
-            entry_manager,
             file_watcher,
             presence_service,
             transport_sender,
@@ -98,7 +96,6 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
             self.transport_sender.run(),
             self.presence_service.run(),
             self.file_watcher.run(),
-            self.entry_manager.clean_removed_entries()
         )?;
         Ok(())
     }

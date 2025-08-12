@@ -8,13 +8,10 @@ use std::{
     io,
     path::PathBuf,
     sync::RwLock,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::{
-    fs::{self},
-    time::interval,
-};
-use tracing::{error, info, warn};
+use tokio::fs::{self};
+use tracing::warn;
 use uuid::Uuid;
 
 pub struct EntryManager<D: PersistenceInterface> {
@@ -43,7 +40,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
     fn build_db(db: &D, local_id: Uuid, filesystem_entries: HashMap<String, EntryInfo>) {
         let mut entries: HashMap<String, EntryInfo> = db
-            .list_all_entries(true)
+            .list_all_entries()
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
@@ -59,7 +56,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
                         vv: entry.vv.clone(),
                         kind: fs_entry.kind.clone(),
                         hash: fs_entry.hash.clone(),
-                        is_removed: fs_entry.is_removed,
+                        is_removed: false,
                     })
                     .unwrap();
                 }
@@ -113,14 +110,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
     pub fn get_entry(&self, name: &str) -> Option<EntryInfo> {
         self.db.get_entry(name).unwrap()
-    }
-
-    pub fn entry_exists(&self, name: &str) -> bool {
-        self.db
-            .get_entry(name)
-            .unwrap()
-            .map(|e| !e.is_removed)
-            .unwrap_or(false)
     }
 
     pub async fn get_entries_to_request(
@@ -257,13 +246,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
         self.get_entry(name)
-            .filter(|entry| !entry.is_removed)
             .map(|mut entry| {
+                self.db.delete_entry(name).unwrap();
+
                 *entry.vv.entry(self.local_id).or_insert(0) += 1;
                 entry.hash = None;
                 entry.is_removed = true;
 
-                self.db.insert_or_replace_entry(&entry).unwrap();
                 Some(entry)
             })
             .unwrap_or_default()
@@ -272,14 +261,15 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn remove_dir(&self, deleted: &str) -> Vec<EntryInfo> {
         let mut removed_entries = Vec::new();
 
-        let entries = self.db.list_all_entries(false).unwrap();
+        let entries = self.db.list_all_entries().unwrap();
         for mut entry in entries {
             if entry.name.starts_with(&format!("{}/", deleted)) {
+                self.db.delete_entry(&entry.name).unwrap();
+
                 *entry.vv.entry(self.local_id).or_insert(0) += 1;
                 entry.hash = None;
                 entry.is_removed = true;
 
-                self.db.insert_or_replace_entry(&entry).unwrap();
                 removed_entries.push(entry);
             }
         }
@@ -296,7 +286,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         let entries = self
             .db
-            .list_all_entries(false)
+            .list_all_entries()
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
@@ -305,37 +295,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
         PeerHandshakeData {
             directories,
             entries,
-        }
-    }
-
-    pub fn _update_dirs(&self, updated: HashMap<String, Directory>) {
-        if let Ok(mut dirs) = self.directories.write() {
-            dirs.clear();
-            *dirs = updated;
-        }
-    }
-
-    pub async fn clean_removed_entries(&self) -> io::Result<()> {
-        let mut retries: u8 = 0;
-        let mut interval = interval(Duration::from_secs(120));
-
-        loop {
-            interval.tick().await;
-
-            info!("🧹 Cleaning removed entries...");
-
-            if let Err(err) = self.db.clean_removed_entries() {
-                error!("Failed to clean removed entries: {err}");
-                retries += 1;
-
-                if retries >= 3 {
-                    return Err(io::Error::other(
-                        "Failed to clean removed entries 3 times in a row.",
-                    ));
-                }
-            } else {
-                retries = 0;
-            }
         }
     }
 }
