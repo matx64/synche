@@ -3,9 +3,8 @@ use crate::domain::EntryInfo;
 pub trait PersistenceInterface {
     fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()>;
     fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>>;
-    fn list_all_entries(&self, include_deleted: bool) -> PersistenceResult<Vec<EntryInfo>>;
+    fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>>;
     fn delete_entry(&self, name: &str) -> PersistenceResult<()>;
-    fn clean_removed_entries(&self) -> PersistenceResult<()>;
 }
 
 pub type PersistenceResult<T> = Result<T, PersistenceError>;
