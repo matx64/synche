@@ -7,7 +7,7 @@ use tokio::{
     io::{self, AsyncRead, AsyncWrite},
     sync::{
         Mutex,
-        mpsc::{Receiver, Sender},
+        mpsc::{self, Receiver, Sender},
     },
 };
 use uuid::Uuid;
@@ -56,4 +56,19 @@ pub struct TransportReceivers {
     pub handshake_rx: Mutex<Receiver<(IpAddr, SyncHandshakeKind)>>,
     pub request_rx: Mutex<Receiver<(IpAddr, EntryInfo)>>,
     pub transfer_rx: Mutex<Receiver<(IpAddr, EntryInfo)>>,
+}
+
+pub struct ReceiverChannel<T: TransportInterface> {
+    pub tx: Sender<TransportData<T::Stream>>,
+    pub rx: Mutex<Receiver<TransportData<T::Stream>>>,
+}
+
+impl<T: TransportInterface> ReceiverChannel<T> {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel(100);
+        Self {
+            tx,
+            rx: Mutex::new(rx),
+        }
+    }
 }

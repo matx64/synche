@@ -3,7 +3,7 @@ use crate::{
         EntryManager, PeerManager,
         network::{
             TransportInterface,
-            transport::interface::{TransportData, TransportSenders},
+            transport::interface::{ReceiverChannel, TransportData, TransportSenders},
         },
         persistence::interface::PersistenceInterface,
     },
@@ -22,6 +22,8 @@ pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     entry_manager: Arc<EntryManager<D>>,
     peer_manager: Arc<PeerManager>,
     senders: TransportSenders,
+    control_chan: ReceiverChannel<T>,
+    data_chan: ReceiverChannel<T>,
     base_dir: PathBuf,
     tmp_dir: PathBuf,
 }
@@ -36,6 +38,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         tmp_dir: PathBuf,
     ) -> Self {
         Self {
+            control_chan: ReceiverChannel::new(),
+            data_chan: ReceiverChannel::new(),
             transport_adapter,
             entry_manager,
             peer_manager,
@@ -46,22 +50,42 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
+        tokio::try_join!(self.recv(), self.recv_control(), self.recv_data())?;
+        Ok(())
+    }
+
+    pub async fn recv(&self) -> io::Result<()> {
         loop {
             let data = self.transport_adapter.recv().await?;
 
-            // TODO: Async
             match data.kind {
-                SyncKind::Handshake(_) => {
-                    self.handle_handshake(data).await?;
-                }
-                SyncKind::Entry(SyncEntryKind::Metadata) => {
-                    self.handle_metadata(data).await?;
-                }
-                SyncKind::Entry(SyncEntryKind::Request) => {
-                    self.handle_request(data).await?;
-                }
                 SyncKind::Entry(SyncEntryKind::Transfer) => {
-                    self.handle_transfer(data).await?;
+                    let _ = self.data_chan.tx.send(data).await;
+                }
+
+                _ => {
+                    let _ = self.control_chan.tx.send(data).await;
+                }
+            }
+        }
+    }
+
+    pub async fn recv_data(&self) -> io::Result<()> {
+        loop {
+            if let Some(data) = self.data_chan.rx.lock().await.recv().await {
+                self.handle_transfer(data).await?;
+            }
+        }
+    }
+
+    pub async fn recv_control(&self) -> io::Result<()> {
+        loop {
+            if let Some(data) = self.control_chan.rx.lock().await.recv().await {
+                match data.kind {
+                    SyncKind::Handshake(_) => self.handle_handshake(data).await?,
+                    SyncKind::Entry(SyncEntryKind::Metadata) => self.handle_metadata(data).await?,
+                    SyncKind::Entry(SyncEntryKind::Request) => self.handle_request(data).await?,
+                    _ => unreachable!(),
                 }
             }
         }

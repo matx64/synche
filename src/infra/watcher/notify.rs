@@ -67,7 +67,6 @@ impl FileWatcherInterface for NotifyFileWatcher {
                         && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
                         && !is_ds_store(&path)
                     {
-                        warn!("{:?}", event);
                         if let Some(w) = self.handle_event(event, path) {
                             return Some(w);
                         } else {
