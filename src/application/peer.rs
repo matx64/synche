@@ -43,6 +43,13 @@ impl PeerManager {
         })
     }
 
+    pub fn list(&self) -> Vec<(Uuid, IpAddr)> {
+        self.peers
+            .read()
+            .map(|peers| peers.values().map(|p| (p.id, p.addr)).collect())
+            .unwrap_or_default()
+    }
+
     pub fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
         let root_dir = entry.get_root_parent();
 
