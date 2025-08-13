@@ -17,7 +17,7 @@ impl UdpMulticaster {
 
         socket.set_reuse_address(true).unwrap();
         #[cfg(unix)]
-        sock.set_reuse_port(true).unwrap();
+        socket.set_reuse_port(true).unwrap();
 
         let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), UDP_PORT);
         socket.bind(&SockAddr::from(bind_addr)).unwrap();
