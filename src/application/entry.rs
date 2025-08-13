@@ -56,7 +56,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
                         vv: entry.vv.clone(),
                         kind: fs_entry.kind.clone(),
                         hash: fs_entry.hash.clone(),
-                        is_removed: false,
                     })
                     .unwrap();
                 }
@@ -94,7 +93,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
             name: name.to_owned(),
             kind,
             hash,
-            is_removed: false,
             vv: HashMap::from([(self.local_id, 0)]),
         })
     }
@@ -102,7 +100,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
         entry.hash = hash;
         *entry.vv.entry(self.local_id).or_insert(0) += 1;
-        entry.is_removed = false;
 
         self.db.insert_or_replace_entry(&entry).unwrap();
         entry
@@ -172,7 +169,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     ) -> io::Result<VersionCmp> {
         warn!(entry = local_entry.name, peer = ?peer_id, "[⚠️  CONFLICT]");
 
-        match (local_entry.is_removed, peer_entry.is_removed) {
+        match (local_entry.is_removed(), peer_entry.is_removed()) {
             (true, false) => {
                 return Ok(VersionCmp::KeepOther);
             }
@@ -247,34 +244,33 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
         self.get_entry(name)
             .map(|mut entry| {
-                self.db.delete_entry(name).unwrap();
-
-                *entry.vv.entry(self.local_id).or_insert(0) += 1;
-                entry.hash = None;
-                entry.is_removed = true;
-
+                entry = self.delete_and_update_entry(entry);
                 Some(entry)
             })
             .unwrap_or_default()
     }
 
-    pub fn remove_dir(&self, deleted: &str) -> Vec<EntryInfo> {
+    pub fn remove_dir(&self, removed: &str) -> Vec<EntryInfo> {
         let mut removed_entries = Vec::new();
 
         let entries = self.db.list_all_entries().unwrap();
         for mut entry in entries {
-            if entry.name.starts_with(&format!("{}/", deleted)) {
-                self.db.delete_entry(&entry.name).unwrap();
-
-                *entry.vv.entry(self.local_id).or_insert(0) += 1;
-                entry.hash = None;
-                entry.is_removed = true;
-
+            if entry.name.starts_with(&format!("{}/", removed)) {
+                entry = self.delete_and_update_entry(entry);
                 removed_entries.push(entry);
             }
         }
 
         removed_entries
+    }
+
+    pub fn delete_and_update_entry(&self, mut entry: EntryInfo) -> EntryInfo {
+        self.db.delete_entry(&entry.name).unwrap();
+
+        *entry.vv.entry(self.local_id).or_insert(0) += 1;
+        entry.set_removed_hash();
+
+        entry
     }
 
     pub fn get_handshake_data(&self) -> PeerHandshakeData {

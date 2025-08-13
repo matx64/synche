@@ -62,7 +62,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 }
 
                 Some(event) = self.watch_rx.recv() => {
-                    info!("🗃️  {event:?}");
+                    info!("📁  {event:?}");
                     match event.kind {
                         WatcherEventKind::CreateOrModify => {
                             self.handle_create_or_modify(event.path).await;

@@ -3,12 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
 
+const REMOVED_HASH: &str = "00000000000000000000000000000000";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryInfo {
     pub name: String,
     pub kind: EntryKind,
     pub hash: Option<String>,
-    pub is_removed: bool,
     pub vv: VersionVector,
 }
 
@@ -20,8 +21,7 @@ pub enum EntryKind {
 
 impl EntryInfo {
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
-        if self.kind == other.kind && self.hash == other.hash && self.is_removed == other.is_removed
-        {
+        if self.kind == other.kind && self.hash == other.hash {
             return VersionCmp::Equal;
         }
 
@@ -52,5 +52,13 @@ impl EntryInfo {
 
     pub fn get_root_parent(&self) -> String {
         self.name.split("/").next().unwrap_or_default().to_owned()
+    }
+
+    pub fn set_removed_hash(&mut self) {
+        self.hash = Some(REMOVED_HASH.to_string());
+    }
+
+    pub fn is_removed(&self) -> bool {
+        matches!(self.hash.as_deref(), Some(REMOVED_HASH))
     }
 }

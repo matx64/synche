@@ -12,7 +12,7 @@ use tokio::{
     io,
     sync::mpsc::{self, Receiver},
 };
-use tracing::{error, warn};
+use tracing::error;
 
 pub struct NotifyFileWatcher {
     watcher: RecommendedWatcher,
