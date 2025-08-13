@@ -3,7 +3,7 @@ use crate::{
         EntryManager, PeerManager,
         network::{
             TransportInterface,
-            presence::PresenceServiceV2,
+            presence::PresenceService,
             transport::{TransportReceiver, TransportSender},
         },
         persistence::interface::PersistenceInterface,
@@ -20,7 +20,7 @@ use tokio::io;
 
 pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> {
     file_watcher: FileWatcher<W, D>,
-    presence_service: PresenceServiceV2,
+    presence_service: PresenceService,
     transport_sender: TransportSender<T, D>,
     transport_receiver: TransportReceiver<T, D>,
 }
@@ -58,11 +58,10 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             config.constants.base_dir.clone(),
         );
 
-        let presence_service = PresenceServiceV2::new(
+        let presence_service = PresenceService::new(
             config.constants.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
-            config.constants.broadcast_interval_secs,
         );
 
         let transport_receiver = TransportReceiver::new(

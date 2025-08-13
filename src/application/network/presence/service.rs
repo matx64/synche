@@ -1,139 +1,87 @@
 use crate::{
-    application::{PeerManager, network::PresenceInterface},
+    application::PeerManager, infra::network::mdns::MdnsAdapter,
     proto::transport::SyncHandshakeKind,
 };
-use local_ip_address::list_afinet_netifas;
-use std::{net::IpAddr, sync::Arc, time::Duration};
-use tokio::{io, sync::mpsc::Sender, time};
-use tracing::{error, info};
+use mdns_sd::{ServiceEvent, ServiceInfo};
+use std::{net::IpAddr, sync::Arc};
+use tokio::{io, sync::mpsc::Sender};
+use tracing::{info, warn};
 use uuid::Uuid;
 
-pub struct PresenceService<T: PresenceInterface> {
-    presence_adapter: T,
+pub struct PresenceService {
+    mdns_adapter: MdnsAdapter,
     local_id: Uuid,
     peer_manager: Arc<PeerManager>,
     handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
-    broadcast_msg: Vec<u8>,
-    broadcast_interval_secs: u64,
 }
 
-impl<T: PresenceInterface> PresenceService<T> {
+impl PresenceService {
     pub fn new(
-        presence_adapter: T,
         local_id: Uuid,
         peer_manager: Arc<PeerManager>,
         handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
-        broadcast_interval_secs: u64,
     ) -> Self {
         Self {
-            broadcast_msg: format!("ping:{}", &local_id).as_bytes().to_vec(),
-            presence_adapter,
+            mdns_adapter: MdnsAdapter::new(local_id),
             local_id,
             peer_manager,
             handshake_tx,
-            broadcast_interval_secs,
         }
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        tokio::try_join!(self.run_broadcast(), self.run_recv(), self.monitor_peers())?;
-        Ok(())
-    }
-
-    async fn run_broadcast(&self) -> io::Result<()> {
-        let mut retries: usize = 0;
-        let mut interval = time::interval(Duration::from_secs(self.broadcast_interval_secs));
+        self.mdns_adapter.advertise();
 
         loop {
-            interval.tick().await;
-
-            if let Err(e) = self.presence_adapter.broadcast(&self.broadcast_msg).await {
-                error!("Error sending presence: {}", e);
-                retries += 1;
-
-                if retries >= 3 {
-                    return Err(io::Error::other("Failed to send presence 3 times in a row"));
+            match self.mdns_adapter.recv().await? {
+                ServiceEvent::ServiceResolved(info) => {
+                    self.handle_peer_connect(info).await?;
                 }
-            } else {
-                retries = 0;
+
+                ServiceEvent::ServiceRemoved(_, fullname) => {
+                    self.handle_peer_disconnect(&fullname).await?;
+                }
+
+                _ => {
+                    info!("🖥️  Connected Peers: {:?}", self.peer_manager.list());
+                }
             }
         }
     }
 
-    async fn run_recv(&self) -> io::Result<()> {
-        let mut retries: u8 = 0;
-        let ifas = list_afinet_netifas().unwrap();
+    async fn handle_peer_connect(&self, info: ServiceInfo) -> io::Result<()> {
+        let Some(peer_id) = self.mdns_adapter.get_peer_id(info.get_fullname()) else {
+            return Ok(());
+        };
 
-        loop {
-            let (msg, src_ip) = match self.presence_adapter.recv().await {
-                Ok(data) => {
-                    retries = 0;
-                    data
-                }
+        if peer_id == self.local_id {
+            return Ok(());
+        }
 
-                Err(err) => {
-                    error!("Receive presence error: {err}");
-                    retries += 1;
+        if let Some(peer_ip) = info.get_addresses().iter().next().cloned() {
+            let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
 
-                    if retries >= 3 {
-                        return Err(io::Error::other(
-                            "Failed to receive presence 3 times in a row",
-                        ));
-                    }
-                    continue;
-                }
-            };
-
-            if self.is_host(&ifas, src_ip) {
-                continue;
-            }
-
-            let is_ping = msg.starts_with("ping:");
-
-            let peer_id = if is_ping {
-                msg.strip_prefix("ping:")
-                    .and_then(|id| Uuid::parse_str(id).ok())
-            } else {
-                msg.strip_prefix("shutdown:")
-                    .and_then(|id| Uuid::parse_str(id).ok())
-            };
-
-            let Some(peer_id) = peer_id else {
-                error!("Invalid or missing broadcast ID: {}", msg);
-                continue;
-            };
-
-            if !is_ping {
-                self.peer_manager.remove_peer(peer_id);
-                continue;
-            }
-
-            let send_handshake =
-                self.peer_manager.insert_or_update(peer_id, src_ip) && self.local_id < peer_id;
-
-            if send_handshake {
+            if inserted && self.local_id < peer_id {
                 self.handshake_tx
-                    .send((src_ip, SyncHandshakeKind::Request))
+                    .send((peer_ip, SyncHandshakeKind::Request))
                     .await
                     .map_err(io::Error::other)?;
             }
         }
-    }
-
-    async fn monitor_peers(&self) -> io::Result<()> {
-        loop {
-            info!("🖥️  Connected Peers: {:?}", self.peer_manager.retain());
-            time::sleep(Duration::from_secs(10)).await;
-        }
-    }
-
-    fn is_host(&self, ifas: &[(String, IpAddr)], ip: IpAddr) -> bool {
-        ifas.iter().any(|ifa| ifa.1 == ip)
-    }
-
-    pub async fn shutdown(&mut self) -> io::Result<()> {
-        self.broadcast_msg = format!("shutdown:{}", self.local_id).as_bytes().to_vec();
-        let _ = self.presence_adapter.broadcast(&self.broadcast_msg).await;
         Ok(())
+    }
+
+    async fn handle_peer_disconnect(&self, fullname: &str) -> io::Result<()> {
+        let Some(peer_id) = self.mdns_adapter.get_peer_id(fullname) else {
+            warn!(fullname = fullname, "Invalid mDNS peer id");
+            return Ok(());
+        };
+
+        self.peer_manager.remove_peer(peer_id);
+        Ok(())
+    }
+
+    pub fn shutdown(&self) {
+        self.mdns_adapter.shutdown();
     }
 }

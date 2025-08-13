@@ -23,7 +23,6 @@ pub struct AppConstants {
     pub local_id: Uuid,
     pub base_dir: PathBuf,
     pub tmp_dir: PathBuf,
-    pub broadcast_interval_secs: u64,
 }
 
 pub fn init() -> Config {
@@ -45,7 +44,6 @@ pub fn init() -> Config {
             local_id,
             base_dir: base_dir.to_owned(),
             tmp_dir: tmp_dir.to_owned(),
-            broadcast_interval_secs: 5,
         },
     }
 }
