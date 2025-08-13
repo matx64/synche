@@ -11,7 +11,7 @@ use crate::{
     },
     config::Config,
     infra::{
-        network::{tcp::TcpTransporter, udp::UdpBroadcaster},
+        network::{multicast::UdpMulticaster, tcp::TcpTransporter},
         persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
@@ -107,13 +107,13 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
     }
 }
 
-impl Synchronizer<NotifyFileWatcher, UdpBroadcaster, TcpTransporter, SqliteDb> {
+impl Synchronizer<NotifyFileWatcher, UdpMulticaster, TcpTransporter, SqliteDb> {
     pub async fn new_default(config: Config) -> Self {
         let transporter = TcpTransporter::new(config.constants.local_id).await;
         Self::new(
             config,
             NotifyFileWatcher::new(),
-            UdpBroadcaster::new().await,
+            UdpMulticaster::new().await,
             transporter,
             SqliteDb::new(".synche/db.db").unwrap(),
         )
