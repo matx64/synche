@@ -2,8 +2,8 @@ use crate::{
     application::{
         EntryManager, PeerManager,
         network::{
-            PresenceInterface, TransportInterface,
-            presence::PresenceService,
+            TransportInterface,
+            presence::PresenceServiceV2,
             transport::{TransportReceiver, TransportSender},
         },
         persistence::interface::PersistenceInterface,
@@ -11,33 +11,26 @@ use crate::{
     },
     config::Config,
     infra::{
-        network::{multicast::UdpMulticaster, tcp::TcpTransporter},
-        persistence::sqlite::SqliteDb,
+        network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
 };
 use std::sync::Arc;
 use tokio::io;
 
-pub struct Synchronizer<
-    W: FileWatcherInterface,
-    P: PresenceInterface,
-    T: TransportInterface,
-    D: PersistenceInterface,
-> {
+pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> {
     file_watcher: FileWatcher<W, D>,
-    presence_service: PresenceService<P>,
+    presence_service: PresenceServiceV2,
     transport_sender: TransportSender<T, D>,
     transport_receiver: TransportReceiver<T, D>,
 }
 
-impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: PersistenceInterface>
-    Synchronizer<W, P, T, D>
+impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
+    Synchronizer<W, T, D>
 {
     pub fn new(
         config: Config,
         watch_adapter: W,
-        presence_adapter: P,
         transport_adapter: T,
         persistence_adapter: D,
     ) -> Self {
@@ -65,8 +58,7 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
             config.constants.base_dir.clone(),
         );
 
-        let presence_service = PresenceService::new(
-            presence_adapter,
+        let presence_service = PresenceServiceV2::new(
             config.constants.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
@@ -101,19 +93,18 @@ impl<W: FileWatcherInterface, P: PresenceInterface, T: TransportInterface, D: Pe
     }
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
-        self.presence_service.shutdown().await?;
+        self.presence_service.shutdown();
         tracing::info!("✅ Synche gracefully shutdown");
         Ok(())
     }
 }
 
-impl Synchronizer<NotifyFileWatcher, UdpMulticaster, TcpTransporter, SqliteDb> {
+impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
     pub async fn new_default(config: Config) -> Self {
         let transporter = TcpTransporter::new(config.constants.local_id).await;
         Self::new(
             config,
             NotifyFileWatcher::new(),
-            UdpMulticaster::new().await,
             transporter,
             SqliteDb::new(".synche/db.db").unwrap(),
         )
