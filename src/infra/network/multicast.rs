@@ -2,6 +2,7 @@ use crate::application::network::{PresenceInterface, presence::interface::Presen
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tokio::net::UdpSocket;
+use tracing::warn;
 
 const UDP_PORT: u16 = 8888;
 const MULTICAST_ADDR_V4: &str = "239.255.0.1";
@@ -16,23 +17,42 @@ impl UdpMulticaster {
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
 
         socket.set_reuse_address(true).unwrap();
+
         #[cfg(unix)]
         socket.set_reuse_port(true).unwrap();
 
         let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), UDP_PORT);
         socket.bind(&SockAddr::from(bind_addr)).unwrap();
 
-        let std_udp: std::net::UdpSocket = socket.into();
-        std_udp.set_nonblocking(true).unwrap();
+        let socket: std::net::UdpSocket = socket.into();
+        socket.set_nonblocking(true).unwrap();
 
         let maddr: Ipv4Addr = MULTICAST_ADDR_V4.parse().unwrap();
-        std_udp
-            .join_multicast_v4(&maddr, &Ipv4Addr::UNSPECIFIED)
-            .unwrap();
-        std_udp.set_multicast_loop_v4(true).unwrap();
-        std_udp.set_multicast_ttl_v4(1).unwrap();
+        let ifas = local_ip_address::list_afinet_netifas().unwrap();
 
-        let socket = UdpSocket::from_std(std_udp).unwrap();
+        let mut joined_any = false;
+        for (name, ip) in ifas {
+            if let IpAddr::V4(ipv4) = ip {
+                if ipv4.is_loopback() || name.to_lowercase().contains("bluetooth") {
+                    continue;
+                }
+
+                if let Err(err) = socket.join_multicast_v4(&maddr, &ipv4) {
+                    warn!("Failed to join multicast in ({name}, {ipv4}) ifa: {err}");
+                } else {
+                    joined_any = true;
+                }
+            }
+        }
+
+        if !joined_any {
+            panic!("Couldn't join multicast in any interface!");
+        }
+
+        socket.set_multicast_loop_v4(true).unwrap();
+        socket.set_multicast_ttl_v4(1).unwrap();
+
+        let socket = UdpSocket::from_std(socket).unwrap();
 
         Self {
             socket,
