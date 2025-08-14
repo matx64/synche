@@ -18,6 +18,7 @@ impl MdnsAdapter {
         let daemon = ServiceDaemon::new().expect("Failed to create mdns daemon");
 
         daemon.disable_interface(IfKind::IPv6).unwrap();
+        daemon.use_service_data(true).unwrap();
 
         let service_type = "_synche._udp.local.".to_string();
         let receiver = daemon.browse(&service_type).expect("Failed to browse");
@@ -61,13 +62,7 @@ impl MdnsAdapter {
     }
 
     pub fn shutdown(&self) {
-        let retries = 3;
-        for _ in 0..retries {
-            if let Err(mdns_sd::Error::Again) = self.daemon.unregister(&self.service_type) {
-                continue;
-            }
-        }
-        for _ in 0..retries {
+        for _ in 0..3 {
             match self.daemon.shutdown() {
                 Err(mdns_sd::Error::Again) => continue,
                 _ => {
@@ -76,6 +71,6 @@ impl MdnsAdapter {
                 }
             }
         }
-        error!("Failed to shutdown mDNS daemon");
+        error!("Failed to shutdown mDNS daemon after 3 attempts");
     }
 }

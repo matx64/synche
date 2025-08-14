@@ -2,7 +2,7 @@ use crate::{
     application::PeerManager, infra::network::mdns::MdnsAdapter,
     proto::transport::SyncHandshakeKind,
 };
-use mdns_sd::{ServiceEvent, ServiceInfo};
+use mdns_sd::{ResolvedService, ServiceEvent};
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
 use tracing::{info, warn};
@@ -34,13 +34,9 @@ impl PresenceService {
 
         loop {
             match self.mdns_adapter.recv().await? {
-                ServiceEvent::ServiceResolved(info) => {
-                    info!("SERVICE RESOLVED: {info:?}");
+                ServiceEvent::ServiceData(info) => {
+                    info!("SERVICE DATA: {info:?}");
                     self.handle_peer_connect(info).await?;
-                }
-
-                ServiceEvent::ServiceFound(service_type, fullname) => {
-                    info!("SERVICE FOUND: {service_type} /// {fullname}");
                 }
 
                 ServiceEvent::ServiceRemoved(_, fullname) => {
@@ -55,8 +51,8 @@ impl PresenceService {
         }
     }
 
-    async fn handle_peer_connect(&self, info: ServiceInfo) -> io::Result<()> {
-        let Some(peer_id) = self.mdns_adapter.get_peer_id(info.get_fullname()) else {
+    async fn handle_peer_connect(&self, info: Box<ResolvedService>) -> io::Result<()> {
+        let Some(peer_id) = self.mdns_adapter.get_peer_id(&info.fullname) else {
             return Ok(());
         };
 
@@ -64,17 +60,23 @@ impl PresenceService {
             return Ok(());
         }
 
-        for peer_ip in info.get_addresses().iter() {
-            if peer_ip.is_ipv6() || peer_ip.is_loopback() {
+        for peer_ip in info.addresses.iter() {
+            if peer_ip.is_ipv6() {
+                continue;
+            }
+
+            let peer_ip = peer_ip.to_ip_addr();
+
+            if peer_ip.is_loopback() {
                 continue;
             }
 
             info!("PEER_IP: {peer_ip}");
-            let inserted = self.peer_manager.insert_or_update(peer_id, *peer_ip);
+            let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
 
             if inserted && self.local_id < peer_id {
                 self.handshake_tx
-                    .send((*peer_ip, SyncHandshakeKind::Request))
+                    .send((peer_ip, SyncHandshakeKind::Request))
                     .await
                     .map_err(io::Error::other)?;
             }
