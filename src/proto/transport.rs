@@ -15,7 +15,7 @@ pub enum SyncKind {
     Entry(SyncEntryKind),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SyncHandshakeKind {
     Request,
     Response,

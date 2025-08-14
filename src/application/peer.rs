@@ -59,9 +59,21 @@ impl PeerManager {
     }
 
     pub fn remove_peer(&self, id: Uuid) {
-        if let Ok(mut peers) = self.peers.write() {
+        if let Ok(mut peers) = self.peers.write()
+            && peers.remove(&id).is_some()
+        {
             info!("🔴 Peer disconnected: {id}");
-            peers.remove(&id);
+        }
+    }
+
+    pub fn remove_peer_by_addr(&self, addr: IpAddr) {
+        if let Ok(mut peers) = self.peers.write()
+            && let Some(peer_id) = peers
+                .iter()
+                .find_map(|(id, peer)| (peer.addr == addr).then_some(*id))
+        {
+            peers.remove(&peer_id);
+            info!("🔴 Peer disconnected: {peer_id}");
         }
     }
 }

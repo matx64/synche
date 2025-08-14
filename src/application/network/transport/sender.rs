@@ -20,7 +20,7 @@ use tokio::{
         mpsc::{self},
     },
 };
-use tracing::warn;
+use tracing::{error, warn};
 
 pub struct TransportSender<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
@@ -78,7 +78,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         loop {
             if let Some(entry) = self.receivers.metadata_rx.lock().await.recv().await {
                 for addr in self.peer_manager.get_peers_to_send_metadata(&entry) {
-                    self.transport_adapter.send_metadata(addr, &entry).await?;
+                    self.try_send(|| self.transport_adapter.send_metadata(addr, &entry), addr)
+                        .await;
                 }
             }
         }
@@ -87,10 +88,17 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     async fn send_handshakes(&self) -> io::Result<()> {
         loop {
             if let Some((addr, kind)) = self.receivers.handshake_rx.lock().await.recv().await {
-                let data = self.entry_manager.get_handshake_data();
-                self.transport_adapter
-                    .send_handshake(addr, SyncKind::Handshake(kind), data)
-                    .await?;
+                self.try_send(
+                    || {
+                        self.transport_adapter.send_handshake(
+                            addr,
+                            SyncKind::Handshake(kind.clone()),
+                            self.entry_manager.get_handshake_data(),
+                        )
+                    },
+                    addr,
+                )
+                .await;
             }
         }
     }
@@ -98,7 +106,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     async fn send_requests(&self) -> io::Result<()> {
         loop {
             if let Some((addr, entry)) = self.receivers.request_rx.lock().await.recv().await {
-                self.transport_adapter.send_request(addr, &entry).await?;
+                self.try_send(|| self.transport_adapter.send_request(addr, &entry), addr)
+                    .await;
             }
         }
     }
@@ -122,10 +131,29 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                     continue;
                 }
 
-                self.transport_adapter
-                    .send_entry(addr, &entry, &buffer)
-                    .await?;
+                self.try_send(
+                    || self.transport_adapter.send_entry(addr, &entry, &buffer),
+                    addr,
+                )
+                .await;
             }
         }
+    }
+
+    async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = io::Result<()>>,
+    {
+        for _ in 0..3 {
+            if let Err(err) = op().await {
+                error!(peer = ?addr, "Transport send error: {err}");
+            } else {
+                return;
+            }
+        }
+
+        error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
+        self.peer_manager.remove_peer_by_addr(addr);
     }
 }

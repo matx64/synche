@@ -10,12 +10,12 @@ use crate::{
     domain::{EntryInfo, Peer, entry::VersionCmp},
     proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{net::IpAddr, path::PathBuf, sync::Arc};
 use tokio::{
     fs::{self, File},
     io::{self, AsyncWriteExt},
 };
-use tracing::info;
+use tracing::{error, info};
 
 pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
@@ -102,13 +102,17 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
             // Can't use handshake_tx because Response must be sent strictly BEFORE syncing
-            self.transport_adapter
-                .send_handshake(
-                    peer.addr,
-                    SyncKind::Handshake(SyncHandshakeKind::Response),
-                    self.entry_manager.get_handshake_data(),
-                )
-                .await?;
+            self.try_send(
+                || {
+                    self.transport_adapter.send_handshake(
+                        peer.addr,
+                        SyncKind::Handshake(SyncHandshakeKind::Response),
+                        self.entry_manager.get_handshake_data(),
+                    )
+                },
+                peer.addr,
+            )
+            .await;
         }
 
         info!(peer = ?peer.id, "🔁  Syncing Peer...");
@@ -236,5 +240,22 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             fs::remove_file(path).await?;
         }
         Ok(())
+    }
+
+    async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = io::Result<()>>,
+    {
+        for _ in 0..3 {
+            if let Err(err) = op().await {
+                error!(peer = ?addr, "Transport send error: {err}");
+            } else {
+                return;
+            }
+        }
+
+        error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
+        self.peer_manager.remove_peer_by_addr(addr);
     }
 }
