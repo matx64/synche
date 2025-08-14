@@ -4,7 +4,7 @@ use tokio::io;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-const MDNS_PORT: u16 = 8888;
+const MDNS_PORT: u16 = 5200;
 
 pub struct MdnsAdapter {
     daemon: ServiceDaemon,

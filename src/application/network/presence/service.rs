@@ -35,7 +35,12 @@ impl PresenceService {
         loop {
             match self.mdns_adapter.recv().await? {
                 ServiceEvent::ServiceResolved(info) => {
+                    info!("SERVICE RESOLVED: {info:?}");
                     self.handle_peer_connect(info).await?;
+                }
+
+                ServiceEvent::ServiceFound(service_type, fullname) => {
+                    info!("SERVICE FOUND: {service_type} /// {fullname}");
                 }
 
                 ServiceEvent::ServiceRemoved(_, fullname) => {
