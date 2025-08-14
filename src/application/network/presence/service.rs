@@ -35,12 +35,10 @@ impl PresenceService {
         loop {
             match self.mdns_adapter.recv().await? {
                 ServiceEvent::ServiceData(info) => {
-                    info!("SERVICE DATA: {info:?}");
                     self.handle_peer_connect(info).await?;
                 }
 
                 ServiceEvent::ServiceRemoved(_, fullname) => {
-                    info!("SERVICE REMOVED: {fullname}");
                     self.handle_peer_disconnect(&fullname).await?;
                 }
 
@@ -71,7 +69,6 @@ impl PresenceService {
                 continue;
             }
 
-            info!("PEER_IP: {peer_ip}");
             let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
 
             if inserted && self.local_id < peer_id {
