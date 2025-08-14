@@ -36,6 +36,13 @@ impl PeerManager {
         })
     }
 
+    pub fn exists(&self, addr: IpAddr) -> bool {
+        self.peers
+            .read()
+            .map(|peers| peers.values().any(|peer| peer.addr == addr))
+            .unwrap_or_default()
+    }
+
     pub fn list(&self) -> Vec<(Uuid, IpAddr)> {
         self.peers
             .read()

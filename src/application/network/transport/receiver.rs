@@ -15,7 +15,7 @@ use tokio::{
     fs::{self, File},
     io::{self, AsyncWriteExt},
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     transport_adapter: Arc<T>,
@@ -251,6 +251,11 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             if let Err(err) = op().await {
                 error!(peer = ?addr, "Transport send error: {err}");
             } else {
+                return;
+            }
+
+            if !self.peer_manager.exists(addr) {
+                warn!("⚠️  Cancelled transport send op because peer disconnected during process.");
                 return;
             }
         }

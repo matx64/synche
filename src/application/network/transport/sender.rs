@@ -151,6 +151,11 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
             } else {
                 return;
             }
+
+            if !self.peer_manager.exists(addr) {
+                warn!("⚠️  Cancelled transport send op because peer disconnected during process.");
+                return;
+            }
         }
 
         error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
