@@ -44,6 +44,7 @@ impl PresenceService {
                 }
 
                 ServiceEvent::ServiceRemoved(_, fullname) => {
+                    info!("SERVICE REMOVED: {fullname}");
                     self.handle_peer_disconnect(&fullname).await?;
                 }
 
@@ -63,12 +64,17 @@ impl PresenceService {
             return Ok(());
         }
 
-        if let Some(peer_ip) = info.get_addresses().iter().next().cloned() {
-            let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
+        for peer_ip in info.get_addresses().iter() {
+            if peer_ip.is_ipv6() || peer_ip.is_loopback() {
+                continue;
+            }
+
+            info!("PEER_IP: {peer_ip}");
+            let inserted = self.peer_manager.insert_or_update(peer_id, *peer_ip);
 
             if inserted && self.local_id < peer_id {
                 self.handshake_tx
-                    .send((peer_ip, SyncHandshakeKind::Request))
+                    .send((*peer_ip, SyncHandshakeKind::Request))
                     .await
                     .map_err(io::Error::other)?;
             }

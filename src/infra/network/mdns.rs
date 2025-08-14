@@ -1,7 +1,7 @@
-use mdns_sd::{Receiver, ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{IfKind, Receiver, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::collections::HashMap;
 use tokio::io;
-use tracing::{info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 const MDNS_PORT: u16 = 5200;
@@ -16,6 +16,8 @@ pub struct MdnsAdapter {
 impl MdnsAdapter {
     pub fn new(local_id: Uuid) -> Self {
         let daemon = ServiceDaemon::new().expect("Failed to create mdns daemon");
+
+        daemon.disable_interface(IfKind::IPv6).unwrap();
 
         let service_type = "_synche._udp.local.".to_string();
         let receiver = daemon.browse(&service_type).expect("Failed to browse");
@@ -59,7 +61,13 @@ impl MdnsAdapter {
     }
 
     pub fn shutdown(&self) {
-        for _ in 0..3 {
+        let retries = 3;
+        for _ in 0..retries {
+            if let Err(mdns_sd::Error::Again) = self.daemon.unregister(&self.service_type) {
+                continue;
+            }
+        }
+        for _ in 0..retries {
             match self.daemon.shutdown() {
                 Err(mdns_sd::Error::Again) => continue,
                 _ => {
@@ -68,6 +76,6 @@ impl MdnsAdapter {
                 }
             }
         }
-        warn!("Failed to shutdown mDNS daemon after 3 attempts");
+        error!("Failed to shutdown mDNS daemon");
     }
 }
