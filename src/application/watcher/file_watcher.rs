@@ -47,6 +47,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         let dirs = self
             .entry_manager
             .list_dirs()
+            .await
             .keys()
             .map(|dir| self.base_dir_absolute.join(dir))
             .collect();
@@ -58,7 +59,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         loop {
             tokio::select! {
                 Some(event) = self.watch_adapter.next() => {
-                    self.buffer.insert(event).await;
+                    if !self.entry_manager.is_ignored(&event.path.absolute, &event.path.relative).await {
+                        self.buffer.insert(event).await;
+                    }
                 }
 
                 Some(event) = self.watch_rx.recv() => {
@@ -104,28 +107,51 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             .entry_created(&path.relative, EntryKind::File, disk_hash);
 
         self.send_metadata(file).await;
+
+        if path.relative.ends_with(".gitignore") {
+            self.handle_gitignore(path.absolute).await;
+        }
+    }
+
+    async fn handle_gitignore(&self, path: PathBuf) {
+        match self.entry_manager.insert_gitignore(&path).await {
+            Ok(_) => {
+                info!(
+                    "⭕  Inserted or Updated .gitignore: {}",
+                    path.to_string_lossy()
+                );
+            }
+            Err(err) => {
+                error!("Error inserting gitignore: {err}");
+            }
+        }
     }
 
     async fn handle_create_dir(&self, path: WatcherEventPath) {
         let mut stack = vec![path];
         let mut visited = HashSet::new();
 
-        while let Some(path) = stack.pop() {
-            if !visited.insert(path.relative.clone()) {
+        while let Some(dir_path) = stack.pop() {
+            if !visited.insert(dir_path.relative.clone()) {
                 continue;
             }
 
-            if self.entry_manager.get_entry(&path.relative).is_some() {
+            if self.entry_manager.get_entry(&dir_path.relative).is_some() {
                 continue;
             }
 
-            let dir = self
-                .entry_manager
-                .entry_created(&path.relative, EntryKind::Directory, None);
+            let dir =
+                self.entry_manager
+                    .entry_created(&dir_path.relative, EntryKind::Directory, None);
 
             self.send_metadata(dir).await;
 
-            for item in WalkDir::new(&path.absolute)
+            let gitignore_path = PathBuf::from(&dir_path.absolute).join(".gitignore");
+            if gitignore_path.exists() {
+                self.handle_gitignore(gitignore_path).await;
+            }
+
+            for item in WalkDir::new(&dir_path.absolute)
                 .min_depth(1)
                 .max_depth(1)
                 .into_iter()
@@ -133,16 +159,22 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             {
                 let item_path = item.path();
 
+                let relative = get_relative_path(item_path, &self.base_dir_absolute).unwrap();
+
+                if self.entry_manager.is_ignored(&item_path, &relative).await {
+                    continue;
+                }
+
                 if item_path.is_file() {
                     self.handle_create_file(WatcherEventPath {
                         absolute: item_path.to_path_buf(),
-                        relative: get_relative_path(item_path, &self.base_dir_absolute).unwrap(),
+                        relative,
                     })
                     .await;
                 } else if item_path.is_dir() {
                     stack.push(WatcherEventPath {
                         absolute: item_path.to_path_buf(),
-                        relative: get_relative_path(item_path, &self.base_dir_absolute).unwrap(),
+                        relative,
                     });
                 }
             }
@@ -155,6 +187,10 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         if file.hash != disk_hash {
             let file = self.entry_manager.entry_modified(file, disk_hash);
             self.send_metadata(file).await;
+
+            if path.relative.ends_with(".gitignore") {
+                self.handle_gitignore(path.absolute).await;
+            }
         }
     }
 
