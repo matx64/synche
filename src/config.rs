@@ -1,4 +1,5 @@
 use crate::{
+    application::IgnoreHandler,
     domain::{ConfiguredDirectory, Directory, EntryInfo, EntryKind},
     utils::fs::{compute_hash, get_relative_path, is_ds_store},
 };
@@ -35,7 +36,9 @@ pub fn init() -> Config {
 
     tracing_subscriber::fmt::init();
 
-    let (dirs, entries) = build_entries(local_id, configured_dirs, &base_dir).unwrap();
+    let mut ignore_handler = IgnoreHandler::new(base_dir.clone());
+    let (dirs, entries) =
+        build_entries(local_id, configured_dirs, &base_dir, &mut ignore_handler).unwrap();
 
     Config {
         directories: dirs,
@@ -80,6 +83,7 @@ fn build_entries(
     local_id: Uuid,
     configured_dirs: Vec<ConfiguredDirectory>,
     base_dir: &Path,
+    ignore_handler: &mut IgnoreHandler,
 ) -> io::Result<(HashMap<String, Directory>, HashMap<String, EntryInfo>)> {
     let mut dirs = HashMap::new();
     let mut entries = HashMap::new();
@@ -93,7 +97,13 @@ fn build_entries(
 
         if path.is_dir() {
             dirs.insert(dir.name.clone(), Directory { name: dir.name });
-            build_dir(local_id, &path, &abs_base_path, &mut entries)?;
+            build_dir(
+                local_id,
+                &path,
+                &abs_base_path,
+                &mut entries,
+                ignore_handler,
+            )?;
         }
     }
 
@@ -105,7 +115,14 @@ fn build_dir(
     dir_path: &PathBuf,
     abs_base_path: &PathBuf,
     entries: &mut HashMap<String, EntryInfo>,
+    ignore_handler: &mut IgnoreHandler,
 ) -> io::Result<()> {
+    let gitignore_path = PathBuf::from(dir_path).join(".gitignore");
+
+    if gitignore_path.exists() {
+        ignore_handler.insert_gitignore(gitignore_path)?;
+    }
+
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
         let path = entry.path();
 
@@ -113,10 +130,15 @@ fn build_dir(
             continue;
         }
 
+        let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
+
+        if ignore_handler.is_ignored(path, &relative_path) {
+            continue;
+        }
+
         if path.is_file() && !is_ds_store(path) {
-            build_file(local_id, &path.to_path_buf(), abs_base_path, entries)?;
+            build_file(local_id, &path.to_path_buf(), relative_path, entries)?;
         } else if path.is_dir() {
-            let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
             entries.insert(
                 relative_path.clone(),
                 EntryInfo {
@@ -126,7 +148,13 @@ fn build_dir(
                     vv: HashMap::from([(local_id, 0)]),
                 },
             );
-            build_dir(local_id, &path.to_path_buf(), abs_base_path, entries)?;
+            build_dir(
+                local_id,
+                &path.to_path_buf(),
+                abs_base_path,
+                entries,
+                ignore_handler,
+            )?;
         }
     }
 
@@ -136,11 +164,10 @@ fn build_dir(
 fn build_file(
     local_id: Uuid,
     path: &PathBuf,
-    abs_base_path: &PathBuf,
+    relative_path: String,
     entries: &mut HashMap<String, EntryInfo>,
 ) -> io::Result<()> {
     let hash = compute_hash(path)?;
-    let relative_path = get_relative_path(&path.canonicalize()?, abs_base_path)?;
 
     entries.insert(
         relative_path.clone(),

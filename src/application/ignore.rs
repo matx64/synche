@@ -31,8 +31,11 @@ impl IgnoreHandler {
             return Ok(false);
         }
 
-        if let Some(rel) = get_relative_path(gitignore_path.as_ref(), &self.base_dir_absolute)?
-            .strip_suffix("/.gitignore")
+        if let Some(rel) = get_relative_path(
+            &gitignore_path.as_ref().canonicalize()?,
+            &self.base_dir_absolute,
+        )?
+        .strip_suffix("/.gitignore")
         {
             self.gis.insert(rel.to_string(), gi);
             Ok(true)
@@ -42,6 +45,10 @@ impl IgnoreHandler {
     }
 
     pub fn is_ignored<P: AsRef<Path>>(&self, path: P, relative: &str) -> bool {
+        if self.gis.is_empty() {
+            return false;
+        };
+
         let path = path.as_ref();
         let is_dir = path.is_dir();
 
