@@ -1,16 +1,18 @@
 use crate::{
-    application::persistence::interface::PersistenceInterface,
+    application::{IgnoreHandler, persistence::interface::PersistenceInterface},
     domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
 use std::{
     collections::HashMap,
     io,
-    path::PathBuf,
-    sync::RwLock,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::fs::{self};
+use tokio::{
+    fs::{self},
+    sync::RwLock,
+};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -18,6 +20,7 @@ pub struct EntryManager<D: PersistenceInterface> {
     db: D,
     local_id: Uuid,
     directories: RwLock<HashMap<String, Directory>>,
+    ignore_handler: RwLock<IgnoreHandler>,
     base_dir: PathBuf,
 }
 
@@ -26,6 +29,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         db: D,
         local_id: Uuid,
         directories: HashMap<String, Directory>,
+        ignore_handler: IgnoreHandler,
         filesystem_entries: HashMap<String, EntryInfo>,
         base_dir: PathBuf,
     ) -> Self {
@@ -34,6 +38,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             db,
             local_id,
             directories: RwLock::new(directories),
+            ignore_handler: RwLock::new(ignore_handler),
             base_dir,
         }
     }
@@ -75,11 +80,12 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub fn list_dirs(&self) -> HashMap<String, Directory> {
-        self.directories
-            .read()
-            .map(|dirs| dirs.clone())
-            .unwrap_or_default()
+    pub async fn list_dirs(&self) -> HashMap<String, Directory> {
+        self.directories.read().await.clone()
+    }
+
+    pub async fn is_ignored<P: AsRef<Path>>(&self, path: P, relative: &str) -> bool {
+        self.ignore_handler.read().await.is_ignored(path, relative)
     }
 
     pub fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
@@ -116,10 +122,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     ) -> io::Result<Vec<EntryInfo>> {
         let mut to_request = Vec::new();
 
-        let dirs = {
-            let dirs = self.directories.read().unwrap();
-            dirs.clone()
-        };
+        let dirs = { self.directories.read().await.clone() };
 
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_root_parent()) {
@@ -273,12 +276,14 @@ impl<D: PersistenceInterface> EntryManager<D> {
         entry
     }
 
-    pub fn get_handshake_data(&self) -> PeerHandshakeData {
+    pub async fn get_handshake_data(&self) -> PeerHandshakeData {
         let directories = self
             .directories
             .read()
-            .map(|dirs| dirs.values().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
+            .await
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
 
         let entries = self
             .db
@@ -292,5 +297,12 @@ impl<D: PersistenceInterface> EntryManager<D> {
             directories,
             entries,
         }
+    }
+
+    pub async fn insert_gitignore<P: AsRef<Path>>(&self, gitignore_path: P) -> io::Result<bool> {
+        self.ignore_handler
+            .write()
+            .await
+            .insert_gitignore(gitignore_path)
     }
 }

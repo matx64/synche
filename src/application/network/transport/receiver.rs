@@ -102,12 +102,13 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {
             // Can't use handshake_tx because Response must be sent strictly BEFORE syncing
+            let data = self.entry_manager.get_handshake_data().await;
             self.try_send(
                 || {
                     self.transport_adapter.send_handshake(
                         peer.addr,
                         SyncKind::Handshake(SyncHandshakeKind::Response),
-                        self.entry_manager.get_handshake_data(),
+                        data.clone(),
                     )
                 },
                 peer.addr,

@@ -38,6 +38,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             persistence_adapter,
             config.constants.local_id,
             config.directories,
+            config.ignore_handler,
             config.filesystem_entries,
             config.constants.base_dir.clone(),
         ));

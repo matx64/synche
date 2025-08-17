@@ -88,12 +88,13 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     async fn send_handshakes(&self) -> io::Result<()> {
         loop {
             if let Some((addr, kind)) = self.receivers.handshake_rx.lock().await.recv().await {
+                let data = self.entry_manager.get_handshake_data().await;
                 self.try_send(
                     || {
                         self.transport_adapter.send_handshake(
                             addr,
                             SyncKind::Handshake(kind.clone()),
-                            self.entry_manager.get_handshake_data(),
+                            data.clone(),
                         )
                     },
                     addr,

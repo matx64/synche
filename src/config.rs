@@ -17,6 +17,7 @@ use walkdir::WalkDir;
 pub struct Config {
     pub directories: HashMap<String, Directory>,
     pub filesystem_entries: HashMap<String, EntryInfo>,
+    pub ignore_handler: IgnoreHandler,
     pub constants: AppConstants,
 }
 
@@ -43,6 +44,7 @@ pub fn init() -> Config {
     Config {
         directories: dirs,
         filesystem_entries: entries,
+        ignore_handler,
         constants: AppConstants {
             local_id,
             base_dir: base_dir.to_owned(),
