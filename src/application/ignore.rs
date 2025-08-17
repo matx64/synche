@@ -13,10 +13,10 @@ pub struct IgnoreHandler {
 }
 
 impl IgnoreHandler {
-    pub fn new(base_dir_absolute: PathBuf) -> Self {
+    pub fn new(base_dir: PathBuf) -> Self {
         Self {
             gis: HashMap::new(),
-            base_dir_absolute,
+            base_dir_absolute: base_dir.canonicalize().unwrap(),
         }
     }
 
@@ -39,5 +39,32 @@ impl IgnoreHandler {
         } else {
             Ok(false)
         }
+    }
+
+    pub fn is_ignored<P: AsRef<Path>>(&self, path: P, relative: &str) -> bool {
+        let path = path.as_ref();
+        let is_dir = path.is_dir();
+
+        let mut current_path = String::with_capacity(relative.len());
+
+        let mut parts = relative.split('/').peekable();
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                // skip last/self path
+                break;
+            }
+
+            if !current_path.is_empty() {
+                current_path.push('/');
+            }
+            current_path.push_str(part);
+
+            if let Some(gi) = self.gis.get(&current_path)
+                && gi.matched(path, is_dir).is_ignore()
+            {
+                return true;
+            }
+        }
+        false
     }
 }
