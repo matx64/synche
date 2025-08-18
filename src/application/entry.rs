@@ -13,7 +13,7 @@ use tokio::{
     fs::{self},
     sync::RwLock,
 };
-use tracing::warn;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 pub struct EntryManager<D: PersistenceInterface> {
@@ -299,10 +299,26 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub async fn insert_gitignore<P: AsRef<Path>>(&self, gitignore_path: P) -> io::Result<bool> {
-        self.ignore_handler
+    pub async fn insert_gitignore<P: AsRef<Path>>(&self, gitignore_path: P) {
+        match self
+            .ignore_handler
             .write()
             .await
-            .insert_gitignore(gitignore_path)
+            .insert_gitignore(&gitignore_path)
+        {
+            Ok(_) => {
+                info!(
+                    "⭕  Inserted or Updated .gitignore: {}",
+                    gitignore_path.as_ref().to_string_lossy()
+                );
+            }
+            Err(err) => {
+                error!("Error inserting gitignore: {err}");
+            }
+        }
+    }
+
+    pub async fn remove_gitignore(&self, relative: &str) {
+        self.ignore_handler.write().await.remove_gitignore(relative);
     }
 }

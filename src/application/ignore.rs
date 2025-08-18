@@ -74,4 +74,10 @@ impl IgnoreHandler {
         }
         false
     }
+
+    pub fn remove_gitignore(&mut self, relative: &str) {
+        if let Some(key) = relative.strip_suffix("/.gitignore") {
+            self.gis.remove(key);
+        }
+    }
 }

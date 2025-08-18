@@ -109,21 +109,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.send_metadata(file).await;
 
         if path.relative.ends_with(".gitignore") {
-            self.handle_gitignore(path.absolute).await;
-        }
-    }
-
-    async fn handle_gitignore(&self, path: PathBuf) {
-        match self.entry_manager.insert_gitignore(&path).await {
-            Ok(_) => {
-                info!(
-                    "⭕  Inserted or Updated .gitignore: {}",
-                    path.to_string_lossy()
-                );
-            }
-            Err(err) => {
-                error!("Error inserting gitignore: {err}");
-            }
+            self.entry_manager.insert_gitignore(path.absolute).await;
         }
     }
 
@@ -148,7 +134,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
             let gitignore_path = PathBuf::from(&dir_path.absolute).join(".gitignore");
             if gitignore_path.exists() {
-                self.handle_gitignore(gitignore_path).await;
+                self.entry_manager.insert_gitignore(gitignore_path).await;
             }
 
             for item in WalkDir::new(&dir_path.absolute)
@@ -189,7 +175,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             self.send_metadata(file).await;
 
             if path.relative.ends_with(".gitignore") {
-                self.handle_gitignore(path.absolute).await;
+                self.entry_manager.insert_gitignore(path.absolute).await;
             }
         }
     }
@@ -200,9 +186,18 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 let removed_entries = self.entry_manager.remove_dir(&path.relative);
 
                 for entry in removed_entries {
+                    if entry.name.ends_with(".gitignore") {
+                        self.entry_manager.remove_gitignore(&entry.name).await;
+                    }
+
                     self.send_metadata(entry).await;
                 }
             }
+
+            if removed.name.ends_with(".gitignore") {
+                self.entry_manager.remove_gitignore(&removed.name).await;
+            }
+
             self.send_metadata(removed).await;
         }
     }
