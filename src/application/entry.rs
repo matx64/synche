@@ -54,11 +54,11 @@ impl<D: PersistenceInterface> EntryManager<D> {
         for (name, entry) in &mut entries {
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
-                    *entry.vv.entry(local_id).or_insert(0) += 1;
+                    *entry.version.entry(local_id).or_insert(0) += 1;
 
                     db.insert_or_replace_entry(&EntryInfo {
                         name: entry.name.clone(),
-                        vv: entry.vv.clone(),
+                        version: entry.version.clone(),
                         kind: fs_entry.kind.clone(),
                         hash: fs_entry.hash.clone(),
                     })
@@ -89,7 +89,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
-        entry.vv.entry(self.local_id).or_insert(0);
+        entry.version.entry(self.local_id).or_insert(0);
         self.db.insert_or_replace_entry(&entry).unwrap();
         entry
     }
@@ -99,13 +99,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
             name: name.to_owned(),
             kind,
             hash,
-            vv: HashMap::from([(self.local_id, 0)]),
+            version: HashMap::from([(self.local_id, 0)]),
         })
     }
 
     pub fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
         entry.hash = hash;
-        *entry.vv.entry(self.local_id).or_insert(0) += 1;
+        *entry.version.entry(self.local_id).or_insert(0) += 1;
 
         self.db.insert_or_replace_entry(&entry).unwrap();
         entry
@@ -236,9 +236,9 @@ impl<D: PersistenceInterface> EntryManager<D> {
         peer_entry: &EntryInfo,
         peer_id: Uuid,
     ) {
-        local_entry.vv.entry(peer_id).or_insert(0);
-        for (pid, pv) in &peer_entry.vv {
-            let local_version = local_entry.vv.entry(*pid).or_insert(0);
+        local_entry.version.entry(peer_id).or_insert(0);
+        for (pid, pv) in &peer_entry.version {
+            let local_version = local_entry.version.entry(*pid).or_insert(0);
             *local_version = (*local_version).max(*pv);
         }
         self.db.insert_or_replace_entry(local_entry).unwrap();
@@ -270,7 +270,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn delete_and_update_entry(&self, mut entry: EntryInfo) -> EntryInfo {
         self.db.delete_entry(&entry.name).unwrap();
 
-        *entry.vv.entry(self.local_id).or_insert(0) += 1;
+        *entry.version.entry(self.local_id).or_insert(0) += 1;
         entry.set_removed_hash();
 
         entry

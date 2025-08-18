@@ -147,7 +147,7 @@ fn build_dir(
                     name: relative_path,
                     kind: EntryKind::Directory,
                     hash: None,
-                    vv: HashMap::from([(local_id, 0)]),
+                    version: HashMap::from([(local_id, 0)]),
                 },
             );
             build_dir(
@@ -177,7 +177,7 @@ fn build_file(
             name: relative_path,
             kind: EntryKind::File,
             hash: Some(hash),
-            vv: HashMap::from([(local_id, 0)]),
+            version: HashMap::from([(local_id, 0)]),
         },
     );
     Ok(())

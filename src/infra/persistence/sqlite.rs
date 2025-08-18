@@ -19,7 +19,7 @@ impl SqliteDb {
                 name TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
                 hash TEXT,
-                vv TEXT NOT NULL
+                version TEXT NOT NULL
             )",
             [],
         )?;
@@ -30,19 +30,19 @@ impl SqliteDb {
 
 impl PersistenceInterface for SqliteDb {
     fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
-        let vv_json = serde_json::to_string(&entry.vv)?;
+        let version_json = serde_json::to_string(&entry.version)?;
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO entries (name, kind, hash, vv)
+            "INSERT OR REPLACE INTO entries (name, kind, hash, version)
              VALUES (?1, ?2, ?3, ?4)",
-            params![entry.name, entry.kind, entry.hash, vv_json],
+            params![entry.name, entry.kind, entry.hash, version_json],
         )?;
         Ok(())
     }
 
     fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, kind, hash, vv
+            "SELECT name, kind, hash, version
              FROM entries
              WHERE name = ?1",
         )?;
@@ -52,14 +52,14 @@ impl PersistenceInterface for SqliteDb {
             let name: String = row.get(0)?;
             let kind: EntryKind = row.get(1)?;
             let hash: Option<String> = row.get(2)?;
-            let vv_json: String = row.get(3)?;
-            let vv: VersionVector = serde_json::from_str(&vv_json)?;
+            let version_json: String = row.get(3)?;
+            let version: VersionVector = serde_json::from_str(&version_json)?;
 
             Ok(Some(EntryInfo {
                 name,
                 kind,
                 hash,
-                vv,
+                version,
             }))
         } else {
             Ok(None)
@@ -69,16 +69,16 @@ impl PersistenceInterface for SqliteDb {
     fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT name, kind, hash, vv FROM entries")?;
+            .prepare("SELECT name, kind, hash, version FROM entries")?;
 
         let iter = stmt.query_map([], |row| {
             let name: String = row.get(0)?;
             let kind: EntryKind = row.get(1)?;
             let hash: Option<String> = row.get(2)?;
-            let vv_json: String = row.get(3)?;
-            let vv: VersionVector = serde_json::from_str(&vv_json).map_err(|e| {
+            let version_json: String = row.get(3)?;
+            let version: VersionVector = serde_json::from_str(&version_json).map_err(|e| {
                 rusqlite::Error::FromSqlConversionFailure(
-                    vv_json.len(),
+                    version_json.len(),
                     rusqlite::types::Type::Text,
                     Box::new(e),
                 )
@@ -88,7 +88,7 @@ impl PersistenceInterface for SqliteDb {
                 name,
                 kind,
                 hash,
-                vv,
+                version,
             })
         })?;
 

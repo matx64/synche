@@ -10,7 +10,7 @@ pub struct EntryInfo {
     pub name: String,
     pub kind: EntryKind,
     pub hash: Option<String>,
-    pub vv: VersionVector,
+    pub version: VersionVector,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -25,12 +25,17 @@ impl EntryInfo {
             return VersionCmp::Equal;
         }
 
-        let all_peers: HashSet<Uuid> = self.vv.keys().chain(other.vv.keys()).cloned().collect();
+        let all_peers: HashSet<Uuid> = self
+            .version
+            .keys()
+            .chain(other.version.keys())
+            .cloned()
+            .collect();
 
         let (mut lt, mut gt) = (false, false);
         for peer in &all_peers {
-            let a = *self.vv.get(peer).unwrap_or(&0);
-            let b = *other.vv.get(peer).unwrap_or(&0);
+            let a = *self.version.get(peer).unwrap_or(&0);
+            let b = *other.version.get(peer).unwrap_or(&0);
             if a < b {
                 lt = true;
             }
