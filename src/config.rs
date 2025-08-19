@@ -12,14 +12,10 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub struct Config {
-    pub directories: HashMap<String, Directory>,
+    pub local_id: Uuid,
+    pub sync_directories: HashMap<String, Directory>,
     pub filesystem_entries: HashMap<RelativePath, EntryInfo>,
     pub ignore_handler: IgnoreHandler,
-    pub constants: AppConstants,
-}
-
-pub struct AppConstants {
-    pub local_id: Uuid,
     pub base_dir_path: CanonicalPath,
     pub tmp_dir_path: CanonicalPath,
 }
@@ -29,7 +25,7 @@ pub fn init() -> Config {
     let (base_dir_path, tmp_dir_path) = create_required_dirs();
 
     let mut ignore_handler = IgnoreHandler::new(base_dir_path.clone());
-    let (dirs, entries) = build_entries(
+    let (sync_directories, filesystem_entries) = build_entries(
         local_id,
         configured_dirs,
         &base_dir_path,
@@ -40,14 +36,12 @@ pub fn init() -> Config {
     tracing_subscriber::fmt::init();
 
     Config {
-        directories: dirs,
-        filesystem_entries: entries,
+        local_id,
+        sync_directories,
+        filesystem_entries,
         ignore_handler,
-        constants: AppConstants {
-            local_id,
-            base_dir_path,
-            tmp_dir_path,
-        },
+        base_dir_path,
+        tmp_dir_path,
     }
 }
 

@@ -36,11 +36,11 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     ) -> Self {
         let entry_manager = Arc::new(EntryManager::new(
             persistence_adapter,
-            config.constants.local_id,
-            config.directories,
+            config.local_id,
+            config.sync_directories,
             config.ignore_handler,
             config.filesystem_entries,
-            config.constants.base_dir_path.clone(),
+            config.base_dir_path.clone(),
         ));
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
@@ -49,18 +49,18 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             transport_adapter.clone(),
             entry_manager.clone(),
             peer_manager.clone(),
-            config.constants.base_dir_path.clone(),
+            config.base_dir_path.clone(),
         );
 
         let file_watcher = FileWatcher::new(
             watch_adapter,
             entry_manager.clone(),
             sender_channels.metadata_tx.clone(),
-            config.constants.base_dir_path.clone(),
+            config.base_dir_path.clone(),
         );
 
         let presence_service = PresenceService::new(
-            config.constants.local_id,
+            config.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
         );
@@ -70,8 +70,8 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             entry_manager,
             peer_manager,
             sender_channels,
-            config.constants.base_dir_path,
-            config.constants.tmp_dir_path,
+            config.base_dir_path,
+            config.tmp_dir_path,
         );
 
         Self {
@@ -101,7 +101,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
 
 impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
     pub async fn new_default(config: Config) -> Self {
-        let transporter = TcpTransporter::new(config.constants.local_id).await;
+        let transporter = TcpTransporter::new(config.local_id).await;
         Self::new(
             config,
             NotifyFileWatcher::new(),

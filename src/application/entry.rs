@@ -20,7 +20,7 @@ use uuid::Uuid;
 pub struct EntryManager<D: PersistenceInterface> {
     db: D,
     local_id: Uuid,
-    directories: RwLock<HashMap<String, Directory>>,
+    sync_directories: RwLock<HashMap<String, Directory>>,
     ignore_handler: RwLock<IgnoreHandler>,
     base_dir_path: CanonicalPath,
 }
@@ -29,7 +29,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub fn new(
         db: D,
         local_id: Uuid,
-        directories: HashMap<String, Directory>,
+        sync_directories: HashMap<String, Directory>,
         ignore_handler: IgnoreHandler,
         filesystem_entries: HashMap<RelativePath, EntryInfo>,
         base_dir_path: CanonicalPath,
@@ -38,7 +38,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         Self {
             db,
             local_id,
-            directories: RwLock::new(directories),
+            sync_directories: RwLock::new(sync_directories),
             ignore_handler: RwLock::new(ignore_handler),
             base_dir_path,
         }
@@ -82,7 +82,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub async fn list_dirs(&self) -> HashMap<String, Directory> {
-        self.directories.read().await.clone()
+        self.sync_directories.read().await.clone()
     }
 
     pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
@@ -128,7 +128,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     ) -> io::Result<Vec<EntryInfo>> {
         let mut to_request = Vec::new();
 
-        let dirs = { self.directories.read().await.clone() };
+        let dirs = { self.sync_directories.read().await.clone() };
 
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_root_parent()) {
@@ -283,8 +283,8 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub async fn get_handshake_data(&self) -> PeerHandshakeData {
-        let directories = self
-            .directories
+        let sync_directories = self
+            .sync_directories
             .read()
             .await
             .values()
@@ -300,7 +300,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .collect::<HashMap<RelativePath, EntryInfo>>();
 
         PeerHandshakeData {
-            directories,
+            sync_directories,
             entries,
         }
     }

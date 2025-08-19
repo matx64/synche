@@ -5,7 +5,7 @@ use tokio::io::Error;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PeerHandshakeData {
-    pub directories: Vec<Directory>,
+    pub sync_directories: Vec<Directory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
 }
 
