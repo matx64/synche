@@ -20,12 +20,12 @@ pub enum WatcherEventKind {
 
 #[derive(Debug, Clone)]
 pub struct WatcherEventPath {
-    pub absolute: PathBuf,
+    pub canonical: PathBuf,
     pub relative: String,
 }
 
 impl WatcherEventPath {
     pub fn is_file(&self) -> bool {
-        self.absolute.is_file()
+        self.canonical.is_file()
     }
 }

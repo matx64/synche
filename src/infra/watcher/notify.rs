@@ -128,7 +128,7 @@ impl NotifyFileWatcher {
 
         Some(WatcherEventPath {
             relative,
-            absolute: path,
+            canonical: path,
         })
     }
 }

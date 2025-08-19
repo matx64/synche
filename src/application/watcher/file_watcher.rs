@@ -59,7 +59,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         loop {
             tokio::select! {
                 Some(event) = self.watch_adapter.next() => {
-                    if !self.entry_manager.is_ignored(&event.path.absolute, &event.path.relative).await {
+                    if !self.entry_manager.is_ignored(&event.path.canonical, &event.path.relative).await {
                         self.buffer.insert(event).await;
                     }
                 }
@@ -100,7 +100,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_create_file(&self, path: WatcherEventPath) {
-        let disk_hash = Some(compute_hash(&path.absolute).unwrap());
+        let disk_hash = Some(compute_hash(&path.canonical).unwrap());
 
         let file = self
             .entry_manager
@@ -109,7 +109,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.send_metadata(file).await;
 
         if path.relative.ends_with(".gitignore") {
-            self.entry_manager.insert_gitignore(path.absolute).await;
+            self.entry_manager.insert_gitignore(path.canonical).await;
         }
     }
 
@@ -132,12 +132,12 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
             self.send_metadata(dir).await;
 
-            let gitignore_path = PathBuf::from(&dir_path.absolute).join(".gitignore");
+            let gitignore_path = PathBuf::from(&dir_path.canonical).join(".gitignore");
             if gitignore_path.exists() {
                 self.entry_manager.insert_gitignore(gitignore_path).await;
             }
 
-            for item in WalkDir::new(&dir_path.absolute)
+            for item in WalkDir::new(&dir_path.canonical)
                 .min_depth(1)
                 .max_depth(1)
                 .into_iter()
@@ -153,13 +153,13 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
                 if item_path.is_file() {
                     self.handle_create_file(WatcherEventPath {
-                        absolute: item_path.to_path_buf(),
+                        canonical: item_path.to_path_buf(),
                         relative,
                     })
                     .await;
                 } else if item_path.is_dir() {
                     stack.push(WatcherEventPath {
-                        absolute: item_path.to_path_buf(),
+                        canonical: item_path.to_path_buf(),
                         relative,
                     });
                 }
@@ -168,14 +168,14 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_modify_file(&self, path: WatcherEventPath, file: EntryInfo) {
-        let disk_hash = Some(compute_hash(&path.absolute).unwrap());
+        let disk_hash = Some(compute_hash(&path.canonical).unwrap());
 
         if file.hash != disk_hash {
             let file = self.entry_manager.entry_modified(file, disk_hash);
             self.send_metadata(file).await;
 
             if path.relative.ends_with(".gitignore") {
-                self.entry_manager.insert_gitignore(path.absolute).await;
+                self.entry_manager.insert_gitignore(path.canonical).await;
             }
         }
     }
