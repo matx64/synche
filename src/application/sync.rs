@@ -16,7 +16,7 @@ use crate::{
     },
 };
 use std::sync::Arc;
-use tokio::io;
+use tokio::{io, signal};
 
 pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> {
     file_watcher: FileWatcher<W, D>,
@@ -83,6 +83,46 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            use signal::unix::{SignalKind, signal};
+            let ctrl_c = signal::ctrl_c();
+            let mut sigterm = signal(SignalKind::terminate()).expect("bind SIGTERM");
+            let mut sighup = signal(SignalKind::hangup()).expect("bind SIGHUP");
+
+            tokio::select! {
+                res = self._run() => res?,
+
+                _ = ctrl_c => {
+                    tracing::info!("🛑 SIGINT"); self.shutdown().await?;
+                }
+
+                _ = sigterm.recv() => {
+                    tracing::info!("🛑 SIGTERM"); self.shutdown().await?;
+                }
+
+                _ = sighup.recv() => {
+                    tracing::info!("🛑 SIGHUP"); self.shutdown().await?;
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let ctrl_c = signal::ctrl_c();
+
+            tokio::select! {
+                res = self._run() => res?,
+
+                _ = ctrl_c => {
+                    tracing::info!("🛑 SIGINT"); self.shutdown().await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn _run(&mut self) -> io::Result<()> {
         tokio::try_join!(
             self.transport_receiver.run(),
             self.transport_sender.run(),
