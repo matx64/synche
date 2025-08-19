@@ -21,6 +21,8 @@ impl IgnoreHandler {
     }
 
     pub fn insert_gitignore<P: AsRef<Path>>(&mut self, gitignore_path: P) -> io::Result<bool> {
+        let gitignore_path = gitignore_path.as_ref().canonicalize()?;
+
         let (gi, err) = Gitignore::new(&gitignore_path);
 
         if let Some(err) = err {
@@ -31,11 +33,8 @@ impl IgnoreHandler {
             return Ok(false);
         }
 
-        if let Some(rel) = get_relative_path(
-            &gitignore_path.as_ref().canonicalize()?,
-            &self.base_dir_absolute,
-        )?
-        .strip_suffix("/.gitignore")
+        if let Some(rel) =
+            get_relative_path(&gitignore_path, &self.base_dir_absolute)?.strip_suffix("/.gitignore")
         {
             self.gis.insert(rel.to_string(), gi);
             Ok(true)
@@ -49,7 +48,7 @@ impl IgnoreHandler {
             return false;
         };
 
-        let path = path.as_ref();
+        let path = path.as_ref().canonicalize().unwrap();
         let is_dir = path.is_dir();
 
         let mut current_path = String::with_capacity(relative.len());
@@ -67,7 +66,7 @@ impl IgnoreHandler {
             current_path.push_str(part);
 
             if let Some(gi) = self.gis.get(&current_path)
-                && gi.matched(path, is_dir).is_ignore()
+                && gi.matched_path_or_any_parents(&path, is_dir).is_ignore()
             {
                 return true;
             }
