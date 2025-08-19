@@ -97,13 +97,7 @@ fn build_entries(
 
         if path.is_dir() {
             dirs.insert(dir.name.clone(), Directory { name: dir.name });
-            build_dir(
-                local_id,
-                &path,
-                &base_dir_path,
-                &mut entries,
-                ignore_handler,
-            )?;
+            build_dir(local_id, &path, base_dir_path, &mut entries, ignore_handler)?;
         }
     }
 
@@ -120,7 +114,7 @@ fn build_dir(
     let gitignore_path = dir_path.join(".gitignore");
 
     if gitignore_path.exists() {
-        ignore_handler.insert_gitignore(gitignore_path)?;
+        ignore_handler.insert_gitignore(&gitignore_path)?;
     }
 
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {

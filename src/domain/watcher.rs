@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use crate::domain::CanonicalPath;
 
 #[derive(Debug, Clone)]
 pub struct WatcherEvent {
@@ -20,7 +20,7 @@ pub enum WatcherEventKind {
 
 #[derive(Debug, Clone)]
 pub struct WatcherEventPath {
-    pub canonical: PathBuf,
+    pub canonical: CanonicalPath,
     pub relative: String,
 }
 

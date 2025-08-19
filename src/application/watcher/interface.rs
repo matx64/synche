@@ -1,8 +1,11 @@
-use crate::domain::watcher::WatcherEvent;
-use std::path::PathBuf;
+use crate::domain::{CanonicalPath, watcher::WatcherEvent};
 use tokio::io;
 
 pub trait FileWatcherInterface {
-    async fn watch(&mut self, base_dir: PathBuf, dirs: Vec<PathBuf>) -> io::Result<()>;
+    async fn watch(
+        &mut self,
+        base_dir_path: CanonicalPath,
+        dirs: Vec<CanonicalPath>,
+    ) -> io::Result<()>;
     async fn next(&mut self) -> Option<WatcherEvent>;
 }

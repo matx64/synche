@@ -5,12 +5,12 @@ use crate::{
         watcher::{FileWatcherInterface, buffer::WatcherBuffer},
     },
     domain::{
-        EntryInfo, EntryKind,
+        CanonicalPath, EntryInfo, EntryKind,
         watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
     utils::fs::{compute_hash, get_relative_path},
 };
-use std::{collections::HashSet, io, path::PathBuf, sync::Arc};
+use std::{collections::HashSet, io, sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
 use walkdir::WalkDir;
@@ -21,7 +21,7 @@ pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     buffer: WatcherBuffer,
     watch_rx: Receiver<WatcherEvent>,
     metadata_tx: Sender<EntryInfo>,
-    base_dir_absolute: PathBuf,
+    base_dir_path: CanonicalPath,
 }
 
 impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
@@ -29,7 +29,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         watch_adapter: T,
         entry_manager: Arc<EntryManager<D>>,
         metadata_tx: Sender<EntryInfo>,
-        base_dir: PathBuf,
+        base_dir_path: CanonicalPath,
     ) -> Self {
         let (watch_tx, watch_rx) = mpsc::channel(1000);
 
@@ -38,8 +38,8 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             entry_manager,
             watch_rx,
             metadata_tx,
+            base_dir_path,
             buffer: WatcherBuffer::new(watch_tx),
-            base_dir_absolute: base_dir.canonicalize().unwrap(),
         }
     }
 
@@ -49,11 +49,11 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             .list_dirs()
             .await
             .keys()
-            .map(|dir| self.base_dir_absolute.join(dir))
+            .map(|dir| self.base_dir_path.join(dir))
             .collect();
 
         self.watch_adapter
-            .watch(self.base_dir_absolute.clone(), dirs)
+            .watch(self.base_dir_path.clone(), dirs)
             .await?;
 
         loop {
@@ -132,7 +132,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
             self.send_metadata(dir).await;
 
-            let gitignore_path = PathBuf::from(&dir_path.canonical).join(".gitignore");
+            let gitignore_path = dir_path.canonical.join(".gitignore");
             if gitignore_path.exists() {
                 self.entry_manager.insert_gitignore(gitignore_path).await;
             }
@@ -143,9 +143,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 .into_iter()
                 .filter_map(Result::ok)
             {
-                let item_path = item.path();
+                let item_path = CanonicalPath::new(item.path()).unwrap();
 
-                let relative = get_relative_path(item_path, &self.base_dir_absolute).unwrap();
+                let relative = get_relative_path(&item_path, &self.base_dir_path).unwrap();
 
                 if self.entry_manager.is_ignored(&item_path, &relative).await {
                     continue;
@@ -153,13 +153,13 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
                 if item_path.is_file() {
                     self.handle_create_file(WatcherEventPath {
-                        canonical: item_path.to_path_buf(),
+                        canonical: item_path,
                         relative,
                     })
                     .await;
                 } else if item_path.is_dir() {
                     stack.push(WatcherEventPath {
-                        canonical: item_path.to_path_buf(),
+                        canonical: item_path,
                         relative,
                     });
                 }
