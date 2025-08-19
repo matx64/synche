@@ -2,7 +2,7 @@ use crate::{
     application::persistence::interface::{
         PersistenceError, PersistenceInterface, PersistenceResult,
     },
-    domain::{EntryInfo, EntryKind, entry::VersionVector},
+    domain::{EntryInfo, EntryKind, RelativePath, entry::VersionVector},
 };
 use rusqlite::{Connection, ToSql, params, types::FromSql};
 
@@ -56,7 +56,7 @@ impl PersistenceInterface for SqliteDb {
             let version: VersionVector = serde_json::from_str(&version_json)?;
 
             Ok(Some(EntryInfo {
-                name,
+                name: RelativePath(name),
                 kind,
                 hash,
                 version,
@@ -85,7 +85,7 @@ impl PersistenceInterface for SqliteDb {
             })?;
 
             Ok(EntryInfo {
-                name,
+                name: RelativePath(name),
                 kind,
                 hash,
                 version,
@@ -99,6 +99,12 @@ impl PersistenceInterface for SqliteDb {
         self.conn
             .execute("DELETE FROM entries WHERE name = ?1", params![name])?;
         Ok(())
+    }
+}
+
+impl ToSql for RelativePath {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(self.as_str().into())
     }
 }
 

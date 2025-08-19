@@ -1,4 +1,7 @@
-use crate::domain::entry::{VersionCmp, VersionVector};
+use crate::domain::{
+    RelativePath,
+    entry::{VersionCmp, VersionVector},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -7,7 +10,7 @@ const REMOVED_HASH: &str = "00000000000000000000000000000000";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryInfo {
-    pub name: String,
+    pub name: RelativePath,
     pub kind: EntryKind,
     pub hash: Option<String>,
     pub version: VersionVector,

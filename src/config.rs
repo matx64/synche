@@ -1,7 +1,7 @@
 use crate::{
     application::IgnoreHandler,
-    domain::{CanonicalPath, ConfiguredDirectory, Directory, EntryInfo, EntryKind},
-    utils::fs::{compute_hash, get_relative_path, is_ds_store},
+    domain::{CanonicalPath, ConfiguredDirectory, Directory, EntryInfo, EntryKind, RelativePath},
+    utils::fs::{compute_hash, is_ds_store},
 };
 use std::{
     collections::HashMap,
@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 pub struct Config {
     pub directories: HashMap<String, Directory>,
-    pub filesystem_entries: HashMap<String, EntryInfo>,
+    pub filesystem_entries: HashMap<RelativePath, EntryInfo>,
     pub ignore_handler: IgnoreHandler,
     pub constants: AppConstants,
 }
@@ -86,7 +86,7 @@ fn build_entries(
     configured_dirs: Vec<ConfiguredDirectory>,
     base_dir_path: &CanonicalPath,
     ignore_handler: &mut IgnoreHandler,
-) -> io::Result<(HashMap<String, Directory>, HashMap<String, EntryInfo>)> {
+) -> io::Result<(HashMap<String, Directory>, HashMap<RelativePath, EntryInfo>)> {
     let mut dirs = HashMap::new();
     let mut entries = HashMap::new();
 
@@ -108,7 +108,7 @@ fn build_dir(
     local_id: Uuid,
     dir_path: &CanonicalPath,
     base_dir_path: &CanonicalPath,
-    entries: &mut HashMap<String, EntryInfo>,
+    entries: &mut HashMap<RelativePath, EntryInfo>,
     ignore_handler: &mut IgnoreHandler,
 ) -> io::Result<()> {
     let gitignore_path = dir_path.join(".gitignore");
@@ -124,7 +124,7 @@ fn build_dir(
             continue;
         }
 
-        let relative_path = get_relative_path(&path, base_dir_path)?;
+        let relative_path = RelativePath::new(&path, base_dir_path)?;
 
         if ignore_handler.is_ignored(&path, &relative_path) {
             continue;
@@ -152,10 +152,10 @@ fn build_dir(
 fn build_file(
     local_id: Uuid,
     path: &CanonicalPath,
-    relative_path: String,
-    entries: &mut HashMap<String, EntryInfo>,
+    relative_path: RelativePath,
+    entries: &mut HashMap<RelativePath, EntryInfo>,
 ) -> io::Result<()> {
-    let hash = compute_hash(&path)?;
+    let hash = compute_hash(path)?;
 
     entries.insert(
         relative_path.clone(),

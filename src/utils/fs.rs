@@ -1,17 +1,9 @@
 use crate::domain::CanonicalPath;
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read};
 use tokio::io;
 
-pub fn get_relative_path(path: &CanonicalPath, base: &CanonicalPath) -> io::Result<String> {
-    let relative = path
-        .strip_prefix(base)
-        .map_err(|err| io::Error::other(format!("Couldn't extract relative path: {err}")))?;
-
-    Ok(relative.display().to_string().replace('\\', "/"))
-}
-
-pub fn compute_hash<P: AsRef<Path>>(path: &P) -> io::Result<String> {
+pub fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     let mut file = File::open(path)?;
 
     let mut content = Vec::new();
@@ -21,6 +13,6 @@ pub fn compute_hash<P: AsRef<Path>>(path: &P) -> io::Result<String> {
     Ok(hash)
 }
 
-pub fn is_ds_store<P: AsRef<Path>>(path: &P) -> bool {
-    matches!(path.as_ref().file_name(), Some(name) if name == ".DS_Store")
+pub fn is_ds_store(path: &CanonicalPath) -> bool {
+    matches!(path.file_name(), Some(name) if name == ".DS_Store")
 }

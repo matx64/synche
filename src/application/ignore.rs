@@ -1,4 +1,4 @@
-use crate::{domain::CanonicalPath, utils::fs::get_relative_path};
+use crate::domain::{CanonicalPath, RelativePath};
 use ignore::gitignore::Gitignore;
 use std::collections::HashMap;
 use tokio::io;
@@ -29,7 +29,7 @@ impl IgnoreHandler {
         }
 
         if let Some(rel) =
-            get_relative_path(gitignore_path, &self.base_dir_path)?.strip_suffix("/.gitignore")
+            RelativePath::new(gitignore_path, &self.base_dir_path)?.strip_suffix("/.gitignore")
         {
             self.gis.insert(rel.to_string(), gi);
             Ok(true)
@@ -38,7 +38,7 @@ impl IgnoreHandler {
         }
     }
 
-    pub fn is_ignored(&self, path: &CanonicalPath, relative: &str) -> bool {
+    pub fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
         if self.gis.is_empty() {
             return false;
         };
@@ -68,7 +68,7 @@ impl IgnoreHandler {
         false
     }
 
-    pub fn remove_gitignore(&mut self, relative: &str) {
+    pub fn remove_gitignore(&mut self, relative: &RelativePath) {
         if let Some(key) = relative.strip_suffix("/.gitignore") {
             self.gis.remove(key);
         }

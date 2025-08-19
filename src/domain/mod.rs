@@ -8,4 +8,5 @@ pub use entry::Directory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;
 pub use fs::CanonicalPath;
+pub use fs::RelativePath;
 pub use peer::Peer;

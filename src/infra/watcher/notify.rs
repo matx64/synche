@@ -1,10 +1,10 @@
 use crate::{
     application::watcher::FileWatcherInterface,
     domain::{
-        CanonicalPath,
+        CanonicalPath, RelativePath,
         watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
-    utils::fs::{get_relative_path, is_ds_store},
+    utils::fs::is_ds_store,
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -121,7 +121,7 @@ impl NotifyFileWatcher {
     }
 
     fn build_path(&self, path: CanonicalPath) -> Option<WatcherEventPath> {
-        let relative = match get_relative_path(&path, self.base_dir_path.as_ref().unwrap()) {
+        let relative = match RelativePath::new(&path, self.base_dir_path.as_ref().unwrap()) {
             Ok(rel) => Some(rel),
             Err(err) => {
                 error!("{err}");

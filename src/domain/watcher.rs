@@ -1,4 +1,4 @@
-use crate::domain::CanonicalPath;
+use crate::domain::{CanonicalPath, RelativePath};
 
 #[derive(Debug, Clone)]
 pub struct WatcherEvent {
@@ -21,7 +21,7 @@ pub enum WatcherEventKind {
 #[derive(Debug, Clone)]
 pub struct WatcherEventPath {
     pub canonical: CanonicalPath,
-    pub relative: String,
+    pub relative: RelativePath,
 }
 
 impl WatcherEventPath {
