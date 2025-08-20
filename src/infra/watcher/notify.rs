@@ -1,16 +1,13 @@
 use crate::{
     application::watcher::FileWatcherInterface,
-    domain::{
-        CanonicalPath, RelativePath,
-        watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
-    },
-    utils::fs::is_ds_store,
+    domain::watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
+    utils::fs::{get_relative_path, is_ds_store},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
     event::{ModifyKind, RenameMode},
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 use tokio::{
     io,
     sync::mpsc::{self, Receiver},
@@ -20,8 +17,8 @@ use tracing::error;
 pub struct NotifyFileWatcher {
     watcher: RecommendedWatcher,
     notify_rx: Receiver<Result<Event, Error>>,
-    sync_dirs: HashSet<CanonicalPath>,
-    base_dir_path: Option<CanonicalPath>,
+    sync_dirs: HashSet<PathBuf>,
+    base_dir_absolute: PathBuf,
 }
 
 impl NotifyFileWatcher {
@@ -40,19 +37,20 @@ impl NotifyFileWatcher {
             watcher,
             notify_rx,
             sync_dirs: HashSet::new(),
-            base_dir_path: None,
+            base_dir_absolute: PathBuf::new(),
         }
     }
 }
 
 impl FileWatcherInterface for NotifyFileWatcher {
-    async fn watch(&mut self, base_dir: CanonicalPath, dirs: Vec<CanonicalPath>) -> io::Result<()> {
-        self.watcher
-            .watch(&base_dir, RecursiveMode::Recursive)
-            .unwrap();
+    async fn watch(&mut self, base_dir: PathBuf, dirs: Vec<PathBuf>) -> io::Result<()> {
+        self.base_dir_absolute = base_dir;
 
-        self.base_dir_path = Some(base_dir);
+        self.watcher
+            .watch(&self.base_dir_absolute, RecursiveMode::Recursive)
+            .unwrap();
         self.sync_dirs = dirs.into_iter().collect();
+
         Ok(())
     }
 
@@ -65,7 +63,6 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
                 Ok(event) => {
                     if let Some(path) = event.paths.first().cloned()
-                        && let Ok(path) = CanonicalPath::new(path)
                         && !self.sync_dirs.contains(&path)
                         && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
                         && !is_ds_store(&path)
@@ -90,7 +87,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
 }
 
 impl NotifyFileWatcher {
-    fn handle_event(&self, event: Event, path: CanonicalPath) -> Option<WatcherEvent> {
+    fn handle_event(&self, event: Event, path: PathBuf) -> Option<WatcherEvent> {
         match event.kind {
             EventKind::Create(_)
             | EventKind::Modify(ModifyKind::Data(_))
@@ -120,10 +117,18 @@ impl NotifyFileWatcher {
         }
     }
 
-    fn build_path(&self, path: CanonicalPath) -> Option<WatcherEventPath> {
+    fn build_path(&self, path: PathBuf) -> Option<WatcherEventPath> {
+        let relative = match get_relative_path(&path, &self.base_dir_absolute) {
+            Ok(rel) => Some(rel),
+            Err(err) => {
+                error!("{err}");
+                None
+            }
+        }?;
+
         Some(WatcherEventPath {
-            relative: RelativePath::new(&path, self.base_dir_path.as_ref().unwrap()),
-            canonical: path,
+            relative,
+            absolute: path,
         })
     }
 }

@@ -1,13 +1,12 @@
 use crate::{
     application::{IgnoreHandler, persistence::interface::PersistenceInterface},
-    domain::{
-        CanonicalPath, Directory, EntryInfo, EntryKind, Peer, RelativePath, entry::VersionCmp,
-    },
+    domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
 use std::{
     collections::HashMap,
     io,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -20,32 +19,32 @@ use uuid::Uuid;
 pub struct EntryManager<D: PersistenceInterface> {
     db: D,
     local_id: Uuid,
-    sync_directories: RwLock<HashMap<String, Directory>>,
+    directories: RwLock<HashMap<String, Directory>>,
     ignore_handler: RwLock<IgnoreHandler>,
-    base_dir_path: CanonicalPath,
+    base_dir: PathBuf,
 }
 
 impl<D: PersistenceInterface> EntryManager<D> {
     pub fn new(
         db: D,
         local_id: Uuid,
-        sync_directories: HashMap<String, Directory>,
+        directories: HashMap<String, Directory>,
         ignore_handler: IgnoreHandler,
-        filesystem_entries: HashMap<RelativePath, EntryInfo>,
-        base_dir_path: CanonicalPath,
+        filesystem_entries: HashMap<String, EntryInfo>,
+        base_dir: PathBuf,
     ) -> Self {
         Self::build_db(&db, local_id, filesystem_entries);
         Self {
             db,
             local_id,
-            sync_directories: RwLock::new(sync_directories),
+            directories: RwLock::new(directories),
             ignore_handler: RwLock::new(ignore_handler),
-            base_dir_path,
+            base_dir,
         }
     }
 
-    fn build_db(db: &D, local_id: Uuid, filesystem_entries: HashMap<RelativePath, EntryInfo>) {
-        let mut entries: HashMap<RelativePath, EntryInfo> = db
+    fn build_db(db: &D, local_id: Uuid, filesystem_entries: HashMap<String, EntryInfo>) {
+        let mut entries: HashMap<String, EntryInfo> = db
             .list_all_entries()
             .unwrap()
             .into_iter()
@@ -82,10 +81,10 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub async fn list_dirs(&self) -> HashMap<String, Directory> {
-        self.sync_directories.read().await.clone()
+        self.directories.read().await.clone()
     }
 
-    pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
+    pub async fn is_ignored<P: AsRef<Path>>(&self, path: P, relative: &str) -> bool {
         self.ignore_handler.read().await.is_ignored(path, relative)
     }
 
@@ -95,12 +94,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         entry
     }
 
-    pub fn entry_created(
-        &self,
-        name: &RelativePath,
-        kind: EntryKind,
-        hash: Option<String>,
-    ) -> EntryInfo {
+    pub fn entry_created(&self, name: &str, kind: EntryKind, hash: Option<String>) -> EntryInfo {
         self.insert_entry(EntryInfo {
             name: name.to_owned(),
             kind,
@@ -124,11 +118,11 @@ impl<D: PersistenceInterface> EntryManager<D> {
     pub async fn get_entries_to_request(
         &self,
         peer: &Peer,
-        peer_entries: HashMap<RelativePath, EntryInfo>,
+        peer_entries: HashMap<String, EntryInfo>,
     ) -> io::Result<Vec<EntryInfo>> {
         let mut to_request = Vec::new();
 
-        let dirs = { self.sync_directories.read().await.clone() };
+        let dirs = { self.directories.read().await.clone() };
 
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_root_parent()) {
@@ -176,7 +170,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         peer_entry: &EntryInfo,
         peer_id: Uuid,
     ) -> io::Result<VersionCmp> {
-        warn!(entry = ?local_entry.name, peer = ?peer_id, "[⚠️  CONFLICT]");
+        warn!(entry = local_entry.name, peer = ?peer_id, "[⚠️  CONFLICT]");
 
         match (local_entry.is_removed(), peer_entry.is_removed()) {
             (true, false) => {
@@ -198,7 +192,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             return Ok(VersionCmp::KeepSelf);
         }
 
-        let path = self.base_dir_path.join(&*local_entry.name);
+        let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
 
         if !path.exists() || path.is_dir() {
             return Ok(VersionCmp::KeepOther);
@@ -283,8 +277,8 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     pub async fn get_handshake_data(&self) -> PeerHandshakeData {
-        let sync_directories = self
-            .sync_directories
+        let directories = self
+            .directories
             .read()
             .await
             .values()
@@ -297,15 +291,15 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
-            .collect::<HashMap<RelativePath, EntryInfo>>();
+            .collect::<HashMap<String, EntryInfo>>();
 
         PeerHandshakeData {
-            sync_directories,
+            directories,
             entries,
         }
     }
 
-    pub async fn insert_gitignore(&self, gitignore_path: CanonicalPath) {
+    pub async fn insert_gitignore<P: AsRef<Path>>(&self, gitignore_path: P) {
         match self
             .ignore_handler
             .write()
@@ -315,7 +309,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             Ok(_) => {
                 info!(
                     "⭕  Inserted or Updated .gitignore: {}",
-                    gitignore_path.display()
+                    gitignore_path.as_ref().to_string_lossy()
                 );
             }
             Err(err) => {
@@ -324,7 +318,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub async fn remove_gitignore(&self, relative: &RelativePath) {
+    pub async fn remove_gitignore(&self, relative: &str) {
         self.ignore_handler.write().await.remove_gitignore(relative);
     }
 }

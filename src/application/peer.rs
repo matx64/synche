@@ -58,7 +58,7 @@ impl PeerManager {
             .map(|peers| {
                 peers
                     .values()
-                    .filter(|peer| peer.sync_directories.contains_key(&root_dir))
+                    .filter(|peer| peer.directories.contains_key(&root_dir))
                     .map(|peer| peer.addr)
                     .collect()
             })

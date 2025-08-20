@@ -1,4 +1,4 @@
-use crate::domain::{CanonicalPath, RelativePath};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct WatcherEvent {
@@ -20,12 +20,12 @@ pub enum WatcherEventKind {
 
 #[derive(Debug, Clone)]
 pub struct WatcherEventPath {
-    pub canonical: CanonicalPath,
-    pub relative: RelativePath,
+    pub absolute: PathBuf,
+    pub relative: String,
 }
 
 impl WatcherEventPath {
     pub fn is_file(&self) -> bool {
-        self.canonical.is_file()
+        self.absolute.is_file()
     }
 }

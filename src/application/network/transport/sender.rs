@@ -7,11 +7,11 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{CanonicalPath, EntryInfo},
+    domain::EntryInfo,
     proto::transport::{SyncHandshakeKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
-use std::{net::IpAddr, sync::Arc};
+use std::{net::IpAddr, path::PathBuf, sync::Arc};
 use tokio::{
     fs::File,
     io::{self, AsyncReadExt},
@@ -27,7 +27,7 @@ pub struct TransportSender<T: TransportInterface, D: PersistenceInterface> {
     entry_manager: Arc<EntryManager<D>>,
     peer_manager: Arc<PeerManager>,
     receivers: TransportReceivers,
-    base_dir_path: CanonicalPath,
+    base_dir: PathBuf,
 }
 
 impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
@@ -35,7 +35,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
         transport_adapter: Arc<T>,
         entry_manager: Arc<EntryManager<D>>,
         peer_manager: Arc<PeerManager>,
-        base_dir_path: CanonicalPath,
+        base_dir: PathBuf,
     ) -> (Self, TransportSenders) {
         let (metadata_tx, metadata_rx) = mpsc::channel::<EntryInfo>(100);
         let (handshake_tx, handshake_rx) = mpsc::channel::<(IpAddr, SyncHandshakeKind)>(100);
@@ -47,7 +47,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
                 transport_adapter,
                 entry_manager,
                 peer_manager,
-                base_dir_path,
+                base_dir,
                 receivers: TransportReceivers {
                     metadata_rx: Mutex::new(metadata_rx),
                     handshake_rx: Mutex::new(handshake_rx),
@@ -116,7 +116,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     async fn send_files(&self) -> io::Result<()> {
         loop {
             if let Some((addr, entry)) = self.receivers.transfer_rx.lock().await.recv().await {
-                let path = self.base_dir_path.join(&*entry.name);
+                let path = self.base_dir.join(&entry.name);
 
                 if !path.exists() || !path.is_file() {
                     continue;

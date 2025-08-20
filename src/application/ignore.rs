@@ -1,24 +1,29 @@
-use crate::domain::{CanonicalPath, RelativePath};
+use crate::utils::fs::get_relative_path;
 use ignore::gitignore::Gitignore;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use tokio::io;
 use tracing::warn;
 
 pub struct IgnoreHandler {
     gis: HashMap<String, Gitignore>,
-    base_dir_path: CanonicalPath,
+    base_dir_absolute: PathBuf,
 }
 
 impl IgnoreHandler {
-    pub fn new(base_dir_path: CanonicalPath) -> Self {
+    pub fn new(base_dir: PathBuf) -> Self {
         Self {
             gis: HashMap::new(),
-            base_dir_path,
+            base_dir_absolute: base_dir.canonicalize().unwrap(),
         }
     }
 
-    pub fn insert_gitignore(&mut self, gitignore_path: &CanonicalPath) -> io::Result<bool> {
-        let (gi, err) = Gitignore::new(gitignore_path);
+    pub fn insert_gitignore<P: AsRef<Path>>(&mut self, gitignore_path: P) -> io::Result<bool> {
+        let gitignore_path = gitignore_path.as_ref().canonicalize()?;
+
+        let (gi, err) = Gitignore::new(&gitignore_path);
 
         if let Some(err) = err {
             warn!("Gitignore error: {err}");
@@ -29,7 +34,7 @@ impl IgnoreHandler {
         }
 
         if let Some(rel) =
-            RelativePath::new(gitignore_path, &self.base_dir_path).strip_suffix("/.gitignore")
+            get_relative_path(&gitignore_path, &self.base_dir_absolute)?.strip_suffix("/.gitignore")
         {
             self.gis.insert(rel.to_string(), gi);
             Ok(true)
@@ -38,11 +43,12 @@ impl IgnoreHandler {
         }
     }
 
-    pub fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
+    pub fn is_ignored<P: AsRef<Path>>(&self, path: P, relative: &str) -> bool {
         if self.gis.is_empty() {
             return false;
         };
 
+        let path = path.as_ref().canonicalize().unwrap();
         let is_dir = path.is_dir();
 
         let mut current_path = String::with_capacity(relative.len());
@@ -60,7 +66,7 @@ impl IgnoreHandler {
             current_path.push_str(part);
 
             if let Some(gi) = self.gis.get(&current_path)
-                && gi.matched_path_or_any_parents(path, is_dir).is_ignore()
+                && gi.matched_path_or_any_parents(&path, is_dir).is_ignore()
             {
                 return true;
             }
@@ -68,7 +74,7 @@ impl IgnoreHandler {
         false
     }
 
-    pub fn remove_gitignore(&mut self, relative: &RelativePath) {
+    pub fn remove_gitignore(&mut self, relative: &str) {
         if let Some(key) = relative.strip_suffix("/.gitignore") {
             self.gis.remove(key);
         }
