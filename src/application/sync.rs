@@ -36,11 +36,11 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     ) -> Self {
         let entry_manager = Arc::new(EntryManager::new(
             persistence_adapter,
-            config.constants.local_id,
+            config.local_id,
             config.directories,
             config.ignore_handler,
             config.filesystem_entries,
-            config.constants.base_dir.clone(),
+            config.base_dir.clone(),
         ));
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
@@ -49,18 +49,18 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             transport_adapter.clone(),
             entry_manager.clone(),
             peer_manager.clone(),
-            config.constants.base_dir.clone(),
+            config.base_dir.clone(),
         );
 
         let file_watcher = FileWatcher::new(
             watch_adapter,
             entry_manager.clone(),
             sender_channels.metadata_tx.clone(),
-            config.constants.base_dir.clone(),
+            config.base_dir.clone(),
         );
 
         let presence_service = PresenceService::new(
-            config.constants.local_id,
+            config.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
         );
@@ -70,8 +70,8 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             entry_manager,
             peer_manager,
             sender_channels,
-            config.constants.base_dir,
-            config.constants.tmp_dir,
+            config.base_dir,
+            config.tmp_dir,
         );
 
         Self {
@@ -83,6 +83,48 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let ctrl_c = signal::ctrl_c();
+            let mut sigterm = signal(SignalKind::terminate()).expect("bind SIGTERM");
+            let mut sighup = signal(SignalKind::hangup()).expect("bind SIGHUP");
+
+            tokio::select! {
+                res = self.run() => res?,
+
+                _ = ctrl_c => {
+                    tracing::info!("🛑 SIGINT"); self.shutdown().await?;
+                }
+
+                _ = sigterm.recv() => {
+                    tracing::info!("🛑 SIGTERM"); self.shutdown().await?;
+                }
+
+                _ = sighup.recv() => {
+                    tracing::info!("🛑 SIGHUP"); self.shutdown().await?;
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            use tokio::signal;
+
+            let ctrl_c = signal::ctrl_c();
+
+            tokio::select! {
+                res = self._run() => res?,
+
+                _ = ctrl_c => {
+                    tracing::info!("🛑 SIGINT"); self.shutdown().await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn _run(&mut self) -> io::Result<()> {
         tokio::try_join!(
             self.transport_receiver.run(),
             self.transport_sender.run(),
@@ -101,7 +143,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
 
 impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
     pub async fn new_default(config: Config) -> Self {
-        let transporter = TcpTransporter::new(config.constants.local_id).await;
+        let transporter = TcpTransporter::new(config.local_id).await;
         Self::new(
             config,
             NotifyFileWatcher::new(),

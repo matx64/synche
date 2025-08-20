@@ -15,25 +15,20 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub struct Config {
+    pub local_id: Uuid,
     pub directories: HashMap<String, Directory>,
     pub filesystem_entries: HashMap<String, EntryInfo>,
     pub ignore_handler: IgnoreHandler,
-    pub constants: AppConstants,
-}
-
-pub struct AppConstants {
-    pub local_id: Uuid,
     pub base_dir: PathBuf,
     pub tmp_dir: PathBuf,
 }
 
 pub fn init() -> Config {
-    let cfg_path = ".synche";
     let base_dir = "synche-files";
     let tmp_dir = ".tmp";
 
-    let (local_id, configured_dirs) = load_config_file(cfg_path);
-    let (base_dir, tmp_dir) = create_dirs(base_dir, tmp_dir);
+    let (local_id, configured_dirs) = load_config_file();
+    let (base_dir, tmp_dir) = create_required_dirs(base_dir, tmp_dir);
 
     tracing_subscriber::fmt::init();
 
@@ -42,18 +37,18 @@ pub fn init() -> Config {
         build_entries(local_id, configured_dirs, &base_dir, &mut ignore_handler).unwrap();
 
     Config {
+        local_id,
         directories: dirs,
         filesystem_entries: entries,
         ignore_handler,
-        constants: AppConstants {
-            local_id,
-            base_dir: base_dir.to_owned(),
-            tmp_dir: tmp_dir.to_owned(),
-        },
+        base_dir: base_dir.to_owned(),
+        tmp_dir: tmp_dir.to_owned(),
     }
 }
 
-fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
+fn load_config_file() -> (Uuid, Vec<ConfiguredDirectory>) {
+    let cfg_base = ".synche";
+
     let settings_path = PathBuf::from(cfg_base).join("settings.json");
     let settings_json = fs::read_to_string(settings_path).expect("Failed to read config file");
     let settings_dirs = serde_json::from_str(&settings_json).expect("Failed to parse config file");
@@ -71,7 +66,7 @@ fn load_config_file(cfg_base: &str) -> (Uuid, Vec<ConfiguredDirectory>) {
     (local_id, settings_dirs)
 }
 
-fn create_dirs(base_dir: &str, tmp_dir: &str) -> (PathBuf, PathBuf) {
+fn create_required_dirs(base_dir: &str, tmp_dir: &str) -> (PathBuf, PathBuf) {
     let tmp_dir = PathBuf::new().join(tmp_dir);
     let base_dir = PathBuf::new().join(base_dir);
 
