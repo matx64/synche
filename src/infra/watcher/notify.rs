@@ -121,16 +121,8 @@ impl NotifyFileWatcher {
     }
 
     fn build_path(&self, path: CanonicalPath) -> Option<WatcherEventPath> {
-        let relative = match RelativePath::new(&path, self.base_dir_path.as_ref().unwrap()) {
-            Ok(rel) => Some(rel),
-            Err(err) => {
-                error!("{err}");
-                None
-            }
-        }?;
-
         Some(WatcherEventPath {
-            relative,
+            relative: RelativePath::new(&path, self.base_dir_path.as_ref().unwrap()),
             canonical: path,
         })
     }

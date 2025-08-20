@@ -38,12 +38,10 @@ impl AsRef<Path> for CanonicalPath {
 pub struct RelativePath(pub String);
 
 impl RelativePath {
-    pub fn new(path: &CanonicalPath, base: &CanonicalPath) -> io::Result<Self> {
-        let relative = path
-            .strip_prefix(base)
-            .map_err(|err| io::Error::other(format!("Couldn't extract relative path: {err}")))?;
+    pub fn new(path: &CanonicalPath, base: &CanonicalPath) -> Self {
+        let relative = path.strip_prefix(base).unwrap();
 
-        Ok(Self(relative.display().to_string().replace('\\', "/")))
+        Self(relative.display().to_string().replace('\\', "/"))
     }
 }
 

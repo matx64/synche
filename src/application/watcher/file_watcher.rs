@@ -145,7 +145,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             {
                 let item_path = CanonicalPath::new(item.path()).unwrap();
 
-                let relative = RelativePath::new(&item_path, &self.base_dir_path).unwrap();
+                let relative = RelativePath::new(&item_path, &self.base_dir_path);
 
                 if self.entry_manager.is_ignored(&item_path, &relative).await {
                     continue;

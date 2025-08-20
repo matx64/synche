@@ -118,7 +118,7 @@ fn build_dir(
             continue;
         }
 
-        let relative_path = RelativePath::new(&path, base_dir_path)?;
+        let relative_path = RelativePath::new(&path, base_dir_path);
 
         if ignore_handler.is_ignored(&path, &relative_path) {
             continue;

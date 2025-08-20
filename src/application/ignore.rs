@@ -29,7 +29,7 @@ impl IgnoreHandler {
         }
 
         if let Some(rel) =
-            RelativePath::new(gitignore_path, &self.base_dir_path)?.strip_suffix("/.gitignore")
+            RelativePath::new(gitignore_path, &self.base_dir_path).strip_suffix("/.gitignore")
         {
             self.gis.insert(rel.to_string(), gi);
             Ok(true)
