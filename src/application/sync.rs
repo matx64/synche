@@ -85,13 +85,16 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     pub async fn run(&mut self) -> io::Result<()> {
         #[cfg(unix)]
         {
-            use tokio::signal::unix::{SignalKind, signal};
+            use tokio::signal::{
+                self,
+                unix::{SignalKind, signal},
+            };
             let ctrl_c = signal::ctrl_c();
             let mut sigterm = signal(SignalKind::terminate()).expect("bind SIGTERM");
             let mut sighup = signal(SignalKind::hangup()).expect("bind SIGHUP");
 
             tokio::select! {
-                res = self.run() => res?,
+                res = self._run() => res?,
 
                 _ = ctrl_c => {
                     tracing::info!("🛑 SIGINT"); self.shutdown().await?;
