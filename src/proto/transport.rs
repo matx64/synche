@@ -1,11 +1,11 @@
-use crate::domain::{Directory, EntryInfo, RelativePath};
+use crate::domain::{EntryInfo, RelativePath, SyncDirectory};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::ErrorKind};
 use tokio::io::Error;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PeerHandshakeData {
-    pub directories: Vec<Directory>,
+    pub sync_directories: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
 }
 

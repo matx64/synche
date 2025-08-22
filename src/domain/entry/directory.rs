@@ -6,6 +6,6 @@ pub struct ConfiguredDirectory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Directory {
+pub struct SyncDirectory {
     pub name: String,
 }

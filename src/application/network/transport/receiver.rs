@@ -97,7 +97,11 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             .read_handshake(&mut data.stream)
             .await?;
 
-        let peer = Peer::new(data.src_id, data.src_ip, Some(peer_hs_data.directories));
+        let peer = Peer::new(
+            data.src_id,
+            data.src_ip,
+            Some(peer_hs_data.sync_directories),
+        );
         self.peer_manager.insert(peer.clone());
 
         if matches!(data.kind, SyncKind::Handshake(SyncHandshakeKind::Request)) {

@@ -1,6 +1,6 @@
 use crate::{
     application::IgnoreHandler,
-    domain::{CanonicalPath, ConfiguredDirectory, Directory, EntryInfo, EntryKind, RelativePath},
+    domain::{CanonicalPath, ConfiguredDirectory, SyncDirectory, EntryInfo, EntryKind, RelativePath},
     utils::fs::{compute_hash, is_ds_store},
 };
 use std::{
@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 pub struct Config {
     pub local_id: Uuid,
-    pub sync_directories: HashMap<String, Directory>,
+    pub sync_directories: HashMap<String, SyncDirectory>,
     pub filesystem_entries: HashMap<RelativePath, EntryInfo>,
     pub ignore_handler: IgnoreHandler,
     pub base_dir_path: CanonicalPath,
@@ -83,7 +83,7 @@ fn build_entries(
     configured_dirs: Vec<ConfiguredDirectory>,
     base_dir_path: &CanonicalPath,
     ignore_handler: &mut IgnoreHandler,
-) -> io::Result<(HashMap<String, Directory>, HashMap<RelativePath, EntryInfo>)> {
+) -> io::Result<(HashMap<String, SyncDirectory>, HashMap<RelativePath, EntryInfo>)> {
     let mut dirs = HashMap::new();
     let mut entries = HashMap::new();
 
@@ -93,7 +93,7 @@ fn build_entries(
         fs::create_dir_all(&path).unwrap();
 
         if path.is_dir() {
-            dirs.insert(dir.name.clone(), Directory { name: dir.name });
+            dirs.insert(dir.name.clone(), SyncDirectory { name: dir.name });
             build_dir(local_id, path, base_dir_path, &mut entries, ignore_handler)?;
         }
     }
