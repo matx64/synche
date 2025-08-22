@@ -193,8 +193,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         let entry = self.entry_manager.insert_entry(entry);
 
-        let original_path = self.base_dir_path.join(&entry.name);
-        let tmp_path = self.tmp_dir_path.join(&entry.name);
+        let original_path = self.base_dir_path.join(&*entry.name);
+        let tmp_path = self.tmp_dir_path.join(&*entry.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
@@ -220,7 +220,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     pub async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
         let dir = self.entry_manager.insert_entry(dir);
 
-        let path = self.base_dir_path.join(&dir.name);
+        let path = self.base_dir_path.join(&*dir.name);
         fs::create_dir_all(path).await?;
 
         self.senders

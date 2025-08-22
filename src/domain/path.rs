@@ -72,3 +72,9 @@ impl AsRef<str> for RelativePath {
         &self.0
     }
 }
+
+impl From<String> for RelativePath {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}

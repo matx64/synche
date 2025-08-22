@@ -116,7 +116,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
     async fn send_files(&self) -> io::Result<()> {
         loop {
             if let Some((addr, entry)) = self.receivers.transfer_rx.lock().await.recv().await {
-                let path = self.base_dir_path.join(&entry.name);
+                let path = self.base_dir_path.join(&*entry.name);
 
                 if !path.exists() || !path.is_file() {
                     continue;

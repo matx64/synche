@@ -1,4 +1,4 @@
-use crate::domain::{Directory, EntryInfo};
+use crate::domain::{Directory, EntryInfo, RelativePath};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::ErrorKind};
 use tokio::io::Error;
@@ -6,7 +6,7 @@ use tokio::io::Error;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PeerHandshakeData {
     pub directories: Vec<Directory>,
-    pub entries: HashMap<String, EntryInfo>,
+    pub entries: HashMap<RelativePath, EntryInfo>,
 }
 
 #[derive(Debug)]

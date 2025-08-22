@@ -1,4 +1,4 @@
-use crate::domain::watcher::WatcherEvent;
+use crate::domain::{RelativePath, watcher::WatcherEvent};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::{Mutex, mpsc::Sender};
 
 pub struct WatcherBuffer {
-    items: Arc<Mutex<HashMap<String, BufferItem>>>,
+    items: Arc<Mutex<HashMap<RelativePath, BufferItem>>>,
 }
 
 struct BufferItem {
@@ -19,7 +19,8 @@ impl WatcherBuffer {
     pub fn new(watch_tx: Sender<WatcherEvent>) -> Self {
         let debounce = Duration::from_secs(1);
 
-        let items: Arc<Mutex<HashMap<String, BufferItem>>> = Arc::new(Mutex::new(HashMap::new()));
+        let items: Arc<Mutex<HashMap<RelativePath, BufferItem>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let items_clone = items.clone();
 
         tokio::spawn(async move {
