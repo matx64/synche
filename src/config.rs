@@ -1,7 +1,7 @@
 use crate::{
     application::IgnoreHandler,
     domain::{CanonicalPath, ConfiguredDirectory, Directory, EntryInfo, EntryKind},
-    utils::fs::{compute_hash, get_relative_path, is_ds_store},
+    utils::fs::{compute_hash, is_ds_store},
 };
 use std::{
     collections::HashMap,

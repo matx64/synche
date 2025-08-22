@@ -12,6 +12,10 @@ impl CanonicalPath {
         Ok(Self(path.as_ref().canonicalize()?))
     }
 
+    pub fn from_canonical<P: AsRef<Path>>(path: P) -> Self {
+        Self(path.as_ref().to_path_buf())
+    }
+
     pub fn join<P: AsRef<Path>>(&self, path: P) -> CanonicalPath {
         let buf = self.0.join(path);
         CanonicalPath(buf)
@@ -32,7 +36,7 @@ impl AsRef<Path> for CanonicalPath {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelativePath(String);
 
 impl RelativePath {
