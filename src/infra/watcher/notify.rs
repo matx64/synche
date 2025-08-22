@@ -10,7 +10,7 @@ use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
     event::{ModifyKind, RenameMode},
 };
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
 use tokio::{
     io,
     sync::mpsc::{self, Receiver},
@@ -20,7 +20,7 @@ use tracing::error;
 pub struct NotifyFileWatcher {
     watcher: RecommendedWatcher,
     notify_rx: Receiver<Result<Event, Error>>,
-    sync_dirs: HashSet<PathBuf>,
+    sync_directories: HashSet<CanonicalPath>,
     base_dir_path: Option<CanonicalPath>,
 }
 
@@ -39,20 +39,24 @@ impl NotifyFileWatcher {
         Self {
             watcher,
             notify_rx,
-            sync_dirs: HashSet::new(),
             base_dir_path: None,
+            sync_directories: HashSet::new(),
         }
     }
 }
 
 impl FileWatcherInterface for NotifyFileWatcher {
-    async fn watch(&mut self, base_dir_path: CanonicalPath, dirs: Vec<PathBuf>) -> io::Result<()> {
+    async fn watch(
+        &mut self,
+        base_dir_path: CanonicalPath,
+        sync_directories: Vec<CanonicalPath>,
+    ) -> io::Result<()> {
         self.watcher
             .watch(&base_dir_path, RecursiveMode::Recursive)
             .unwrap();
 
         self.base_dir_path = Some(base_dir_path);
-        self.sync_dirs = dirs.into_iter().collect();
+        self.sync_directories = sync_directories.into_iter().collect();
 
         Ok(())
     }
@@ -66,12 +70,14 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
                 Ok(event) => {
                     if let Some(path) = event.paths.first().cloned()
-                        && !self.sync_dirs.contains(&path)
-                        && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
+                        && let path = CanonicalPath::from_canonical(path)
+                        && !self.sync_directories.contains(&path)
+                        && self
+                            .sync_directories
+                            .iter()
+                            .any(|dir| path.starts_with(dir))
                         && !is_ds_store(&path)
                     {
-                        let path = CanonicalPath::from_canonical(path);
-
                         if let Some(w) = self.handle_event(event, path) {
                             return Some(w);
                         } else {

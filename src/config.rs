@@ -94,7 +94,7 @@ fn build_entries(
 
         if path.is_dir() {
             dirs.insert(dir.name.clone(), Directory { name: dir.name });
-            build_dir(local_id, path, &base_dir_path, &mut entries, ignore_handler)?;
+            build_dir(local_id, path, base_dir_path, &mut entries, ignore_handler)?;
         }
     }
 

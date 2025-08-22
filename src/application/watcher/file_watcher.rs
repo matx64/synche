@@ -5,12 +5,12 @@ use crate::{
         watcher::{FileWatcherInterface, buffer::WatcherBuffer},
     },
     domain::{
-        CanonicalPath, EntryInfo, EntryKind,
+        CanonicalPath, EntryInfo, EntryKind, RelativePath,
         watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
     utils::fs::compute_hash,
 };
-use std::{collections::HashSet, io, path::PathBuf, sync::Arc};
+use std::{collections::HashSet, io, sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
 use walkdir::WalkDir;
@@ -109,7 +109,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         self.send_metadata(file).await;
 
         if path.relative.ends_with(".gitignore") {
-            self.entry_manager.insert_gitignore(path.canonical).await;
+            self.entry_manager.insert_gitignore(&path.canonical).await;
         }
     }
 
@@ -132,9 +132,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
             self.send_metadata(dir).await;
 
-            let gitignore_path = PathBuf::from(&dir_path.canonical).join(".gitignore");
+            let gitignore_path = dir_path.canonical.join(".gitignore");
             if gitignore_path.exists() {
-                self.entry_manager.insert_gitignore(gitignore_path).await;
+                self.entry_manager.insert_gitignore(&gitignore_path).await;
             }
 
             for item in WalkDir::new(&dir_path.canonical)
@@ -143,23 +143,22 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 .into_iter()
                 .filter_map(Result::ok)
             {
-                let item_path = item.path();
+                let canonical = CanonicalPath::new(item.path()).unwrap();
+                let relative = RelativePath::new(&canonical, &self.base_dir_path);
 
-                let relative = get_relative_path(item_path, &self.base_dir_path).unwrap();
-
-                if self.entry_manager.is_ignored(&item_path, &relative).await {
+                if self.entry_manager.is_ignored(&canonical, &relative).await {
                     continue;
                 }
 
-                if item_path.is_file() {
+                if canonical.is_file() {
                     self.handle_create_file(WatcherEventPath {
-                        canonical: item_path.to_path_buf(),
+                        canonical,
                         relative,
                     })
                     .await;
-                } else if item_path.is_dir() {
+                } else if canonical.is_dir() {
                     stack.push(WatcherEventPath {
-                        canonical: item_path.to_path_buf(),
+                        canonical,
                         relative,
                     });
                 }
@@ -175,7 +174,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
             self.send_metadata(file).await;
 
             if path.relative.ends_with(".gitignore") {
-                self.entry_manager.insert_gitignore(path.canonical).await;
+                self.entry_manager.insert_gitignore(&path.canonical).await;
             }
         }
     }

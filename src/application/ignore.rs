@@ -60,7 +60,7 @@ impl IgnoreHandler {
             current_path.push_str(part);
 
             if let Some(gi) = self.gis.get(&current_path)
-                && gi.matched_path_or_any_parents(&path, is_dir).is_ignore()
+                && gi.matched_path_or_any_parents(path, is_dir).is_ignore()
             {
                 return true;
             }

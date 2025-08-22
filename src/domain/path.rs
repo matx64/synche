@@ -1,12 +1,11 @@
+use serde::{Deserialize, Serialize};
 use std::{
     io,
     ops::Deref,
     path::{Path, PathBuf},
 };
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CanonicalPath(PathBuf);
 
 impl CanonicalPath {
