@@ -4,7 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalPath(PathBuf);
 
 impl CanonicalPath {
@@ -36,7 +38,7 @@ impl AsRef<Path> for CanonicalPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RelativePath(String);
 
 impl RelativePath {

@@ -37,10 +37,10 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
         let entry_manager = Arc::new(EntryManager::new(
             persistence_adapter,
             config.local_id,
-            config.directories,
+            config.sync_directories,
             config.ignore_handler,
             config.filesystem_entries,
-            config.base_dir.clone(),
+            config.base_dir_path.clone(),
         ));
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
@@ -49,14 +49,14 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             transport_adapter.clone(),
             entry_manager.clone(),
             peer_manager.clone(),
-            config.base_dir.clone(),
+            config.base_dir_path.clone(),
         );
 
         let file_watcher = FileWatcher::new(
             watch_adapter,
             entry_manager.clone(),
             sender_channels.metadata_tx.clone(),
-            config.base_dir.clone(),
+            config.base_dir_path.clone(),
         );
 
         let presence_service = PresenceService::new(
@@ -70,8 +70,8 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             entry_manager,
             peer_manager,
             sender_channels,
-            config.base_dir,
-            config.tmp_dir,
+            config.base_dir_path,
+            config.tmp_dir_path,
         );
 
         Self {

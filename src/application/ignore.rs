@@ -1,6 +1,6 @@
 use crate::domain::{CanonicalPath, RelativePath};
 use ignore::gitignore::Gitignore;
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 use tokio::io;
 use tracing::warn;
 
@@ -38,12 +38,11 @@ impl IgnoreHandler {
         }
     }
 
-    pub fn is_ignored<P: AsRef<Path>>(&self, path: P, relative: &str) -> bool {
+    pub fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
         if self.gis.is_empty() {
             return false;
         };
 
-        let path = path.as_ref().canonicalize().unwrap();
         let is_dir = path.is_dir();
 
         let mut current_path = String::with_capacity(relative.len());
@@ -69,7 +68,7 @@ impl IgnoreHandler {
         false
     }
 
-    pub fn remove_gitignore(&mut self, relative: &str) {
+    pub fn remove_gitignore(&mut self, relative: &RelativePath) {
         if let Some(key) = relative.strip_suffix("/.gitignore") {
             self.gis.remove(key);
         }

@@ -1,12 +1,9 @@
+use crate::domain::CanonicalPath;
 use sha2::{Digest, Sha256};
-use std::{
-    fs::File,
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::{fs::File, io::Read, path::Path};
 use tokio::io;
 
-pub fn compute_hash(path: &PathBuf) -> io::Result<String> {
+pub fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     let mut file = File::open(path)?;
 
     let mut content = Vec::new();
