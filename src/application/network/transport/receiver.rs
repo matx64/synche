@@ -7,10 +7,10 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{EntryInfo, Peer, entry::VersionCmp},
+    domain::{CanonicalPath, EntryInfo, Peer, entry::VersionCmp},
     proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
-use std::{net::IpAddr, path::PathBuf, sync::Arc};
+use std::{net::IpAddr, sync::Arc};
 use tokio::{
     fs::{self, File},
     io::{self, AsyncWriteExt},
@@ -24,8 +24,8 @@ pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     senders: TransportSenders,
     control_chan: ReceiverChannel<T>,
     data_chan: ReceiverChannel<T>,
-    base_dir: PathBuf,
-    tmp_dir: PathBuf,
+    base_dir_path: CanonicalPath,
+    tmp_dir_path: CanonicalPath,
 }
 
 impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
@@ -34,8 +34,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
         entry_manager: Arc<EntryManager<D>>,
         peer_manager: Arc<PeerManager>,
         senders: TransportSenders,
-        base_dir: PathBuf,
-        tmp_dir: PathBuf,
+        base_dir_path: CanonicalPath,
+        tmp_dir_path: CanonicalPath,
     ) -> Self {
         Self {
             control_chan: ReceiverChannel::new(),
@@ -44,8 +44,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
             entry_manager,
             peer_manager,
             senders,
-            base_dir,
-            tmp_dir,
+            base_dir_path,
+            tmp_dir_path,
         }
     }
 
@@ -193,8 +193,8 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
 
         let entry = self.entry_manager.insert_entry(entry);
 
-        let original_path = self.base_dir.join(&entry.name);
-        let tmp_path = self.tmp_dir.join(&entry.name);
+        let original_path = self.base_dir_path.join(&entry.name);
+        let tmp_path = self.tmp_dir_path.join(&entry.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
@@ -220,7 +220,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     pub async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
         let dir = self.entry_manager.insert_entry(dir);
 
-        let path = self.base_dir.join(&dir.name);
+        let path = self.base_dir_path.join(&dir.name);
         fs::create_dir_all(path).await?;
 
         self.senders
@@ -233,7 +233,7 @@ impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
     pub async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
         let _ = self.entry_manager.remove_entry(entry_name);
 
-        let path = self.base_dir.join(entry_name);
+        let path = self.base_dir_path.join(entry_name);
 
         if path.is_dir() {
             fs::remove_dir_all(path).await?;

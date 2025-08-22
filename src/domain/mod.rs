@@ -9,5 +9,4 @@ pub use entry::EntryInfo;
 pub use entry::EntryKind;
 pub use path::CanonicalPath;
 pub use path::RelativePath;
-pub use path::SyncPath;
 pub use peer::Peer;

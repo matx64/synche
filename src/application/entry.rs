@@ -1,6 +1,6 @@
 use crate::{
     application::{IgnoreHandler, persistence::interface::PersistenceInterface},
-    domain::{Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
+    domain::{CanonicalPath, Directory, EntryInfo, EntryKind, Peer, entry::VersionCmp},
     proto::transport::PeerHandshakeData,
 };
 use std::{
@@ -21,7 +21,7 @@ pub struct EntryManager<D: PersistenceInterface> {
     local_id: Uuid,
     directories: RwLock<HashMap<String, Directory>>,
     ignore_handler: RwLock<IgnoreHandler>,
-    base_dir: PathBuf,
+    base_dir_path: CanonicalPath,
 }
 
 impl<D: PersistenceInterface> EntryManager<D> {
@@ -31,7 +31,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         directories: HashMap<String, Directory>,
         ignore_handler: IgnoreHandler,
         filesystem_entries: HashMap<String, EntryInfo>,
-        base_dir: PathBuf,
+        base_dir_path: CanonicalPath,
     ) -> Self {
         Self::build_db(&db, local_id, filesystem_entries);
         Self {
@@ -39,7 +39,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             local_id,
             directories: RwLock::new(directories),
             ignore_handler: RwLock::new(ignore_handler),
-            base_dir,
+            base_dir_path,
         }
     }
 
@@ -192,7 +192,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             return Ok(VersionCmp::KeepSelf);
         }
 
-        let path = PathBuf::from(&self.base_dir).join(&local_entry.name);
+        let path = PathBuf::from(self.base_dir_path.as_ref()).join(&local_entry.name);
 
         if !path.exists() || path.is_dir() {
             return Ok(VersionCmp::KeepOther);
@@ -299,12 +299,12 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    pub async fn insert_gitignore<P: AsRef<Path>>(&self, gitignore_path: P) {
+    pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
         match self
             .ignore_handler
             .write()
             .await
-            .insert_gitignore(&gitignore_path)
+            .insert_gitignore(gitignore_path)
         {
             Ok(_) => {
                 info!(

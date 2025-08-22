@@ -1,6 +1,6 @@
 use crate::{
     application::IgnoreHandler,
-    domain::{ConfiguredDirectory, Directory, EntryInfo, EntryKind},
+    domain::{CanonicalPath, ConfiguredDirectory, Directory, EntryInfo, EntryKind},
     utils::fs::{compute_hash, get_relative_path, is_ds_store},
 };
 use std::{
@@ -19,8 +19,8 @@ pub struct Config {
     pub directories: HashMap<String, Directory>,
     pub filesystem_entries: HashMap<String, EntryInfo>,
     pub ignore_handler: IgnoreHandler,
-    pub base_dir: PathBuf,
-    pub tmp_dir: PathBuf,
+    pub base_dir: CanonicalPath,
+    pub tmp_dir: CanonicalPath,
 }
 
 pub fn init() -> Config {
@@ -41,8 +41,8 @@ pub fn init() -> Config {
         directories: dirs,
         filesystem_entries: entries,
         ignore_handler,
-        base_dir: base_dir.to_owned(),
-        tmp_dir: tmp_dir.to_owned(),
+        base_dir,
+        tmp_dir,
     }
 }
 
@@ -66,9 +66,9 @@ fn load_config_file() -> (Uuid, Vec<ConfiguredDirectory>) {
     (local_id, settings_dirs)
 }
 
-fn create_required_dirs(base_dir: &str, tmp_dir: &str) -> (PathBuf, PathBuf) {
-    let tmp_dir = PathBuf::new().join(tmp_dir);
-    let base_dir = PathBuf::new().join(base_dir);
+fn create_required_dirs(base_dir: &str, tmp_dir: &str) -> (CanonicalPath, CanonicalPath) {
+    let tmp_dir = CanonicalPath::new(tmp_dir).unwrap();
+    let base_dir = CanonicalPath::new(base_dir).unwrap();
 
     fs::create_dir_all(&tmp_dir).unwrap();
     fs::create_dir_all(&base_dir).unwrap();
@@ -114,10 +114,10 @@ fn build_dir(
     entries: &mut HashMap<String, EntryInfo>,
     ignore_handler: &mut IgnoreHandler,
 ) -> io::Result<()> {
-    let gitignore_path = PathBuf::from(dir_path).join(".gitignore");
+    let gitignore_path = CanonicalPath::new(dir_path).unwrap().join(".gitignore");
 
     if gitignore_path.exists() {
-        ignore_handler.insert_gitignore(gitignore_path)?;
+        ignore_handler.insert_gitignore(&gitignore_path)?;
     }
 
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
