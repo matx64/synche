@@ -5,13 +5,14 @@ use crate::{
     domain::{EntryInfo, EntryKind, RelativePath, entry::VersionVector},
 };
 use rusqlite::{Connection, ToSql, params, types::FromSql};
+use std::path::Path;
 
 pub struct SqliteDb {
     conn: Connection,
 }
 
 impl SqliteDb {
-    pub fn new(path: &str) -> rusqlite::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
 
         conn.execute(

@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
 
-const REMOVED_HASH: &str = "00000000000000000000000000000000";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryInfo {
     pub name: RelativePath,
@@ -70,3 +68,5 @@ impl EntryInfo {
         matches!(self.hash.as_deref(), Some(REMOVED_HASH))
     }
 }
+
+const REMOVED_HASH: &str = "00000000000000000000000000000000";

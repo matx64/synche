@@ -4,4 +4,4 @@
 /.tmp
 
 /.synche/*
-!/.synche/settings.json.example
+!/.synche/config.json.example

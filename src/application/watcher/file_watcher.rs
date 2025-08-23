@@ -8,7 +8,7 @@ use crate::{
         CanonicalPath, EntryInfo, EntryKind, RelativePath,
         watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
-    utils::fs::compute_hash,
+    utils::fs::{compute_hash, is_ds_store},
 };
 use std::{collections::HashSet, io, sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -146,7 +146,9 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 let canonical = CanonicalPath::new(item.path()).unwrap();
                 let relative = RelativePath::new(&canonical, &self.base_dir_path);
 
-                if self.entry_manager.is_ignored(&canonical, &relative).await {
+                if is_ds_store(&canonical)
+                    || self.entry_manager.is_ignored(&canonical, &relative).await
+                {
                     continue;
                 }
 

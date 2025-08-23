@@ -1,6 +1,8 @@
 use crate::{
     application::IgnoreHandler,
-    domain::{CanonicalPath, ConfiguredDirectory, SyncDirectory, EntryInfo, EntryKind, RelativePath},
+    domain::{
+        CanonicalPath, ConfigFileDirectory, EntryInfo, EntryKind, RelativePath, SyncDirectory,
+    },
     utils::fs::{compute_hash, is_ds_store},
 };
 use std::{
@@ -11,29 +13,38 @@ use std::{io, path::PathBuf};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+const BASE_DIR: &str = "./synche-files";
+const TMP_DIR: &str = "./.tmp";
+const CFG_DIR: &str = "./.synche";
+const CFG_FILE: &str = "config.json";
+const DEVICE_ID_FILE: &str = "device.id";
+
 pub struct Config {
     pub local_id: Uuid,
     pub sync_directories: HashMap<String, SyncDirectory>,
     pub filesystem_entries: HashMap<RelativePath, EntryInfo>,
     pub ignore_handler: IgnoreHandler,
+    pub required_dirs: ConfigRequiredDirs,
+}
+
+pub struct ConfigRequiredDirs {
     pub base_dir_path: CanonicalPath,
     pub tmp_dir_path: CanonicalPath,
+    pub cfg_dir_path: CanonicalPath,
 }
 
 pub fn init() -> Config {
-    let base_dir = "synche-files";
-    let tmp_dir = ".tmp";
-
-    let (local_id, configured_dirs) = load_config_file();
-    let (base_dir_path, tmp_dir_path) = create_required_dirs(base_dir, tmp_dir);
+    let required_dirs = create_required_dirs();
+    let (local_id, configured_dirs) = load_config_file(&required_dirs.cfg_dir_path);
 
     tracing_subscriber::fmt::init();
 
-    let mut ignore_handler = IgnoreHandler::new(base_dir_path.clone());
+    let mut ignore_handler = IgnoreHandler::new(required_dirs.base_dir_path.clone());
+
     let (sync_directories, filesystem_entries) = build_entries(
         local_id,
         configured_dirs,
-        &base_dir_path,
+        &required_dirs.base_dir_path,
         &mut ignore_handler,
     )
     .unwrap();
@@ -43,19 +54,33 @@ pub fn init() -> Config {
         sync_directories,
         filesystem_entries,
         ignore_handler,
-        base_dir_path,
-        tmp_dir_path,
+        required_dirs,
     }
 }
 
-fn load_config_file() -> (Uuid, Vec<ConfiguredDirectory>) {
-    let cfg_base = ".synche";
+fn create_required_dirs() -> ConfigRequiredDirs {
+    let cfg_dir_path = CanonicalPath::new(CFG_DIR).unwrap();
+    let tmp_dir_path = CanonicalPath::new(TMP_DIR).unwrap();
+    let base_dir_path = CanonicalPath::new(BASE_DIR).unwrap();
 
-    let settings_path = PathBuf::from(cfg_base).join("settings.json");
-    let settings_json = fs::read_to_string(settings_path).expect("Failed to read config file");
-    let settings_dirs = serde_json::from_str(&settings_json).expect("Failed to parse config file");
+    fs::create_dir_all(&cfg_dir_path).unwrap();
+    fs::create_dir_all(&tmp_dir_path).unwrap();
+    fs::create_dir_all(&base_dir_path).unwrap();
 
-    let id_path = PathBuf::from(cfg_base).join("device.id");
+    ConfigRequiredDirs {
+        base_dir_path,
+        tmp_dir_path,
+        cfg_dir_path,
+    }
+}
+
+fn load_config_file(cfg_dir_path: &CanonicalPath) -> (Uuid, Vec<ConfigFileDirectory>) {
+    let cfg_file_path = cfg_dir_path.join(CFG_FILE);
+
+    let cfg_json = fs::read_to_string(cfg_file_path).expect("Failed to read config file");
+    let cfg_dirs = serde_json::from_str(&cfg_json).expect("Failed to parse config file");
+
+    let id_path = PathBuf::from(CFG_DIR).join(DEVICE_ID_FILE);
     let local_id = match fs::read_to_string(&id_path) {
         Ok(id) => Uuid::parse_str(&id).unwrap(),
         Err(_) => {
@@ -65,35 +90,33 @@ fn load_config_file() -> (Uuid, Vec<ConfiguredDirectory>) {
         }
     };
 
-    (local_id, settings_dirs)
-}
-
-fn create_required_dirs(base_dir: &str, tmp_dir: &str) -> (CanonicalPath, CanonicalPath) {
-    let tmp_dir_path = CanonicalPath::new(tmp_dir).unwrap();
-    let base_dir_path = CanonicalPath::new(base_dir).unwrap();
-
-    fs::create_dir_all(&tmp_dir_path).unwrap();
-    fs::create_dir_all(&base_dir_path).unwrap();
-
-    (base_dir_path, tmp_dir_path)
+    (local_id, cfg_dirs)
 }
 
 fn build_entries(
     local_id: Uuid,
-    configured_dirs: Vec<ConfiguredDirectory>,
+    configured_dirs: Vec<ConfigFileDirectory>,
     base_dir_path: &CanonicalPath,
     ignore_handler: &mut IgnoreHandler,
-) -> io::Result<(HashMap<String, SyncDirectory>, HashMap<RelativePath, EntryInfo>)> {
+) -> io::Result<(
+    HashMap<String, SyncDirectory>,
+    HashMap<RelativePath, EntryInfo>,
+)> {
     let mut dirs = HashMap::new();
     let mut entries = HashMap::new();
 
     for dir in configured_dirs {
-        let path = base_dir_path.join(&dir.name);
+        let path = base_dir_path.join(&dir.folder_name);
 
         fs::create_dir_all(&path).unwrap();
 
         if path.is_dir() {
-            dirs.insert(dir.name.clone(), SyncDirectory { name: dir.name });
+            dirs.insert(
+                dir.folder_name.clone(),
+                SyncDirectory {
+                    name: dir.folder_name,
+                },
+            );
             build_dir(local_id, path, base_dir_path, &mut entries, ignore_handler)?;
         }
     }
