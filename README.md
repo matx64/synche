@@ -4,7 +4,7 @@
 
 > **TL;DR:** A lightweight & local-only alternative to [Syncthing](https://syncthing.net/).
 
-**Synche** is an open source p2p **continuous file synchronization tool** for devices on the same local network. It watches, syncronizes folders & files just like Google Drive/Syncthing without the need for cloud services or external servers with **minimal configuration**.
+**Synche** is an open source p2p **continuous file synchronization tool** for devices on the same local network. It watches, syncronizes folders & files just like Google Drive/Syncthing without the need for cloud services or external servers.
 
 ## Features
 
@@ -13,12 +13,13 @@
 - **.gitignore** support
 - **Continuous file monitoring**
 - **Peer-to-peer file synchronization**
+- **Minimal Configuration**
 - **Memory safe**
 - ❌ Native GUI frontend (coming soon)
 
 ## Use Cases
 
-Synche was primarily **created for developers** to sync source code automatically between computers without the need to commit + push to a remote repo, that's why .gitignore support was a requirement. However, it can also be used for offline backup, share media and IoT.
+Synche was primarily _**created for developers**_ to sync source code automatically between computers without the need to commit + push to a remote repo, that's why .gitignore support was a requirement. However, it can also be used for offline backup, share media and IoT.
 
 ## How it works
 
