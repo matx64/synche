@@ -4,7 +4,7 @@
 
 > **TL;DR:** A lightweight & local-only alternative to [Syncthing](https://syncthing.net/).
 
-**Synche** is an open source p2p **continuous file synchronization tool** for devices on the same local network. It watches and syncronizes files just like Dropbox/Syncthing without the need for cloud services or external servers.
+**Synche** is an open source peer-to-peer **continuous file synchronization tool** for devices on the same local network. It watches and syncronizes files just like Dropbox/Syncthing without the need for cloud services or external servers.
 
 ## Features
 
@@ -12,7 +12,7 @@
 - **Automatic device discovery** on local network
 - **.gitignore** support
 - **Continuous file monitoring**
-- **Peer-to-peer file synchronization**
+- **P2P file synchronization**
 - **Minimal Configuration**
 - **Memory safe**
 - ❌ Native GUI frontend (coming soon)
@@ -26,18 +26,17 @@ Synche was primarily _**created for developers**_ to sync source code automatica
 1. Devices on the same network discover each other via mDNS Service Discovery.
 2. Each device chooses the root folders to synchronize and watches for file/folder changes.
 3. Changes are propagated to connected peers in real-time using TCP.
-4. File versoning is handled using version vectors and **conflicts are resolved by the user** to ensure data safety.
+4. Version vectors are tracked and **conflicts are resolved by the user** by creating a conflict file to ensure data safety.
 
 ## Roadmap
 
 - [x] Local network device discovery (mDNS)
-- [x] File/Folders watching and sync over TCP
-- [x] Version Vectors implementation
-- [x] File integrity checks
-- [x] Persistent filesystem state
+- [x] File watcher and Sync over TCP
+- [x] Version vectors, Conflict resolution and Integrity checks
+- [x] Sqlite Persistence
 - [x] Support .gitignore
-- [x] Testing & stability improvements before 0.0.1
-- [ ] Cross-platform 0.0.1 builds
+- [ ] Release 0.0.1-alpha
+- [ ] Advanced Network state checks
 - [ ] File blocks implementation
 - [ ] Native GUI frontend (desktop)
 
