@@ -28,6 +28,10 @@ Synche was primarily _**created for developers**_ to sync source code automatica
 3. Changes are propagated to connected peers in real-time using TCP.
 4. Version vectors are tracked and **conflicts are resolved by the user** by creating a conflict file to ensure data safety.
 
+## Try it out!
+
+Synche is currently in alpha. It is functional but may contain bugs, so avoid using it with critical files. You can try it out by following the [Installation Guide](https://github.com/matx64/synche/blob/main/INSTALL.md).
+
 ## Roadmap
 
 - [x] Local network device discovery (mDNS)

@@ -36,7 +36,7 @@ Execution command:
 
 You can now configure which folders you want to sync across devices using the `.synche/config.json` file (same location as the executable).
 
-Make sure to add the same folders in the other devices config file as well and make sure to restart Synche on every config change. Pattern to follow:
+Make sure to add the same folders in the other devices config file as well and to restart Synche on every config change. Pattern to follow:
 
 ```json
 [{ "folder_name": "myfolder" }, { "folder_name": "project001" }]
