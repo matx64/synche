@@ -59,18 +59,14 @@ pub fn init() -> Config {
 }
 
 fn create_required_dirs() -> ConfigRequiredDirs {
-    let cfg_dir_path = CanonicalPath::new(CFG_DIR).unwrap();
-    let tmp_dir_path = CanonicalPath::new(TMP_DIR).unwrap();
-    let base_dir_path = CanonicalPath::new(BASE_DIR).unwrap();
-
-    fs::create_dir_all(&cfg_dir_path).unwrap();
-    fs::create_dir_all(&tmp_dir_path).unwrap();
-    fs::create_dir_all(&base_dir_path).unwrap();
+    fs::create_dir_all(CFG_DIR).unwrap();
+    fs::create_dir_all(TMP_DIR).unwrap();
+    fs::create_dir_all(BASE_DIR).unwrap();
 
     ConfigRequiredDirs {
-        base_dir_path,
-        tmp_dir_path,
-        cfg_dir_path,
+        base_dir_path: CanonicalPath::new(BASE_DIR).unwrap(),
+        tmp_dir_path: CanonicalPath::new(TMP_DIR).unwrap(),
+        cfg_dir_path: CanonicalPath::new(CFG_DIR).unwrap(),
     }
 }
 
