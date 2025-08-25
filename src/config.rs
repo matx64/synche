@@ -77,6 +77,10 @@ fn create_required_dirs() -> ConfigRequiredDirs {
 fn load_config_file(cfg_dir_path: &CanonicalPath) -> (Uuid, Vec<ConfigFileDirectory>) {
     let cfg_file_path = cfg_dir_path.join(CFG_FILE);
 
+    if !cfg_file_path.exists() {
+        fs::write(&cfg_file_path, "[{\"folder_name\": \"myfolder\"}]").unwrap();
+    }
+
     let cfg_json = fs::read_to_string(cfg_file_path).expect("Failed to read config file");
     let cfg_dirs = serde_json::from_str(&cfg_json).expect("Failed to parse config file");
 
@@ -108,7 +112,7 @@ fn build_entries(
     for dir in configured_dirs {
         let path = base_dir_path.join(&dir.folder_name);
 
-        fs::create_dir_all(&path).unwrap();
+        fs::create_dir_all(&path)?;
 
         if path.is_dir() {
             dirs.insert(

@@ -5,3 +5,5 @@
 
 /.synche/*
 !/.synche/config.json.example
+
+.idea
