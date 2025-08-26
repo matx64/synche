@@ -39,7 +39,7 @@ Synche is currently in alpha. It is functional but may contain bugs, so avoid us
 - [x] Version vectors, Conflict resolution and Integrity checks
 - [x] Sqlite Persistence
 - [x] Support .gitignore
-- [ ] Release 0.0.1-alpha
+- [x] Release 0.0.1-alpha
 - [ ] Advanced Network state checks
 - [ ] File blocks implementation
 - [ ] Native GUI frontend (desktop)
