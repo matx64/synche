@@ -53,3 +53,7 @@ Synche is running in my laptop and desktop computers with the same `config.json`
 ```
 
 I modify the `synche-files/synche-git-repo/INSTALL.md` file in the laptop. This change must be propagated to the desktop automatically.
+
+## Feedback
+
+Your feedback is very important at this stage. If you encounter issues or unexpected behavior, please [open an issue](https://github.com/matx64/synche/issues).

@@ -2,8 +2,6 @@
 
 ---
 
-> **TL;DR:** A lightweight & local-only alternative to [Syncthing](https://syncthing.net/).
-
 **Synche** is an open source peer-to-peer **continuous file synchronization tool** for devices on the same local network. It watches and syncronizes files just like Dropbox/Syncthing without the need for cloud services or external servers.
 
 ## Features
