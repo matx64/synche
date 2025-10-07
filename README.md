@@ -13,7 +13,7 @@
 - **P2P file synchronization**
 - **Minimal Configuration**
 - **Memory safe**
-- ❌ Native GUI frontend (coming soon)
+- 🔃 Web GUI (coming soon)
 
 ## Use Cases
 
@@ -38,9 +38,9 @@ Synche is currently in alpha. It is functional but may contain bugs, so avoid us
 - [x] Sqlite Persistence
 - [x] Support .gitignore
 - [x] Release 0.0.1-alpha
-- [ ] Advanced Network state checks
+- [ ] Web GUI
 - [ ] File blocks implementation
-- [ ] Native GUI frontend (desktop)
+- [ ] Optimizations
 
 ## License
 

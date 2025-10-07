@@ -1,0 +1,16 @@
+html,
+body {
+  margin: 0;
+}
+
+body {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+header,
+footer {
+  text-align: center;
+}
