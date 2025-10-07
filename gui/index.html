@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Synche</title>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <header>
@@ -11,26 +12,70 @@
     </header>
 
     <main>
-      <div>
-        <h2>Network Devices</h2>
-        <details>
-          <summary><strong>My Device</strong></summary>
-          <p><strong>Status: </strong> Connected</p>
-          <p><strong>ID:</strong> uuidv4</p>
-          <p><strong>IP:</strong> ipv4</p>
-        </details>
+      <div id="devices-container">
+        <h2>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="lucide lucide-pc-case-icon lucide-pc-case"
+          >
+            <rect width="14" height="20" x="5" y="2" rx="2" />
+            <path d="M15 14h.01" />
+            <path d="M9 6h6" />
+            <path d="M9 10h6" />
+          </svg>
+          Network Devices
+        </h2>
 
-        <details>
-          <summary><strong>Macbook Air</strong></summary>
-          <p><strong>Status: </strong> Connected</p>
-          <p><strong>ID:</strong> uuidv4</p>
-          <p><strong>IP:</strong> ipv4</p>
-        </details>
+        <div id="devices-list">
+          <details>
+            <summary><strong>My Device</strong></summary>
+            <p><strong>Status: </strong> Connected</p>
+            <p><strong>ID:</strong> uuidv4</p>
+            <p><strong>IP:</strong> ipv4</p>
+          </details>
+
+          <details>
+            <summary><strong>Macbook Air</strong></summary>
+            <p><strong>Status: </strong> Connected</p>
+            <p><strong>ID:</strong> uuidv4</p>
+            <p><strong>IP:</strong> ipv4</p>
+          </details>
+        </div>
       </div>
 
-      <div>
-        <div>
-          <h2>Synced Folders</h2>
+      <div id="folders-container">
+        <div id="folders-header">
+          <h2>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-folder-sync-icon lucide-folder-sync"
+            >
+              <path
+                d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"
+              />
+              <path d="M12 10v4h4" />
+              <path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5" />
+              <path d="M22 22v-4h-4" />
+              <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5" />
+            </svg>
+            Synced Folders
+          </h2>
           <button>+ Add Folder</button>
         </div>
 
