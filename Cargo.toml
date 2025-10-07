@@ -4,11 +4,13 @@ version = "0.0.1-alpha"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.6"
 hex = "0.4.3"
 hostname = "0.4.1"
 ignore = "0.4.23"
 local-ip-address = "0.6.5"
 mdns-sd = "0.14.0"
+minijinja = "2.12.0"
 notify = "8.2.0"
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -16,6 +18,7 @@ serde_json = "1.0.140"
 sha2 = "0.10.9"
 socket2 = "0.6.0"
 tokio = { version = "1.44.2", features = ["full"] }
+tower-http = { version = "0.6.6", features = ["fs"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 uuid = { version = "1.17.0", features = ["serde", "v4"] }

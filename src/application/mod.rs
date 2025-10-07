@@ -1,4 +1,5 @@
 pub mod entry;
+pub mod http;
 pub mod ignore;
 pub mod network;
 pub mod peer;
