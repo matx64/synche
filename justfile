@@ -1,7 +1,7 @@
 dev:
     watchexec \
-        --watch src \
+        --watch app \
         --watch gui/index.html \
         --ignore target \
         --restart \
-        "cargo run"
+        "cargo run -p synche"

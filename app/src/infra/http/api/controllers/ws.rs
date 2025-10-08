@@ -21,4 +21,5 @@ async fn connect(
     ws.on_upgrade(|socket| handler(socket, state))
 }
 
-async fn handler(socket: WebSocket, state: Arc<ControllerState>) {}
+async fn handler(socket: WebSocket, state: Arc<ControllerState>) {
+}
