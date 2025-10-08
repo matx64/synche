@@ -6,16 +6,19 @@ use axum::{
 };
 use std::sync::Arc;
 
-struct WsState {}
+struct ControllerState {}
 
 pub fn router() -> Router {
-    let state = Arc::new(WsState {});
+    let state = Arc::new(ControllerState {});
 
     Router::new().route("/ws", any(connect)).with_state(state)
 }
 
-async fn connect(ws: WebSocketUpgrade, State(state): State<Arc<WsState>>) -> impl IntoResponse {
+async fn connect(
+    State(state): State<Arc<ControllerState>>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
     ws.on_upgrade(|socket| handler(socket, state))
 }
 
-async fn handler(socket: WebSocket, state: Arc<WsState>) {}
+async fn handler(socket: WebSocket, state: Arc<ControllerState>) {}
