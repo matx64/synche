@@ -1,32 +1,16 @@
 use crate::{
-    application::{
-        EntryManager,
-        network::{
-            TransportInterface,
-            presence::PresenceService,
-            transport::{TransportReceiver, TransportSender},
-        },
-        persistence::interface::PersistenceInterface,
-        watcher::{FileWatcher, FileWatcherInterface},
-    },
+    application::{EntryManager, persistence::interface::PersistenceInterface},
     cfg::config::Config,
-    domain::CanonicalPath,
-    infra::{
-        network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
-        watcher::notify::NotifyFileWatcher,
-    },
+    domain::{CanonicalPath, SyncDirectory},
+    infra::persistence::sqlite::SqliteDb,
 };
-use std::{io, sync::Arc};
+use std::{collections::HashMap, io, path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
-pub struct AppState<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> {
+pub struct AppState<D: PersistenceInterface> {
     pub local_id: Uuid,
     pub paths: AppStatePaths,
     pub entry_manager: Arc<EntryManager<D>>,
-    pub file_watcher: FileWatcher<W, D>,
-    pub presence_service: PresenceService,
-    pub transport_sender: TransportSender<T, D>,
-    pub transport_receiver: TransportReceiver<T, D>,
 }
 
 pub struct AppStatePaths {
@@ -36,16 +20,37 @@ pub struct AppStatePaths {
     pub cfg_file_path: CanonicalPath,
 }
 
-impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> AppState<W, T, D> {
-    pub fn new(
-        cfg: Config,
-        watch_adapter: W,
-        transport_adapter: T,
-        persistence_adapter: D,
-    ) -> Self {
-        let (local_id, sync_dirs) = cfg.init();
+impl AppState<SqliteDb> {
+    pub fn new_default(cfg: Config) -> Self {
+        let db =
+            SqliteDb::new(PathBuf::from(&cfg.cfg_dir_path).join(cfg.persistence_file)).unwrap();
+        Self::new(cfg, db)
+    }
+}
+
+impl<D: PersistenceInterface> AppState<D> {
+    pub fn new(cfg: Config, persistence_adapter: D) -> Self {
+        let (local_id, cfg_file_data) = cfg.init();
         let paths = Self::create_required_paths(&cfg).unwrap();
-        todo!()
+
+        let sync_dirs = cfg_file_data
+            .sync_directories
+            .iter()
+            .map(|d| (d.name.clone(), d.to_owned()))
+            .collect::<HashMap<String, SyncDirectory>>();
+
+        let entry_manager = Arc::new(EntryManager::new(
+            persistence_adapter,
+            local_id,
+            sync_dirs,
+            paths.base_dir_path.clone(),
+        ));
+
+        Self {
+            local_id,
+            paths,
+            entry_manager,
+        }
     }
 
     fn create_required_paths(cfg: &Config) -> io::Result<AppStatePaths> {
@@ -60,11 +65,5 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> Ap
             cfg_dir_path,
             cfg_file_path,
         })
-    }
-}
-
-impl AppState<NotifyFileWatcher, TcpTransporter, SqliteDb> {
-    pub fn new_default(cfg: Config) -> Self {
-        todo!()
     }
 }

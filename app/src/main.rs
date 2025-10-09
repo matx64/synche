@@ -1,6 +1,5 @@
 mod application;
 mod cfg;
-mod configv1;
 mod domain;
 mod infra;
 mod proto;
@@ -8,9 +7,10 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
-    let config = configv1::init();
+    let config = cfg::new_default();
 
-    let mut synchronizer = application::Synchronizer::new_default(config).await;
+    let state = cfg::AppState::new_default(config);
+    let mut synchronizer = application::Synchronizer::new_default(state).await;
 
     tokio::select! {
         res = application::http::server::run() => {res?},

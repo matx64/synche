@@ -1,4 +1,4 @@
-use crate::domain::SyncDirectoryConfigured;
+use crate::domain::{ConfigFileData, SyncDirectory};
 use std::{fs, io, path::PathBuf};
 use uuid::Uuid;
 
@@ -8,10 +8,22 @@ pub struct Config {
     pub cfg_dir_path: &'static str,
     pub cfg_file: &'static str,
     pub device_id_file: &'static str,
+    pub persistence_file: &'static str,
+}
+
+pub fn new_default() -> Config {
+    Config {
+        base_dir_path: "./synche-files",
+        tmp_dir_path: "./.tmp",
+        cfg_dir_path: "./.synche",
+        cfg_file: "config.json",
+        device_id_file: "device.id",
+        persistence_file: "db.db",
+    }
 }
 
 impl Config {
-    pub fn init(&self) -> (Uuid, Vec<SyncDirectoryConfigured>) {
+    pub fn init(&self) -> (Uuid, ConfigFileData) {
         self.create_required_dirs().unwrap();
 
         (self.init_device_id(), self.load_config_file())
@@ -37,25 +49,20 @@ impl Config {
         }
     }
 
-    fn load_config_file(&self) -> Vec<SyncDirectoryConfigured> {
+    fn load_config_file(&self) -> ConfigFileData {
         let file = PathBuf::from(self.cfg_dir_path).join(self.cfg_file);
 
         if !file.exists() {
-            fs::write(&file, "[{\"folder_name\": \"myfolder\"}]").unwrap();
+            let data = ConfigFileData {
+                sync_directories: vec![SyncDirectory {
+                    name: String::from("myfolder"),
+                }],
+            };
+            fs::write(&file, serde_json::to_string(&data).unwrap()).unwrap();
         }
 
         let cfg_json = fs::read_to_string(file).expect("Failed to read config file");
 
         serde_json::from_str(&cfg_json).expect("Failed to parse config file")
-    }
-}
-
-pub fn new_default() -> Config {
-    Config {
-        base_dir_path: "./synche-files",
-        tmp_dir_path: "./.tmp",
-        cfg_dir_path: "./.synche",
-        cfg_file: "config.json",
-        device_id_file: "device.id",
     }
 }

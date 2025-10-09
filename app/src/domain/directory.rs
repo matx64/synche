@@ -4,8 +4,3 @@ use serde::{Deserialize, Serialize};
 pub struct SyncDirectory {
     pub name: String,
 }
-
-#[derive(Debug, Deserialize)]
-pub struct SyncDirectoryConfigured {
-    pub folder_name: String,
-}

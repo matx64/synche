@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        EntryManager, PeerManager,
+        PeerManager,
         network::{
             TransportInterface,
             presence::PresenceService,
@@ -9,7 +9,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, FileWatcherInterface},
     },
-    configv1::Config,
+    cfg::AppState,
     infra::{
         network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
@@ -25,54 +25,50 @@ pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, D: Persi
     transport_receiver: TransportReceiver<T, D>,
 }
 
+impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
+    pub async fn new_default(state: AppState<SqliteDb>) -> Self {
+        let transporter = TcpTransporter::new(state.local_id).await;
+
+        Self::new(state, NotifyFileWatcher::new(), transporter).await
+    }
+}
+
 impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     Synchronizer<W, T, D>
 {
-    pub async fn new(
-        config: Config,
-        watch_adapter: W,
-        transport_adapter: T,
-        persistence_adapter: D,
-    ) -> Self {
-        let entry_manager = Arc::new(EntryManager::new(
-            persistence_adapter,
-            config.local_id,
-            config.sync_directories,
-            config.required_dirs.base_dir_path.clone(),
-        ));
-
-        entry_manager.init().await.unwrap();
+    pub async fn new(state: AppState<D>, watch_adapter: W, transport_adapter: T) -> Self {
+        state.entry_manager.init().await.unwrap();
 
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
 
         let (transport_sender, sender_channels) = TransportSender::new(
             transport_adapter.clone(),
-            entry_manager.clone(),
+            state.entry_manager.clone(),
             peer_manager.clone(),
-            config.required_dirs.base_dir_path.clone(),
+            state.paths.base_dir_path.clone(),
         );
 
         let file_watcher = FileWatcher::new(
             watch_adapter,
-            entry_manager.clone(),
+            state.entry_manager.clone(),
             sender_channels.metadata_tx.clone(),
-            config.required_dirs.base_dir_path.clone(),
+            state.paths.base_dir_path.clone(),
         );
 
         let presence_service = PresenceService::new(
-            config.local_id,
+            state.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
         );
 
         let transport_receiver = TransportReceiver::new(
             transport_adapter,
-            entry_manager,
+            state.entry_manager,
             peer_manager,
             sender_channels,
-            config.required_dirs.base_dir_path,
-            config.required_dirs.tmp_dir_path,
+            state.paths.base_dir_path,
+            state.paths.tmp_dir_path,
         );
 
         Self {
@@ -142,20 +138,5 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
         self.presence_service.shutdown();
         tracing::info!("✅ Synche gracefully shutdown");
         Ok(())
-    }
-}
-
-impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
-    pub async fn new_default(config: Config) -> Self {
-        let transporter = TcpTransporter::new(config.local_id).await;
-        let db_path = config.required_dirs.cfg_dir_path.join("db.db");
-
-        Self::new(
-            config,
-            NotifyFileWatcher::new(),
-            transporter,
-            SqliteDb::new(db_path).unwrap(),
-        )
-        .await
     }
 }
