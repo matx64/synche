@@ -2,6 +2,8 @@
 
 This document explains how to build and run **Synche** from source. As the project is still in alpha, there's no pre-built binaries.
 
+> ⚠️ **ALWAYS use a Release [(latest)](https://github.com/matx64/synche/releases/latest) and its INSTALL.md file, `main` branch is currently being used for development.**
+
 ## Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) (version 1.80+ recommended)
@@ -17,10 +19,10 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblock /usr/libexec/mdns
 
 ## Build
 
-```sh
-git clone https://github.com/matx64/synche.git
-cd synche
+Download the [latest release](https://github.com/matx64/synche/releases/latest) and extract its contents.
 
+```sh
+cd release-folder
 cargo build --release
 ```
 
@@ -39,7 +41,16 @@ You can now configure which folders you want to sync across devices using the `.
 Make sure to add the same folders in the other devices config file as well and to restart Synche on every config change. Pattern to follow:
 
 ```json
-[{ "folder_name": "myfolder" }, { "folder_name": "project001" }]
+{
+  "sync_directories": [
+    {
+      "name": "myfolder"
+    },
+    {
+      "name": "project001"
+    }
+  ]
+}
 ```
 
 Synced entries will reside in `synche-files` folder.
@@ -49,7 +60,16 @@ Synced entries will reside in `synche-files` folder.
 Synche is running in my laptop and desktop computers with the same `config.json` file:
 
 ```json
-[{ "folder_name": "synche-git-repo" }]
+{
+  "sync_directories": [
+    {
+      "name": "synche-git-repo"
+    },
+    {
+      "name": "project001"
+    }
+  ]
+}
 ```
 
 I modify the `synche-files/synche-git-repo/INSTALL.md` file in the laptop. This change must be propagated to the desktop automatically.

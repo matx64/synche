@@ -28,7 +28,7 @@ Synche was primarily _**created for developers**_ to sync source code automatica
 
 ## Try it out!
 
-Synche is currently in alpha. It is functional but may contain bugs, so avoid using it with critical files. You can try it out by following the [Installation Guide](https://github.com/matx64/synche/blob/main/INSTALL.md).
+Synche is currently in alpha. It is functional but may contain bugs, so avoid using it with critical files. You can try it out by following the **Installation Guide** from the [Latest Release](https://github.com/matx64/synche/releases/latest).
 
 ## Roadmap
 
