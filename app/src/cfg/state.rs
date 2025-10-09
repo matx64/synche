@@ -16,17 +16,17 @@ use crate::{
         watcher::notify::NotifyFileWatcher,
     },
 };
-use std::{fs, io, path::PathBuf, sync::Arc};
+use std::{io, sync::Arc};
 use uuid::Uuid;
 
 pub struct AppState<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> {
     pub local_id: Uuid,
+    pub paths: AppStatePaths,
     pub entry_manager: Arc<EntryManager<D>>,
     pub file_watcher: FileWatcher<W, D>,
     pub presence_service: PresenceService,
     pub transport_sender: TransportSender<T, D>,
     pub transport_receiver: TransportReceiver<T, D>,
-    pub paths: AppStatePaths,
 }
 
 pub struct AppStatePaths {
@@ -45,15 +45,14 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> Ap
     ) -> Self {
         let (local_id, sync_dirs) = cfg.init();
         let paths = Self::create_required_paths(&cfg).unwrap();
-
         todo!()
     }
 
-    fn create_required_paths(settings: &Config) -> io::Result<AppStatePaths> {
-        let base_dir_path = CanonicalPath::new(settings.base_dir_path)?;
-        let tmp_dir_path = CanonicalPath::new(settings.tmp_dir_path)?;
-        let cfg_dir_path = CanonicalPath::new(settings.cfg_dir_path)?;
-        let cfg_file_path = CanonicalPath::from_canonical(&cfg_dir_path).join(settings.cfg_file);
+    fn create_required_paths(cfg: &Config) -> io::Result<AppStatePaths> {
+        let base_dir_path = CanonicalPath::new(cfg.base_dir_path)?;
+        let tmp_dir_path = CanonicalPath::new(cfg.tmp_dir_path)?;
+        let cfg_dir_path = CanonicalPath::new(cfg.cfg_dir_path)?;
+        let cfg_file_path = CanonicalPath::from_canonical(&cfg_dir_path).join(cfg.cfg_file);
 
         Ok(AppStatePaths {
             base_dir_path,
@@ -65,7 +64,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> Ap
 }
 
 impl AppState<NotifyFileWatcher, TcpTransporter, SqliteDb> {
-    pub fn new_default(settings: Config) -> Self {
+    pub fn new_default(cfg: Config) -> Self {
         todo!()
     }
 }

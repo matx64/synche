@@ -30,7 +30,6 @@ impl<D: PersistenceInterface> EntryManager<D> {
         db: D,
         local_id: Uuid,
         sync_directories: HashMap<String, SyncDirectory>,
-        ignore_handler: IgnoreHandler,
         filesystem_entries: HashMap<RelativePath, EntryInfo>,
         base_dir_path: CanonicalPath,
     ) -> Self {
@@ -39,7 +38,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             db,
             local_id,
             sync_directories: RwLock::new(sync_directories),
-            ignore_handler: RwLock::new(ignore_handler),
+            ignore_handler: RwLock::new(IgnoreHandler::new(base_dir_path.clone())),
             base_dir_path,
         }
     }
