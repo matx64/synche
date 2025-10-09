@@ -1,5 +1,5 @@
 mod application;
-mod config;
+mod cfg;
 mod configv1;
 mod domain;
 mod infra;

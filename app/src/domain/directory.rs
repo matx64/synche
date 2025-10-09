@@ -6,6 +6,6 @@ pub struct SyncDirectory {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ConfigFileDirectory {
+pub struct SyncDirectoryConfigured {
     pub folder_name: String,
 }

@@ -4,8 +4,8 @@ pub mod path;
 pub mod peer;
 pub mod watcher;
 
-pub use directory::ConfigFileDirectory;
 pub use directory::SyncDirectory;
+pub use directory::SyncDirectoryConfigured;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;
 pub use path::CanonicalPath;

@@ -1,7 +1,7 @@
 use crate::{
     application::IgnoreHandler,
     domain::{
-        CanonicalPath, ConfigFileDirectory, EntryInfo, EntryKind, RelativePath, SyncDirectory,
+        CanonicalPath, EntryInfo, EntryKind, RelativePath, SyncDirectory, SyncDirectoryConfigured,
     },
     utils::fs::{compute_hash, is_ds_store},
 };
@@ -70,7 +70,7 @@ fn create_required_dirs() -> ConfigRequiredDirs {
     }
 }
 
-fn load_config_file(cfg_dir_path: &CanonicalPath) -> (Uuid, Vec<ConfigFileDirectory>) {
+fn load_config_file(cfg_dir_path: &CanonicalPath) -> (Uuid, Vec<SyncDirectoryConfigured>) {
     let cfg_file_path = cfg_dir_path.join(CFG_FILE);
 
     if !cfg_file_path.exists() {
@@ -95,7 +95,7 @@ fn load_config_file(cfg_dir_path: &CanonicalPath) -> (Uuid, Vec<ConfigFileDirect
 
 fn build_entries(
     local_id: Uuid,
-    configured_dirs: Vec<ConfigFileDirectory>,
+    configured_dirs: Vec<SyncDirectoryConfigured>,
     base_dir_path: &CanonicalPath,
     ignore_handler: &mut IgnoreHandler,
 ) -> io::Result<(
