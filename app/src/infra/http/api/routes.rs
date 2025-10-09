@@ -3,7 +3,7 @@ use axum::Router;
 
 pub fn router() -> Router {
     let routes = Router::new()
-        .merge(controllers::ws::router())
+        .merge(controllers::sse::router())
         .merge(controllers::sync::router());
 
     Router::new().nest("/api", routes)
