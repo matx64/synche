@@ -28,7 +28,7 @@ pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, D: Persi
 impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
     Synchronizer<W, T, D>
 {
-    pub fn new(
+    pub async fn new(
         config: Config,
         watch_adapter: W,
         transport_adapter: T,
@@ -38,9 +38,11 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             persistence_adapter,
             config.local_id,
             config.sync_directories,
-            config.filesystem_entries,
             config.required_dirs.base_dir_path.clone(),
         ));
+
+        entry_manager.init().await.unwrap();
+
         let peer_manager = Arc::new(PeerManager::new());
         let transport_adapter = Arc::new(transport_adapter);
 
@@ -154,5 +156,6 @@ impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
             transporter,
             SqliteDb::new(db_path).unwrap(),
         )
+        .await
     }
 }

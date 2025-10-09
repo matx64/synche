@@ -4,9 +4,10 @@ use crate::{
         CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, entry::VersionCmp,
     },
     proto::transport::PeerHandshakeData,
+    utils::fs::{compute_hash, is_ds_store},
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -16,6 +17,7 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 pub struct EntryManager<D: PersistenceInterface> {
     db: D,
@@ -30,10 +32,8 @@ impl<D: PersistenceInterface> EntryManager<D> {
         db: D,
         local_id: Uuid,
         sync_directories: HashMap<String, SyncDirectory>,
-        filesystem_entries: HashMap<RelativePath, EntryInfo>,
         base_dir_path: CanonicalPath,
     ) -> Self {
-        Self::build_db(&db, local_id, filesystem_entries);
         Self {
             db,
             local_id,
@@ -43,8 +43,102 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
     }
 
-    fn build_db(db: &D, local_id: Uuid, filesystem_entries: HashMap<RelativePath, EntryInfo>) {
-        let mut entries: HashMap<RelativePath, EntryInfo> = db
+    pub async fn init(&self) -> io::Result<()> {
+        let mut filesystem_entries = HashMap::new();
+
+        for dir in self.sync_directories.read().await.values() {
+            let path = self.base_dir_path.join(&dir.name);
+
+            fs::create_dir_all(&path).await?;
+
+            filesystem_entries.extend(self.build_dir(path).await?);
+        }
+
+        self.build_db(filesystem_entries);
+        Ok(())
+    }
+
+    pub async fn build_dir(
+        &self,
+        dir_path: CanonicalPath,
+    ) -> io::Result<HashMap<RelativePath, EntryInfo>> {
+        let mut dir_entries = HashMap::new();
+
+        let mut queue = VecDeque::from([dir_path]);
+        while let Some(dir_path) = queue.pop_front() {
+            let (entries, child_dirs) = self.walk_dir(dir_path).await?;
+            dir_entries.extend(entries);
+            queue.extend(child_dirs);
+        }
+
+        Ok(dir_entries)
+    }
+
+    pub async fn walk_dir(
+        &self,
+        dir_path: CanonicalPath,
+    ) -> io::Result<(HashMap<RelativePath, EntryInfo>, Vec<CanonicalPath>)> {
+        let mut dir_entries = HashMap::new();
+        let mut dir_child_dirs: Vec<CanonicalPath> = Vec::new();
+
+        let gitignore_path = dir_path.join(".gitignore");
+        if gitignore_path.exists() {
+            self.ignore_handler
+                .write()
+                .await
+                .insert_gitignore(&gitignore_path)?;
+        }
+
+        for entry in WalkDir::new(&dir_path).into_iter().filter_map(Result::ok) {
+            let path = CanonicalPath::new(entry.path())?;
+
+            if path == dir_path {
+                continue;
+            }
+
+            let relative_path = RelativePath::new(&path, &self.base_dir_path);
+
+            {
+                if self
+                    .ignore_handler
+                    .read()
+                    .await
+                    .is_ignored(&path, &relative_path)
+                {
+                    continue;
+                }
+            }
+
+            if path.is_file() && !is_ds_store(&path) {
+                dir_entries.insert(
+                    relative_path.clone(),
+                    EntryInfo {
+                        name: relative_path,
+                        kind: EntryKind::File,
+                        hash: Some(compute_hash(&path)?),
+                        version: HashMap::from([(self.local_id, 0)]),
+                    },
+                );
+            } else if path.is_dir() {
+                dir_entries.insert(
+                    relative_path.clone(),
+                    EntryInfo {
+                        name: relative_path,
+                        kind: EntryKind::Directory,
+                        hash: None,
+                        version: HashMap::from([(self.local_id, 0)]),
+                    },
+                );
+                dir_child_dirs.push(path);
+            }
+        }
+
+        Ok((dir_entries, dir_child_dirs))
+    }
+
+    fn build_db(&self, filesystem_entries: HashMap<RelativePath, EntryInfo>) {
+        let mut entries: HashMap<RelativePath, EntryInfo> = self
+            .db
             .list_all_entries()
             .unwrap()
             .into_iter()
@@ -54,19 +148,20 @@ impl<D: PersistenceInterface> EntryManager<D> {
         for (name, entry) in &mut entries {
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
-                    *entry.version.entry(local_id).or_insert(0) += 1;
+                    *entry.version.entry(self.local_id).or_insert(0) += 1;
 
-                    db.insert_or_replace_entry(&EntryInfo {
-                        name: entry.name.clone(),
-                        version: entry.version.clone(),
-                        kind: fs_entry.kind.clone(),
-                        hash: fs_entry.hash.clone(),
-                    })
-                    .unwrap();
+                    self.db
+                        .insert_or_replace_entry(&EntryInfo {
+                            name: entry.name.clone(),
+                            version: entry.version.clone(),
+                            kind: fs_entry.kind.clone(),
+                            hash: fs_entry.hash.clone(),
+                        })
+                        .unwrap();
                 }
 
                 None => {
-                    db.delete_entry(&entry.name).unwrap();
+                    self.db.delete_entry(&entry.name).unwrap();
                 }
 
                 _ => {}
@@ -75,7 +170,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         for (name, fs_entry) in filesystem_entries {
             if !entries.contains_key(&name) {
-                db.insert_or_replace_entry(&fs_entry).unwrap();
+                self.db.insert_or_replace_entry(&fs_entry).unwrap();
             }
         }
     }
