@@ -9,7 +9,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, FileWatcherInterface},
     },
-    config::Config,
+    configv1::Config,
     infra::{
         network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,

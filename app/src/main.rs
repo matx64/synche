@@ -1,5 +1,6 @@
 mod application;
 mod config;
+mod configv1;
 mod domain;
 mod infra;
 mod proto;
@@ -7,7 +8,7 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
-    let config = config::init();
+    let config = configv1::init();
 
     let mut synchronizer = application::Synchronizer::new_default(config).await;
 
