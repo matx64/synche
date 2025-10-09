@@ -2,7 +2,7 @@ use crate::infra::http::{api, gui};
 use axum::Router;
 use tokio::net::TcpListener;
 
-pub async fn start_server() -> tokio::io::Result<()> {
+pub async fn run() -> tokio::io::Result<()> {
     let engine = gui::engine::init();
 
     let service = Router::new()

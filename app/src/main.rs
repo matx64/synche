@@ -12,7 +12,7 @@ async fn main() -> tokio::io::Result<()> {
     let mut synchronizer = application::Synchronizer::new_default(config).await;
 
     tokio::select! {
-        res = application::http::start_server() => {res?},
+        res = application::http::server::run() => {res?},
         res = synchronizer.run() => {res?}
     };
     Ok(())
