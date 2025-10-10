@@ -5,15 +5,14 @@ use crate::{
         watcher::{FileWatcherInterface, buffer::WatcherBuffer},
     },
     domain::{
-        CanonicalPath, EntryInfo, EntryKind, RelativePath,
+        CanonicalPath, EntryInfo, EntryKind,
         watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
     },
-    utils::fs::{compute_hash, is_ds_store},
+    utils::fs::compute_hash,
 };
-use std::{collections::HashSet, io, sync::Arc};
+use std::{io, sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
-use walkdir::WalkDir;
 
 pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     watch_adapter: T,
@@ -114,57 +113,12 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     async fn handle_create_dir(&self, path: WatcherEventPath) {
-        let mut stack = vec![path];
-        let mut visited = HashSet::new();
+        let dir_entries = self.entry_manager.build_dir(path.canonical).await.unwrap();
 
-        while let Some(dir_path) = stack.pop() {
-            if !visited.insert(dir_path.relative.clone()) {
-                continue;
-            }
-
-            if self.entry_manager.get_entry(&dir_path.relative).is_some() {
-                continue;
-            }
-
-            let dir =
-                self.entry_manager
-                    .entry_created(&dir_path.relative, EntryKind::Directory, None);
-
-            self.send_metadata(dir).await;
-
-            let gitignore_path = dir_path.canonical.join(".gitignore");
-            if gitignore_path.exists() {
-                self.entry_manager.insert_gitignore(&gitignore_path).await;
-            }
-
-            for item in WalkDir::new(&dir_path.canonical)
-                .min_depth(1)
-                .max_depth(1)
-                .into_iter()
-                .filter_map(Result::ok)
-            {
-                let canonical = CanonicalPath::new(item.path()).unwrap();
-                let relative = RelativePath::new(&canonical, &self.base_dir_path);
-
-                if is_ds_store(&canonical)
-                    || self.entry_manager.is_ignored(&canonical, &relative).await
-                {
-                    continue;
-                }
-
-                if canonical.is_file() {
-                    self.handle_create_file(WatcherEventPath {
-                        canonical,
-                        relative,
-                    })
-                    .await;
-                } else if canonical.is_dir() {
-                    stack.push(WatcherEventPath {
-                        canonical,
-                        relative,
-                    });
-                }
-            }
+        for (relative, info) in dir_entries {
+            self.entry_manager
+                .entry_created(&relative, info.kind.clone(), info.hash.clone());
+            self.send_metadata(info).await;
         }
     }
 

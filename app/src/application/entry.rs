@@ -83,53 +83,45 @@ impl<D: PersistenceInterface> EntryManager<D> {
 
         let gitignore_path = dir_path.join(".gitignore");
         if gitignore_path.exists() {
-            self.ignore_handler
-                .write()
-                .await
-                .insert_gitignore(&gitignore_path)?;
+            self.insert_gitignore(&gitignore_path).await;
         }
 
-        for entry in WalkDir::new(&dir_path).into_iter().filter_map(Result::ok) {
-            let path = CanonicalPath::new(entry.path())?;
+        for entry in WalkDir::new(&dir_path)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
+            let canonical = CanonicalPath::new(entry.path())?;
+            let relative = RelativePath::new(&canonical, &self.base_dir_path);
 
-            if path == dir_path {
+            if self.is_ignored(&canonical, &relative).await {
                 continue;
             }
 
-            let relative_path = RelativePath::new(&path, &self.base_dir_path);
-
-            {
-                if self
-                    .ignore_handler
-                    .read()
-                    .await
-                    .is_ignored(&path, &relative_path)
-                {
-                    continue;
-                }
-            }
-
-            if path.is_file() && !is_ds_store(&path) {
+            if canonical.is_file() && !is_ds_store(&canonical) {
                 dir_entries.insert(
-                    relative_path.clone(),
+                    relative.clone(),
                     EntryInfo {
-                        name: relative_path,
+                        name: relative,
                         kind: EntryKind::File,
-                        hash: Some(compute_hash(&path)?),
+                        hash: Some(compute_hash(&canonical)?),
                         version: HashMap::from([(self.local_id, 0)]),
                     },
                 );
-            } else if path.is_dir() {
+            } else if canonical.is_dir() {
                 dir_entries.insert(
-                    relative_path.clone(),
+                    relative.clone(),
                     EntryInfo {
-                        name: relative_path,
+                        name: relative,
                         kind: EntryKind::Directory,
                         hash: None,
                         version: HashMap::from([(self.local_id, 0)]),
                     },
                 );
-                dir_child_dirs.push(path);
+
+                if canonical != dir_path {
+                    dir_child_dirs.push(canonical);
+                }
             }
         }
 
@@ -137,7 +129,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
     }
 
     fn build_db(&self, filesystem_entries: HashMap<RelativePath, EntryInfo>) {
-        let mut entries: HashMap<RelativePath, EntryInfo> = self
+        let mut db_entries: HashMap<RelativePath, EntryInfo> = self
             .db
             .list_all_entries()
             .unwrap()
@@ -145,7 +137,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
             .map(|f| (f.name.clone(), f))
             .collect();
 
-        for (name, entry) in &mut entries {
+        for (name, entry) in &mut db_entries {
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
                     *entry.version.entry(self.local_id).or_insert(0) += 1;
@@ -169,7 +161,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
         }
 
         for (name, fs_entry) in filesystem_entries {
-            if !entries.contains_key(&name) {
+            if !db_entries.contains_key(&name) {
                 self.db.insert_or_replace_entry(&fs_entry).unwrap();
             }
         }
