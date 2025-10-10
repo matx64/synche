@@ -1,8 +1,6 @@
 use crate::{
     application::{entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface},
-    domain::{
-        CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, entry::VersionCmp,
-    },
+    domain::{CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, VersionCmp},
     proto::transport::PeerHandshakeData,
     utils::fs::{compute_hash, is_ds_store},
 };

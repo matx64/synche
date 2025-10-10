@@ -1,14 +1,18 @@
 mod config;
-pub mod directory;
-pub mod entry;
-pub mod path;
-pub mod peer;
-pub mod watcher;
+mod directory;
+mod entry;
+mod fs;
+mod peer;
 
 pub use config::ConfigFileData;
 pub use directory::SyncDirectory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;
-pub use path::CanonicalPath;
-pub use path::RelativePath;
+pub use entry::VersionCmp;
+pub use entry::VersionVector;
+pub use fs::CanonicalPath;
+pub use fs::RelativePath;
+pub use fs::WatcherEvent;
+pub use fs::WatcherEventKind;
+pub use fs::WatcherEventPath;
 pub use peer::Peer;

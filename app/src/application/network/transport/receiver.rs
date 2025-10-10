@@ -7,7 +7,7 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{CanonicalPath, EntryInfo, Peer, entry::VersionCmp},
+    domain::{CanonicalPath, EntryInfo, Peer, VersionCmp},
     proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
 use std::{net::IpAddr, sync::Arc};

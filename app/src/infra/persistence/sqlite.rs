@@ -2,7 +2,7 @@ use crate::{
     application::persistence::interface::{
         PersistenceError, PersistenceInterface, PersistenceResult,
     },
-    domain::{EntryInfo, EntryKind, RelativePath, entry::VersionVector},
+    domain::{EntryInfo, EntryKind, RelativePath, VersionVector},
 };
 use rusqlite::{Connection, ToSql, params, types::FromSql};
 use std::path::Path;

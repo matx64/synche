@@ -1,4 +1,4 @@
-use crate::domain::{RelativePath, watcher::WatcherEvent};
+use crate::domain::{RelativePath, WatcherEvent};
 use std::{
     collections::HashMap,
     sync::Arc,

@@ -1,4 +1,4 @@
-use crate::domain::{CanonicalPath, watcher::WatcherEvent};
+use crate::domain::{CanonicalPath, WatcherEvent};
 use tokio::io;
 
 pub trait FileWatcherInterface {

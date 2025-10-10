@@ -5,8 +5,7 @@ use crate::{
         watcher::{FileWatcherInterface, buffer::WatcherBuffer},
     },
     domain::{
-        CanonicalPath, EntryInfo, EntryKind,
-        watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
+        CanonicalPath, EntryInfo, EntryKind, WatcherEvent, WatcherEventKind, WatcherEventPath,
     },
     utils::fs::compute_hash,
 };

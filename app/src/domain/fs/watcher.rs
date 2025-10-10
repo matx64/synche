@@ -1,4 +1,4 @@
-use crate::domain::{CanonicalPath, RelativePath};
+use super::{CanonicalPath, RelativePath};
 
 #[derive(Debug, Clone)]
 pub struct WatcherEvent {

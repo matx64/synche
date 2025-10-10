@@ -1,9 +1,6 @@
 use crate::{
     application::watcher::FileWatcherInterface,
-    domain::{
-        CanonicalPath, RelativePath,
-        watcher::{WatcherEvent, WatcherEventKind, WatcherEventPath},
-    },
+    domain::{CanonicalPath, RelativePath, WatcherEvent, WatcherEventKind, WatcherEventPath},
     utils::fs::is_ds_store,
 };
 use notify::{
