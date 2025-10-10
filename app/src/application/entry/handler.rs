@@ -1,5 +1,5 @@
 use crate::{
-    application::{IgnoreHandler, persistence::interface::PersistenceInterface},
+    application::{entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface},
     domain::{
         CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, entry::VersionCmp,
     },
