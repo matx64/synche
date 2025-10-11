@@ -12,6 +12,8 @@ pub struct Config {
 }
 
 pub fn new_default() -> Config {
+    tracing_subscriber::fmt::init();
+
     Config {
         base_dir_path: "./synche-files",
         tmp_dir_path: "./.tmp",
