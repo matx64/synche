@@ -42,17 +42,7 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
-        let dirs = self
-            .entry_manager
-            .list_dirs()
-            .await
-            .keys()
-            .map(|dir| self.base_dir_path.join(dir))
-            .collect();
-
-        self.watch_adapter
-            .watch(self.base_dir_path.clone(), dirs)
-            .await?;
+        self.set_watch_dirs().await?;
 
         loop {
             tokio::select! {
@@ -75,6 +65,24 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                 }
             }
         }
+    }
+
+    async fn set_watch_dirs(&mut self) -> io::Result<()> {
+        let dirs = self
+            .entry_manager
+            .list_dirs()
+            .await
+            .keys()
+            .map(|dir| self.base_dir_path.join(dir))
+            .collect();
+
+        self.watch_adapter
+            .watch(self.base_dir_path.clone(), dirs)
+            .await
+    }
+
+    fn add_sync_dir(&mut self, dir_path: CanonicalPath) {
+        self.watch_adapter.add_sync_dir(dir_path);
     }
 
     async fn handle_create_or_modify(&self, path: WatcherEventPath) {

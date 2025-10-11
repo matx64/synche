@@ -58,6 +58,10 @@ impl FileWatcherInterface for NotifyFileWatcher {
         Ok(())
     }
 
+    fn add_sync_dir(&mut self, dir_path: CanonicalPath) {
+        self.sync_directories.insert(dir_path);
+    }
+
     async fn next(&mut self) -> Option<WatcherEvent> {
         while let Some(res) = self.notify_rx.recv().await {
             match res {

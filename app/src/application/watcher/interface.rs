@@ -7,5 +7,8 @@ pub trait FileWatcherInterface {
         base_dir_path: CanonicalPath,
         sync_directories: Vec<CanonicalPath>,
     ) -> io::Result<()>;
+
     async fn next(&mut self) -> Option<WatcherEvent>;
+
+    fn add_sync_dir(&mut self, dir_path: CanonicalPath);
 }
