@@ -1,4 +1,4 @@
-mod handler;
 mod ignore;
+mod manager;
 
-pub use handler::EntryManager;
+pub use manager::EntryManager;

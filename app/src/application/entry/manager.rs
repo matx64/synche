@@ -174,9 +174,9 @@ impl<D: PersistenceInterface> EntryManager<D> {
         let path = PathBuf::from(self.base_dir_path.as_ref()).join(name);
         fs::create_dir_all(&path).await?;
 
-        let path = CanonicalPath::from_canonical(path);
+        let canonical = CanonicalPath::from_canonical(path);
 
-        let dir_entries = self.build_dir(path).await?;
+        let dir_entries = self.build_dir(canonical).await?;
 
         for (_, info) in dir_entries {
             self.insert_entry(info);

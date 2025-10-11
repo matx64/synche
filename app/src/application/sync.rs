@@ -1,13 +1,13 @@
 use crate::{
     application::{
-        PeerManager,
+        PeerManager, http,
         network::{
             TransportInterface,
             presence::PresenceService,
             transport::{TransportReceiver, TransportSender},
         },
         persistence::interface::PersistenceInterface,
-        watcher::{FileWatcher, FileWatcherInterface},
+        watcher::{FileWatcher, interface::FileWatcherInterface},
     },
     cfg::AppState,
     infra::{
@@ -49,7 +49,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
             state.paths.base_dir_path.clone(),
         );
 
-        let file_watcher = FileWatcher::new(
+        let (file_watcher, dirs_tx) = FileWatcher::new(
             watch_adapter,
             state.entry_manager.clone(),
             sender_channels.metadata_tx.clone(),
@@ -126,6 +126,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
 
     async fn _run(&mut self) -> io::Result<()> {
         tokio::try_join!(
+            http::server::run(),
             self.transport_receiver.run(),
             self.transport_sender.run(),
             self.presence_service.run(),

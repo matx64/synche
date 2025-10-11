@@ -1,5 +1,5 @@
 use crate::{
-    application::watcher::FileWatcherInterface,
+    application::watcher::interface::FileWatcherInterface,
     domain::{CanonicalPath, RelativePath, WatcherEvent, WatcherEventKind, WatcherEventPath},
     utils::fs::is_ds_store,
 };
@@ -60,6 +60,10 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
     fn add_sync_dir(&mut self, dir_path: CanonicalPath) {
         self.sync_directories.insert(dir_path);
+    }
+
+    fn remove_sync_dir(&mut self, dir_path: CanonicalPath) {
+        self.sync_directories.remove(&dir_path);
     }
 
     async fn next(&mut self) -> Option<WatcherEvent> {

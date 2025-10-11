@@ -2,7 +2,13 @@ use crate::{
     application::{
         EntryManager,
         persistence::interface::PersistenceInterface,
-        watcher::{FileWatcherInterface, buffer::WatcherBuffer},
+        watcher::{
+            buffer::WatcherBuffer,
+            interface::{
+                FileWatcherInterface, FileWatcherSyncDirectoryUpdate,
+                FileWatcherSyncDirectoryUpdateKind,
+            },
+        },
     },
     domain::{
         CanonicalPath, EntryInfo, EntryKind, WatcherEvent, WatcherEventKind, WatcherEventPath,
@@ -18,6 +24,7 @@ pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     entry_manager: Arc<EntryManager<D>>,
     buffer: WatcherBuffer,
     watch_rx: Receiver<WatcherEvent>,
+    dirs_updates_rx: Receiver<FileWatcherSyncDirectoryUpdate>,
     metadata_tx: Sender<EntryInfo>,
     base_dir_path: CanonicalPath,
 }
@@ -28,17 +35,22 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
         entry_manager: Arc<EntryManager<D>>,
         metadata_tx: Sender<EntryInfo>,
         base_dir_path: CanonicalPath,
-    ) -> Self {
+    ) -> (Self, Sender<FileWatcherSyncDirectoryUpdate>) {
         let (watch_tx, watch_rx) = mpsc::channel(1000);
+        let (dirs_tx, dirs_rx) = mpsc::channel(16);
 
-        Self {
-            watch_adapter,
-            entry_manager,
-            watch_rx,
-            metadata_tx,
-            base_dir_path,
-            buffer: WatcherBuffer::new(watch_tx),
-        }
+        (
+            Self {
+                watch_adapter,
+                entry_manager,
+                watch_rx,
+                dirs_updates_rx: dirs_rx,
+                metadata_tx,
+                base_dir_path,
+                buffer: WatcherBuffer::new(watch_tx),
+            },
+            dirs_tx,
+        )
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
@@ -63,6 +75,13 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
                         }
                     }
                 }
+
+                Some(event) = self.dirs_updates_rx.recv() => {
+                    match event.kind {
+                        FileWatcherSyncDirectoryUpdateKind::Added => self.add_sync_dir(event.path),
+                        FileWatcherSyncDirectoryUpdateKind::Removed => self.remove_sync_dir(event.path),
+                    }
+                }
             }
         }
     }
@@ -83,6 +102,10 @@ impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
 
     fn add_sync_dir(&mut self, dir_path: CanonicalPath) {
         self.watch_adapter.add_sync_dir(dir_path);
+    }
+
+    fn remove_sync_dir(&mut self, dir_path: CanonicalPath) {
+        self.watch_adapter.remove_sync_dir(dir_path);
     }
 
     async fn handle_create_or_modify(&self, path: WatcherEventPath) {
