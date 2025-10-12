@@ -170,13 +170,13 @@ impl<D: PersistenceInterface> EntryManager<D> {
         self.sync_directories.read().await.contains_key(name)
     }
 
-    pub async fn add_sync_dir(&self, name: &str) -> io::Result<()> {
+    pub async fn add_sync_dir(&self, name: &str) -> io::Result<CanonicalPath> {
         let path = PathBuf::from(self.base_dir_path.as_ref()).join(name);
         fs::create_dir_all(&path).await?;
 
         let canonical = CanonicalPath::from_canonical(path);
 
-        let dir_entries = self.build_dir(canonical).await?;
+        let dir_entries = self.build_dir(canonical.clone()).await?;
 
         for (_, info) in dir_entries {
             self.insert_entry(info);
@@ -188,7 +188,7 @@ impl<D: PersistenceInterface> EntryManager<D> {
                 name: name.to_string(),
             },
         );
-        Ok(())
+        Ok(canonical)
     }
 
     pub async fn list_dirs(&self) -> HashMap<String, SyncDirectory> {
