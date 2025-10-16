@@ -14,3 +14,8 @@ async fn main() -> tokio::io::Result<()> {
 
     synchronizer.run().await
 }
+
+#[cfg(test)]
+mod tests {
+    pub mod sqlite;
+}
