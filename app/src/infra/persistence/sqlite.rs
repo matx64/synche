@@ -2,137 +2,124 @@ use crate::{
     application::persistence::interface::{
         PersistenceError, PersistenceInterface, PersistenceResult,
     },
-    domain::{EntryInfo, EntryKind, RelativePath, VersionVector},
+    domain::{EntryInfo, EntryKind},
 };
-use rusqlite::{Connection, ToSql, params, types::FromSql};
+use sqlx::{Error, Executor, FromRow, Pool, Row, Sqlite, SqlitePool, sqlite::SqliteRow};
 use std::path::Path;
 
 pub struct SqliteDb {
-    conn: Connection,
+    pool: Pool<Sqlite>,
 }
 
 impl SqliteDb {
-    pub fn new<P: AsRef<Path>>(path: P) -> rusqlite::Result<Self> {
-        let conn = Connection::open(path)?;
+    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        let path = path.as_ref().to_str().unwrap();
 
-        conn.execute(
+        let uri = if path.starts_with("sqlite:") {
+            path.to_string()
+        } else {
+            format!("sqlite://{}", path)
+        };
+
+        let pool = SqlitePool::connect(&uri).await?;
+
+        pool.execute(
             "CREATE TABLE IF NOT EXISTS entries (
                 name TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
                 hash TEXT,
                 version TEXT NOT NULL
             )",
-            [],
-        )?;
+        )
+        .await?;
 
-        Ok(Self { conn })
+        Ok(Self { pool })
     }
 }
 
 impl PersistenceInterface for SqliteDb {
-    fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
+    async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
         let version_json = serde_json::to_string(&entry.version)?;
 
-        self.conn.execute(
-            "INSERT OR REPLACE INTO entries (name, kind, hash, version)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![entry.name, entry.kind, entry.hash, version_json],
-        )?;
+        sqlx::query(
+            "INSERT OR REPLACE INTO entries (name, kind, hash, version) 
+                VALUES (?, ?, ?, ?)",
+        )
+        .bind(&*entry.name)
+        .bind(entry.kind.to_string())
+        .bind(entry.hash.clone())
+        .bind(version_json)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name, kind, hash, version
-             FROM entries
-             WHERE name = ?1",
-        )?;
-        let mut rows = stmt.query(params![name])?;
+    async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+        let entry = sqlx::query_as("SELECT * FROM entries WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        if let Some(row) = rows.next()? {
-            let name: String = row.get(0)?;
-            let kind: EntryKind = row.get(1)?;
-            let hash: Option<String> = row.get(2)?;
-            let version_json: String = row.get(3)?;
-            let version: VersionVector = serde_json::from_str(&version_json)?;
-
-            Ok(Some(EntryInfo {
-                name: name.into(),
-                kind,
-                hash,
-                version,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(entry)
     }
 
-    fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name, kind, hash, version FROM entries")?;
+    async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
+        let entries = sqlx::query_as("SELECT * FROM entries")
+            .fetch_all(&self.pool)
+            .await?;
 
-        let iter = stmt.query_map([], |row| {
-            let name: String = row.get(0)?;
-            let kind: EntryKind = row.get(1)?;
-            let hash: Option<String> = row.get(2)?;
-            let version_json: String = row.get(3)?;
-            let version: VersionVector = serde_json::from_str(&version_json).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    version_json.len(),
-                    rusqlite::types::Type::Text,
-                    Box::new(e),
-                )
-            })?;
-
-            Ok(EntryInfo {
-                name: name.into(),
-                kind,
-                hash,
-                version,
-            })
-        })?;
-
-        iter.collect::<Result<_, _>>().map_err(Into::into)
+        Ok(entries)
     }
 
-    fn delete_entry(&self, name: &str) -> PersistenceResult<()> {
-        self.conn
-            .execute("DELETE FROM entries WHERE name = ?1", params![name])?;
+    async fn delete_entry(&self, name: &str) -> PersistenceResult<()> {
+        sqlx::query("DELETE FROM entries WHERE name = ?")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
 
-impl ToSql for RelativePath {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(self.to_string().into())
-    }
-}
-
-impl ToSql for EntryKind {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+impl std::fmt::Display for EntryKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EntryKind::File => Ok("File".into()),
-            EntryKind::Directory => Ok("Dir".into()),
+            EntryKind::File => f.write_str("F"),
+            EntryKind::Directory => f.write_str("D"),
         }
     }
 }
 
-impl FromSql for EntryKind {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-        match value {
-            rusqlite::types::ValueRef::Text(text) => match text {
-                b"File" => Ok(EntryKind::File),
-                b"Dir" => Ok(EntryKind::Directory),
-                _ => Err(rusqlite::types::FromSqlError::InvalidType),
-            },
-            _ => Err(rusqlite::types::FromSqlError::InvalidType),
-        }
+impl FromRow<'_, SqliteRow> for EntryInfo {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let name: String = row.try_get("name")?;
+        let hash: Option<String> = row.try_get("hash")?;
+
+        let version_json: String = row.try_get("version")?;
+        let version =
+            serde_json::from_str(&version_json).map_err(|err| Error::Decode(Box::new(err)))?;
+
+        let kind_str: String = row.try_get("kind")?;
+        let kind = match kind_str.as_str() {
+            "F" => EntryKind::File,
+            "D" => EntryKind::Directory,
+            other => {
+                return Err(Error::Decode(
+                    format!("Unknown entry kind: {}", other).into(),
+                ));
+            }
+        };
+
+        Ok(EntryInfo {
+            name: name.into(),
+            kind,
+            version,
+            hash,
+        })
     }
 }
 
-impl From<rusqlite::Error> for PersistenceError {
-    fn from(e: rusqlite::Error) -> Self {
+impl From<Error> for PersistenceError {
+    fn from(e: Error) -> Self {
         PersistenceError::Failure(e.to_string())
     }
 }
