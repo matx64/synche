@@ -19,9 +19,9 @@ use std::{io, sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
 
-pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
+pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     watch_adapter: T,
-    entry_manager: Arc<EntryManager<D>>,
+    entry_manager: Arc<EntryManager<P>>,
     buffer: WatcherBuffer,
     watch_rx: Receiver<WatcherEvent>,
     dirs_updates_rx: Receiver<FileWatcherSyncDirectoryUpdate>,
@@ -29,10 +29,10 @@ pub struct FileWatcher<T: FileWatcherInterface, D: PersistenceInterface> {
     base_dir_path: CanonicalPath,
 }
 
-impl<T: FileWatcherInterface, D: PersistenceInterface> FileWatcher<T, D> {
+impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub fn new(
         watch_adapter: T,
-        entry_manager: Arc<EntryManager<D>>,
+        entry_manager: Arc<EntryManager<P>>,
         metadata_tx: Sender<EntryInfo>,
         base_dir_path: CanonicalPath,
     ) -> (Self, Sender<FileWatcherSyncDirectoryUpdate>) {

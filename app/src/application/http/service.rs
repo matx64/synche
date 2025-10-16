@@ -1,6 +1,3 @@
-use tokio::{io, sync::mpsc::Sender};
-use tracing::error;
-
 use crate::{
     application::{
         EntryManager, PeerManager,
@@ -10,19 +7,20 @@ use crate::{
     domain::CanonicalPath,
     proto::transport::SyncHandshakeKind,
 };
-use core::error;
 use std::{net::IpAddr, sync::Arc};
+use tokio::{io, sync::mpsc::Sender};
+use tracing::error;
 
-pub struct HttpService<D: PersistenceInterface> {
-    entry_manager: Arc<EntryManager<D>>,
+pub struct HttpService<P: PersistenceInterface> {
+    entry_manager: Arc<EntryManager<P>>,
     peer_manager: Arc<PeerManager>,
     dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
     handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
 }
 
-impl<D: PersistenceInterface> HttpService<D> {
+impl<P: PersistenceInterface> HttpService<P> {
     pub fn new(
-        entry_manager: Arc<EntryManager<D>>,
+        entry_manager: Arc<EntryManager<P>>,
         peer_manager: Arc<PeerManager>,
         dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
         handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,

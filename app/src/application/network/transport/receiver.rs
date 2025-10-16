@@ -17,9 +17,9 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 
-pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
+pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     transport_adapter: Arc<T>,
-    entry_manager: Arc<EntryManager<D>>,
+    entry_manager: Arc<EntryManager<P>>,
     peer_manager: Arc<PeerManager>,
     senders: TransportSenders,
     control_chan: ReceiverChannel<T>,
@@ -28,10 +28,10 @@ pub struct TransportReceiver<T: TransportInterface, D: PersistenceInterface> {
     tmp_dir_path: CanonicalPath,
 }
 
-impl<T: TransportInterface, D: PersistenceInterface> TransportReceiver<T, D> {
+impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     pub fn new(
         transport_adapter: Arc<T>,
-        entry_manager: Arc<EntryManager<D>>,
+        entry_manager: Arc<EntryManager<P>>,
         peer_manager: Arc<PeerManager>,
         senders: TransportSenders,
         base_dir_path: CanonicalPath,

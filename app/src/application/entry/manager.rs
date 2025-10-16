@@ -18,17 +18,17 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-pub struct EntryManager<D: PersistenceInterface> {
-    db: D,
+pub struct EntryManager<P: PersistenceInterface> {
+    db: P,
     local_id: Uuid,
     sync_directories: RwLock<HashMap<String, SyncDirectory>>,
     ignore_handler: RwLock<IgnoreHandler>,
     base_dir_path: CanonicalPath,
 }
 
-impl<D: PersistenceInterface> EntryManager<D> {
+impl<P: PersistenceInterface> EntryManager<P> {
     pub fn new(
-        db: D,
+        db: P,
         local_id: Uuid,
         sync_directories: HashMap<String, SyncDirectory>,
         base_dir_path: CanonicalPath,

@@ -22,18 +22,18 @@ use tokio::{
 };
 use tracing::{error, warn};
 
-pub struct TransportSender<T: TransportInterface, D: PersistenceInterface> {
+pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
     transport_adapter: Arc<T>,
-    entry_manager: Arc<EntryManager<D>>,
+    entry_manager: Arc<EntryManager<P>>,
     peer_manager: Arc<PeerManager>,
     receivers: TransportReceivers,
     base_dir_path: CanonicalPath,
 }
 
-impl<T: TransportInterface, D: PersistenceInterface> TransportSender<T, D> {
+impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     pub fn new(
         transport_adapter: Arc<T>,
-        entry_manager: Arc<EntryManager<D>>,
+        entry_manager: Arc<EntryManager<P>>,
         peer_manager: Arc<PeerManager>,
         base_dir_path: CanonicalPath,
     ) -> (Self, TransportSenders) {

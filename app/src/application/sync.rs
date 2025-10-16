@@ -18,11 +18,11 @@ use crate::{
 use std::sync::Arc;
 use tokio::io;
 
-pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface> {
-    file_watcher: FileWatcher<W, D>,
+pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface> {
+    file_watcher: FileWatcher<W, P>,
     presence_service: PresenceService,
-    transport_sender: TransportSender<T, D>,
-    transport_receiver: TransportReceiver<T, D>,
+    transport_sender: TransportSender<T, P>,
+    transport_receiver: TransportReceiver<T, P>,
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
@@ -33,10 +33,10 @@ impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
     }
 }
 
-impl<W: FileWatcherInterface, T: TransportInterface, D: PersistenceInterface>
-    Synchronizer<W, T, D>
+impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
+    Synchronizer<W, T, P>
 {
-    pub async fn new(state: AppState<D>, watch_adapter: W, transport_adapter: T) -> Self {
+    pub async fn new(state: AppState<P>, watch_adapter: W, transport_adapter: T) -> Self {
         state.entry_manager.init().await.unwrap();
 
         let peer_manager = Arc::new(PeerManager::new());

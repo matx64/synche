@@ -7,10 +7,10 @@ use crate::{
 use std::{collections::HashMap, io, path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
-pub struct AppState<D: PersistenceInterface> {
+pub struct AppState<P: PersistenceInterface> {
     pub local_id: Uuid,
     pub paths: AppStatePaths,
-    pub entry_manager: Arc<EntryManager<D>>,
+    pub entry_manager: Arc<EntryManager<P>>,
 }
 
 pub struct AppStatePaths {
@@ -28,8 +28,8 @@ impl AppState<SqliteDb> {
     }
 }
 
-impl<D: PersistenceInterface> AppState<D> {
-    pub fn new(cfg: Config, persistence_adapter: D) -> Self {
+impl<P: PersistenceInterface> AppState<P> {
+    pub fn new(cfg: Config, persistence_adapter: P) -> Self {
         let (local_id, cfg_file_data) = cfg.init();
         let paths = Self::create_required_paths(&cfg).unwrap();
 
