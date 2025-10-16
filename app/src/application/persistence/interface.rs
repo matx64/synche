@@ -1,10 +1,10 @@
 use crate::domain::EntryInfo;
 
-pub trait PersistenceInterface {
-    fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()>;
-    fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>>;
-    fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>>;
-    fn delete_entry(&self, name: &str) -> PersistenceResult<()>;
+pub trait PersistenceInterface: Send + Sync + 'static {
+    async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()>;
+    async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>>;
+    async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>>;
+    async fn delete_entry(&self, name: &str) -> PersistenceResult<()>;
 }
 
 pub type PersistenceResult<T> = Result<T, PersistenceError>;
