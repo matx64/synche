@@ -2,12 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct ServerEvent {
-    pub kind: ServerEventKind,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum ServerEventKind {
+pub enum ServerEvent {
     PeerConnected(Uuid),
     PeerDisconnected(Uuid),
     SyncDirectoryUpdate(SyncDirectoryUpdateData),
