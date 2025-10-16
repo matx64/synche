@@ -4,7 +4,10 @@ use crate::{
     },
     domain::{EntryInfo, EntryKind},
 };
-use sqlx::{Error, Executor, FromRow, Pool, Row, Sqlite, SqlitePool, sqlite::SqliteRow};
+use sqlx::{
+    Error, Executor, FromRow, Pool, Row, Sqlite, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteRow},
+};
 use std::path::Path;
 
 pub struct SqliteDb {
@@ -13,15 +16,12 @@ pub struct SqliteDb {
 
 impl SqliteDb {
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let path = path.as_ref().to_str().unwrap();
-
-        let uri = if path.starts_with("sqlite:") {
-            path.to_string()
-        } else {
-            format!("sqlite://{}", path)
-        };
-
-        let pool = SqlitePool::connect(&uri).await?;
+        let pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(path)
+                .create_if_missing(true),
+        )
+        .await?;
 
         pool.execute(
             "CREATE TABLE IF NOT EXISTS entries (
