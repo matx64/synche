@@ -21,9 +21,10 @@ pub struct AppStatePaths {
 }
 
 impl AppState<SqliteDb> {
-    pub fn new_default(cfg: Config) -> Self {
-        let db =
-            SqliteDb::new(PathBuf::from(&cfg.cfg_dir_path).join(cfg.persistence_file)).unwrap();
+    pub async fn new_default(cfg: Config) -> Self {
+        let db = SqliteDb::new(PathBuf::from(&cfg.cfg_dir_path).join(cfg.persistence_file))
+            .await
+            .unwrap();
         Self::new(cfg, db)
     }
 }

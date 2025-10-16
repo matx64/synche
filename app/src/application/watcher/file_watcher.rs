@@ -109,7 +109,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     async fn handle_create_or_modify(&self, path: WatcherEventPath) {
-        match self.entry_manager.get_entry(&path.relative) {
+        match self.entry_manager.get_entry(&path.relative).await {
             None => self.handle_create(path).await,
 
             Some(entry) if path.is_file() && entry.is_file() => {
@@ -133,7 +133,8 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         let file = self
             .entry_manager
-            .entry_created(&path.relative, EntryKind::File, disk_hash);
+            .entry_created(&path.relative, EntryKind::File, disk_hash)
+            .await;
 
         self.send_metadata(file).await;
 
@@ -147,7 +148,8 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         for (relative, info) in dir_entries {
             self.entry_manager
-                .entry_created(&relative, info.kind.clone(), info.hash.clone());
+                .entry_created(&relative, info.kind.clone(), info.hash.clone())
+                .await;
             self.send_metadata(info).await;
         }
     }
@@ -156,7 +158,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         let disk_hash = Some(compute_hash(&path.canonical).unwrap());
 
         if file.hash != disk_hash {
-            let file = self.entry_manager.entry_modified(file, disk_hash);
+            let file = self.entry_manager.entry_modified(file, disk_hash).await;
             self.send_metadata(file).await;
 
             if path.relative.ends_with(".gitignore") {
@@ -166,9 +168,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     async fn handle_remove(&self, path: WatcherEventPath) {
-        if let Some(removed) = self.entry_manager.remove_entry(&path.relative) {
+        if let Some(removed) = self.entry_manager.remove_entry(&path.relative).await {
             if !removed.is_file() {
-                let removed_entries = self.entry_manager.remove_dir(&path.relative);
+                let removed_entries = self.entry_manager.remove_dir(&path.relative).await;
 
                 for entry in removed_entries {
                     if entry.name.ends_with(".gitignore") {

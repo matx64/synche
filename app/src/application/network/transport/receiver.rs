@@ -176,7 +176,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .read_request(&mut data.stream)
             .await?;
 
-        match self.entry_manager.get_entry(&requested_entry.name) {
+        match self.entry_manager.get_entry(&requested_entry.name).await {
             Some(local_entry)
                 if local_entry.is_file()
                     && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
@@ -195,7 +195,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     pub async fn handle_transfer(&self, mut data: TransportData<T::Stream>) -> io::Result<()> {
         let (entry, contents) = self.transport_adapter.read_entry(&mut data.stream).await?;
 
-        let entry = self.entry_manager.insert_entry(entry);
+        let entry = self.entry_manager.insert_entry(entry).await;
 
         let original_path = self.base_dir_path.join(&*entry.name);
         let tmp_path = self.tmp_dir_path.join(&*entry.name);
@@ -222,7 +222,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     pub async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
-        let dir = self.entry_manager.insert_entry(dir);
+        let dir = self.entry_manager.insert_entry(dir).await;
 
         let path = self.base_dir_path.join(&*dir.name);
         fs::create_dir_all(path).await?;
@@ -235,7 +235,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     pub async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
-        let _ = self.entry_manager.remove_entry(entry_name);
+        let _ = self.entry_manager.remove_entry(entry_name).await;
 
         let path = self.base_dir_path.join(entry_name);
 

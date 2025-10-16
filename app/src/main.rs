@@ -9,7 +9,7 @@ mod utils;
 async fn main() -> tokio::io::Result<()> {
     let config = cfg::new_default();
 
-    let state = cfg::AppState::new_default(config);
+    let state = cfg::AppState::new_default(config).await;
     let mut synchronizer = application::Synchronizer::new_default(state).await;
 
     synchronizer.run().await

@@ -53,7 +53,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             filesystem_entries.extend(self.build_dir(path).await?);
         }
 
-        self.build_db(filesystem_entries);
+        self.build_db(filesystem_entries).await;
         Ok(())
     }
 
@@ -127,10 +127,11 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok((dir_entries, dir_child_dirs))
     }
 
-    fn build_db(&self, filesystem_entries: HashMap<RelativePath, EntryInfo>) {
+    async fn build_db(&self, filesystem_entries: HashMap<RelativePath, EntryInfo>) {
         let mut db_entries: HashMap<RelativePath, EntryInfo> = self
             .db
             .list_all_entries()
+            .await
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
@@ -148,11 +149,12 @@ impl<P: PersistenceInterface> EntryManager<P> {
                             kind: fs_entry.kind.clone(),
                             hash: fs_entry.hash.clone(),
                         })
+                        .await
                         .unwrap();
                 }
 
                 None => {
-                    self.db.delete_entry(&entry.name).unwrap();
+                    self.db.delete_entry(&entry.name).await.unwrap();
                 }
 
                 _ => {}
@@ -161,7 +163,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
         for (name, fs_entry) in filesystem_entries {
             if !db_entries.contains_key(&name) {
-                self.db.insert_or_replace_entry(&fs_entry).unwrap();
+                self.db.insert_or_replace_entry(&fs_entry).await.unwrap();
             }
         }
     }
@@ -179,7 +181,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let dir_entries = self.build_dir(canonical.clone()).await?;
 
         for (_, info) in dir_entries {
-            self.insert_entry(info);
+            self.insert_entry(info).await;
         }
 
         self.sync_directories.write().await.insert(
@@ -199,13 +201,13 @@ impl<P: PersistenceInterface> EntryManager<P> {
         self.ignore_handler.read().await.is_ignored(path, relative)
     }
 
-    pub fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
+    pub async fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
         entry.version.entry(self.local_id).or_insert(0);
-        self.db.insert_or_replace_entry(&entry).unwrap();
+        self.db.insert_or_replace_entry(&entry).await.unwrap();
         entry
     }
 
-    pub fn entry_created(
+    pub async fn entry_created(
         &self,
         name: &RelativePath,
         kind: EntryKind,
@@ -217,18 +219,19 @@ impl<P: PersistenceInterface> EntryManager<P> {
             hash,
             version: HashMap::from([(self.local_id, 0)]),
         })
+        .await
     }
 
-    pub fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
+    pub async fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
         entry.hash = hash;
         *entry.version.entry(self.local_id).or_insert(0) += 1;
 
-        self.db.insert_or_replace_entry(&entry).unwrap();
+        self.db.insert_or_replace_entry(&entry).await.unwrap();
         entry
     }
 
-    pub fn get_entry(&self, name: &str) -> Option<EntryInfo> {
-        self.db.get_entry(name).unwrap()
+    pub async fn get_entry(&self, name: &str) -> Option<EntryInfo> {
+        self.db.get_entry(name).await.unwrap()
     }
 
     pub async fn get_entries_to_request(
@@ -242,7 +245,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_root_parent()) {
-                if let Some(mut local_entry) = self.get_entry(&name) {
+                if let Some(mut local_entry) = self.get_entry(&name).await {
                     let cmp = self
                         .compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer.id)
                         .await?;
@@ -274,7 +277,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
         };
 
         if matches!(cmp, VersionCmp::Equal | VersionCmp::KeepSelf) {
-            self.merge_versions_and_insert(local_entry, peer_entry, peer_id);
+            self.merge_versions_and_insert(local_entry, peer_entry, peer_id)
+                .await;
         }
 
         Ok(cmp)
@@ -337,7 +341,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         peer_id: Uuid,
         peer_entry: &EntryInfo,
     ) -> io::Result<VersionCmp> {
-        match self.get_entry(&peer_entry.name) {
+        match self.get_entry(&peer_entry.name).await {
             Some(mut local_entry) => {
                 self.compare_and_resolve_conflict(&mut local_entry, peer_entry, peer_id)
                     .await
@@ -346,7 +350,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
     }
 
-    pub fn merge_versions_and_insert(
+    pub async fn merge_versions_and_insert(
         &self,
         local_entry: &mut EntryInfo,
         peer_entry: &EntryInfo,
@@ -357,25 +361,25 @@ impl<P: PersistenceInterface> EntryManager<P> {
             let local_version = local_entry.version.entry(*pid).or_insert(0);
             *local_version = (*local_version).max(*pv);
         }
-        self.db.insert_or_replace_entry(local_entry).unwrap();
+        self.db.insert_or_replace_entry(local_entry).await.unwrap();
     }
 
-    pub fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
-        self.get_entry(name)
-            .map(|mut entry| {
-                entry = self.delete_and_update_entry(entry);
-                Some(entry)
-            })
-            .unwrap_or_default()
+    pub async fn remove_entry(&self, name: &str) -> Option<EntryInfo> {
+        if let Some(entry) = self.get_entry(name).await {
+            let updated = self.delete_and_update_entry(entry).await;
+            Some(updated)
+        } else {
+            None
+        }
     }
 
-    pub fn remove_dir(&self, removed: &str) -> Vec<EntryInfo> {
+    pub async fn remove_dir(&self, removed: &str) -> Vec<EntryInfo> {
         let mut removed_entries = Vec::new();
 
-        let entries = self.db.list_all_entries().unwrap();
+        let entries = self.db.list_all_entries().await.unwrap();
         for mut entry in entries {
             if entry.name.starts_with(&format!("{}/", removed)) {
-                entry = self.delete_and_update_entry(entry);
+                entry = self.delete_and_update_entry(entry).await;
                 removed_entries.push(entry);
             }
         }
@@ -383,8 +387,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
         removed_entries
     }
 
-    pub fn delete_and_update_entry(&self, mut entry: EntryInfo) -> EntryInfo {
-        self.db.delete_entry(&entry.name).unwrap();
+    pub async fn delete_and_update_entry(&self, mut entry: EntryInfo) -> EntryInfo {
+        self.db.delete_entry(&entry.name).await.unwrap();
 
         *entry.version.entry(self.local_id).or_insert(0) += 1;
         entry.set_removed_hash();
@@ -404,6 +408,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let entries = self
             .db
             .list_all_entries()
+            .await
             .unwrap()
             .into_iter()
             .map(|f| (f.name.clone(), f))
