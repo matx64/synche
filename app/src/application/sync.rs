@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        PeerManager, http,
+        HttpService, PeerManager,
         network::{
             TransportInterface,
             presence::PresenceService,
@@ -11,7 +11,7 @@ use crate::{
     },
     cfg::AppState,
     infra::{
-        network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
+        self, network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
 };
@@ -23,6 +23,7 @@ pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, P: Persi
     presence_service: PresenceService,
     transport_sender: TransportSender<T, P>,
     transport_receiver: TransportReceiver<T, P>,
+    http_service: Arc<HttpService<P>>,
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
@@ -49,7 +50,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
             state.paths.base_dir_path.clone(),
         );
 
-        let (file_watcher, dirs_tx) = FileWatcher::new(
+        let (file_watcher, dirs_updates_tx) = FileWatcher::new(
             watch_adapter,
             state.entry_manager.clone(),
             sender_channels.metadata_tx.clone(),
@@ -59,6 +60,13 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
         let presence_service = PresenceService::new(
             state.local_id,
             peer_manager.clone(),
+            sender_channels.handshake_tx.clone(),
+        );
+
+        let http_service = HttpService::new(
+            state.entry_manager.clone(),
+            peer_manager.clone(),
+            dirs_updates_tx,
             sender_channels.handshake_tx.clone(),
         );
 
@@ -76,6 +84,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
             presence_service,
             transport_sender,
             transport_receiver,
+            http_service,
         }
     }
 
@@ -126,7 +135,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
 
     async fn _run(&mut self) -> io::Result<()> {
         tokio::try_join!(
-            http::server::run(),
+            infra::http::server::run(self.http_service.clone()),
             self.transport_receiver.run(),
             self.transport_sender.run(),
             self.presence_service.run(),

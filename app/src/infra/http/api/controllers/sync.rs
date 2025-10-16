@@ -1,3 +1,4 @@
+use crate::application::{HttpService, persistence::interface::PersistenceInterface};
 use axum::{
     Router,
     extract::{Query, State},
@@ -6,10 +7,12 @@ use axum::{
 };
 use std::sync::Arc;
 
-struct ControllerState {}
+struct ControllerState<P: PersistenceInterface> {
+    http_service: Arc<HttpService<P>>,
+}
 
-pub fn router() -> Router {
-    let state = Arc::new(ControllerState {});
+pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Router {
+    let state = Arc::new(ControllerState { http_service });
 
     Router::new()
         .route("/add-folder", post(add_folder))
@@ -17,16 +20,16 @@ pub fn router() -> Router {
         .with_state(state)
 }
 
-async fn add_folder(
-    State(state): State<Arc<ControllerState>>,
+async fn add_folder<P: PersistenceInterface>(
+    State(state): State<Arc<ControllerState<P>>>,
     Query(name): Query<String>,
 ) -> StatusCode {
     let name = name.trim();
     StatusCode::OK
 }
 
-async fn remove_folder(
-    State(state): State<Arc<ControllerState>>,
+async fn remove_folder<P: PersistenceInterface>(
+    State(state): State<Arc<ControllerState<P>>>,
     Query(name): Query<String>,
 ) -> StatusCode {
     let name = name.trim();

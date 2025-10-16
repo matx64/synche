@@ -1,2 +1,3 @@
-pub mod api;
-pub mod gui;
+mod api;
+mod gui;
+pub mod server;

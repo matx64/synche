@@ -1,8 +1,11 @@
+use crate::infra::http::gui::engine;
 use axum::{Router, extract::State, http::StatusCode, response::Html, routing::get};
 use minijinja::{Environment, context};
 use tower_http::services::ServeDir;
 
-pub fn router(engine: Environment<'static>) -> Router {
+pub fn router() -> Router {
+    let engine = engine::init();
+
     Router::new()
         .route("/", get(index))
         .with_state(engine)

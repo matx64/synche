@@ -24,13 +24,13 @@ impl<P: PersistenceInterface> HttpService<P> {
         peer_manager: Arc<PeerManager>,
         dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
         handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        Arc::new(Self {
             entry_manager,
             peer_manager,
             dirs_updates_tx,
             handshake_tx,
-        }
+        })
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<()> {
