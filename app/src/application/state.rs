@@ -4,14 +4,14 @@ use std::{collections::HashMap, fs, net::IpAddr, path::Path, sync::RwLock};
 use uuid::Uuid;
 
 pub struct AppState {
-    local_id: Uuid,
+    pub local_id: Uuid,
     local_ip: RwLock<IpAddr>,
 
-    cfg_path: CanonicalPath,
-    home_path: CanonicalPath,
+    pub cfg_path: CanonicalPath,
+    pub home_path: CanonicalPath,
 
     peers: RwLock<HashMap<Uuid, Peer>>,
-    sync_dirs: RwLock<HashMap<String, SyncDirectory>>,
+    pub sync_dirs: RwLock<HashMap<String, SyncDirectory>>,
 
     ports: Ports,
 }
@@ -58,7 +58,7 @@ impl AppState {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ConfigFileData {
+struct ConfigFileData {
     pub device_id: Uuid,
     pub home_path: String,
     pub sync_dirs: Vec<SyncDirectory>,
