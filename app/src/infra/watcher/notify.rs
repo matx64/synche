@@ -83,8 +83,8 @@ impl FileWatcherInterface for NotifyFileWatcher {
                             .any(|dir| path.starts_with(dir))
                         && !is_ds_store(&path)
                     {
-                        if let Some(w) = self.handle_event(event, path) {
-                            return Some(w);
+                        if let Some(event) = self.handle_event(event, path) {
+                            return Some(event);
                         } else {
                             continue;
                         }

@@ -37,6 +37,7 @@ impl SqliteDb {
     }
 }
 
+#[async_trait::async_trait]
 impl PersistenceInterface for SqliteDb {
     async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
         let version_json = serde_json::to_string(&entry.version)?;

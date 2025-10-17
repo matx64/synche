@@ -4,10 +4,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{
             buffer::WatcherBuffer,
-            interface::{
-                FileWatcherInterface, FileWatcherSyncDirectoryUpdate,
-                FileWatcherSyncDirectoryUpdateKind,
-            },
+            interface::{FileWatcherInterface, FileWatcherSyncDirectoryUpdate},
         },
     },
     domain::{
@@ -77,9 +74,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                 }
 
                 Some(event) = self.dirs_updates_rx.recv() => {
-                    match event.kind {
-                        FileWatcherSyncDirectoryUpdateKind::Added => self.add_sync_dir(event.path),
-                        FileWatcherSyncDirectoryUpdateKind::Removed => self.remove_sync_dir(event.path),
+                    match event {
+                        FileWatcherSyncDirectoryUpdate::Added(path) => self.add_sync_dir(path),
+                        FileWatcherSyncDirectoryUpdate::Removed(path) => self.remove_sync_dir(path),
                     }
                 }
             }

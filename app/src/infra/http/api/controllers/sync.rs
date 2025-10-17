@@ -6,6 +6,7 @@ use axum::{
     routing::post,
 };
 use std::sync::Arc;
+use tracing::error;
 
 struct ControllerState<P: PersistenceInterface> {
     http_service: Arc<HttpService<P>>,
@@ -15,20 +16,27 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
     let state = Arc::new(ControllerState { http_service });
 
     Router::new()
-        .route("/add-folder", post(add_folder))
-        .route("/remove-folder", post(remove_folder))
+        .route("/add-sync-dir", post(add_sync_dir))
+        .route("/remove-sync-dir", post(remove_sync_dir))
         .with_state(state)
 }
 
-async fn add_folder<P: PersistenceInterface>(
+async fn add_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
     Query(name): Query<String>,
 ) -> StatusCode {
     let name = name.trim();
-    StatusCode::OK
+
+    match state.http_service.add_sync_dir(name).await {
+        Ok(()) => StatusCode::OK,
+        Err(err) => {
+            error!("Add sync dir error: {err}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
-async fn remove_folder<P: PersistenceInterface>(
+async fn remove_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
     Query(name): Query<String>,
 ) -> StatusCode {

@@ -1,15 +1,13 @@
 use crate::{
     application::{
-        EntryManager, PeerManager,
-        persistence::interface::PersistenceInterface,
-        watcher::interface::{FileWatcherSyncDirectoryUpdate, FileWatcherSyncDirectoryUpdateKind},
+        EntryManager, PeerManager, persistence::interface::PersistenceInterface,
+        watcher::interface::FileWatcherSyncDirectoryUpdate,
     },
-    domain::CanonicalPath,
     proto::transport::SyncHandshakeKind,
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
-use tracing::error;
+use tracing::{error, info};
 
 pub struct HttpService<P: PersistenceInterface> {
     entry_manager: Arc<EntryManager<P>>,
@@ -36,24 +34,17 @@ impl<P: PersistenceInterface> HttpService<P> {
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<()> {
         let path = self.entry_manager.add_sync_dir(name).await?;
 
-        self.update_watcher_and_resync(path, FileWatcherSyncDirectoryUpdateKind::Added)
+        self.update_watcher_and_resync(FileWatcherSyncDirectoryUpdate::Added(path))
             .await;
 
+        info!("Sync dir added: {name}");
         Ok(())
     }
 
-    pub fn remove_folder() {}
+    pub fn _remove_folder() {}
 
-    async fn update_watcher_and_resync(
-        &self,
-        path: CanonicalPath,
-        kind: FileWatcherSyncDirectoryUpdateKind,
-    ) {
-        if let Err(err) = self
-            .dirs_updates_tx
-            .send(FileWatcherSyncDirectoryUpdate { path, kind })
-            .await
-        {
+    async fn update_watcher_and_resync(&self, event: FileWatcherSyncDirectoryUpdate) {
+        if let Err(err) = self.dirs_updates_tx.send(event).await {
             error!("Dir update send error: {err}");
         }
 
@@ -68,5 +59,5 @@ impl<P: PersistenceInterface> HttpService<P> {
         }
     }
 
-    pub fn send_event() {}
+    pub fn _send_event() {}
 }

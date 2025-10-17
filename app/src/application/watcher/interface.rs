@@ -14,12 +14,7 @@ pub trait FileWatcherInterface {
     fn remove_sync_dir(&mut self, dir_path: CanonicalPath);
 }
 
-pub struct FileWatcherSyncDirectoryUpdate {
-    pub path: CanonicalPath,
-    pub kind: FileWatcherSyncDirectoryUpdateKind,
-}
-
-pub enum FileWatcherSyncDirectoryUpdateKind {
-    Added,
-    Removed,
+pub enum FileWatcherSyncDirectoryUpdate {
+    Added(CanonicalPath),
+    Removed(CanonicalPath),
 }

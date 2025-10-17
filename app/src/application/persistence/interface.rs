@@ -1,5 +1,6 @@
 use crate::domain::EntryInfo;
 
+#[async_trait::async_trait]
 pub trait PersistenceInterface: Send + Sync + 'static {
     async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()>;
     async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>>;
