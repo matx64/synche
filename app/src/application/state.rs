@@ -1,27 +1,26 @@
-use crate::domain::{CanonicalPath, Peer, RelativePath, SyncDirectory};
+use crate::domain::{CanonicalPath, Peer, SyncDirectory};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, net::IpAddr, path::Path, sync::RwLock};
 use uuid::Uuid;
 
 pub struct AppState {
     local_id: Uuid,
+    local_ip: RwLock<IpAddr>,
+
+    sync_dirs: RwLock<HashMap<String, SyncDirectory>>,
+    peers: RwLock<HashMap<Uuid, Peer>>,
+
     home_path: CanonicalPath,
     cfg_path: CanonicalPath,
-    ports: AppPorts,
-    data: RwLock<AppStateMut>,
+
+    ports: Ports,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct AppPorts {
+pub struct Ports {
     pub http: u16,
     pub presence: u16,
     pub transport: u16,
-}
-
-struct AppStateMut {
-    local_ip: IpAddr,
-    sync_dirs: HashMap<RelativePath, SyncDirectory>,
-    peers: HashMap<Uuid, Peer>,
 }
 
 impl AppState {
@@ -29,16 +28,41 @@ impl AppState {
         let cfg_path = "./.synchev2/config.json";
         let config_data = ConfigFileData::init(cfg_path);
 
-        todo!()
+        let (home_path, cfg_path) = Self::create_required_paths(cfg_path, &config_data.home_path);
+
+        let sync_dirs = config_data
+            .sync_dirs
+            .iter()
+            .map(|d| (d.name.clone(), d.to_owned()))
+            .collect();
+
+        Self {
+            home_path,
+            cfg_path,
+            ports: config_data.ports,
+            local_id: config_data.device_id,
+            sync_dirs: RwLock::new(sync_dirs),
+            peers: RwLock::new(HashMap::new()),
+            local_ip: RwLock::new(local_ip_address::local_ip().unwrap()),
+        }
+    }
+
+    fn create_required_paths(cfg_path: &str, home_path: &str) -> (CanonicalPath, CanonicalPath) {
+        fs::create_dir_all(home_path).unwrap();
+
+        (
+            CanonicalPath::from_canonical(home_path),
+            CanonicalPath::from_canonical(cfg_path),
+        )
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ConfigFileData {
     pub device_id: Uuid,
-    pub home_dir: String,
-    pub sync_dirs: Vec<String>,
-    pub ports: AppPorts,
+    pub home_path: String,
+    pub sync_dirs: Vec<SyncDirectory>,
+    pub ports: Ports,
 }
 
 impl ConfigFileData {
@@ -60,9 +84,11 @@ impl ConfigFileData {
     fn new_default() -> Self {
         Self {
             device_id: Uuid::new_v4(),
-            home_dir: "./Synche".to_string(),
-            sync_dirs: vec!["Default Folder".to_string()],
-            ports: AppPorts {
+            home_path: "./Synche".to_string(),
+            sync_dirs: vec![SyncDirectory {
+                name: "Default Folder".to_string(),
+            }],
+            ports: Ports {
                 http: 42880,
                 presence: 42881,
                 transport: 42882,
