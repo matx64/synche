@@ -3,7 +3,7 @@ use crate::{
         HttpService, PeerManager,
         network::{
             TransportInterface,
-            presence::PresenceService,
+            presence::{PresenceService, interface::PresenceInterface},
             transport::{TransportReceiver, TransportSender},
         },
         persistence::interface::PersistenceInterface,
@@ -11,33 +11,47 @@ use crate::{
     },
     cfg::AppState,
     infra::{
-        self, network::tcp::TcpTransporter, persistence::sqlite::SqliteDb,
+        self,
+        network::{mdns::MdnsAdapter, tcp::TcpTransporter},
+        persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
 };
 use std::sync::Arc;
 use tokio::io;
 
-pub struct Synchronizer<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface> {
+pub struct Synchronizer<
+    W: FileWatcherInterface,
+    T: TransportInterface,
+    P: PersistenceInterface,
+    R: PresenceInterface,
+> {
     file_watcher: FileWatcher<W, P>,
-    presence_service: PresenceService,
+    presence_service: PresenceService<R>,
     transport_sender: TransportSender<T, P>,
     transport_receiver: TransportReceiver<T, P>,
     http_service: Arc<HttpService<P>>,
 }
 
-impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb> {
+impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb, MdnsAdapter> {
     pub async fn new_default(state: AppState<SqliteDb>) -> Self {
-        let transporter = TcpTransporter::new(state.local_id).await;
+        let notify = NotifyFileWatcher::new();
+        let mdns_adapter = MdnsAdapter::new(state.local_id);
+        let tcp_transporter = TcpTransporter::new(state.local_id).await;
 
-        Self::new(state, NotifyFileWatcher::new(), transporter).await
+        Self::new(state, notify, mdns_adapter, tcp_transporter).await
     }
 }
 
-impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
-    Synchronizer<W, T, P>
+impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D: PresenceInterface>
+    Synchronizer<W, T, P, D>
 {
-    pub async fn new(state: AppState<P>, watch_adapter: W, transport_adapter: T) -> Self {
+    pub async fn new(
+        state: AppState<P>,
+        watch_adapter: W,
+        presence_adapter: D,
+        transport_adapter: T,
+    ) -> Self {
         state.entry_manager.init().await.unwrap();
 
         let peer_manager = Arc::new(PeerManager::new());
@@ -58,6 +72,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
         );
 
         let presence_service = PresenceService::new(
+            presence_adapter,
             state.local_id,
             peer_manager.clone(),
             sender_channels.handshake_tx.clone(),
@@ -145,7 +160,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface>
     }
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
-        self.presence_service.shutdown();
+        self.presence_service.shutdown().await;
         tracing::info!("✅ Synche gracefully shutdown");
         Ok(())
     }

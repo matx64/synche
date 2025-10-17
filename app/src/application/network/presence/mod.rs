@@ -1,3 +1,4 @@
-pub mod service;
+pub mod interface;
+mod service;
 
 pub use service::PresenceService;

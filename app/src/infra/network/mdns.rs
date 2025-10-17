@@ -1,7 +1,8 @@
-use mdns_sd::{IfKind, Receiver, ServiceDaemon, ServiceEvent, ServiceInfo};
-use std::collections::HashMap;
+use crate::application::network::presence::interface::{PresenceEvent, PresenceInterface};
+use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
+use std::{collections::HashMap, net::IpAddr};
 use tokio::io;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const MDNS_PORT: u16 = 5200;
@@ -30,8 +31,10 @@ impl MdnsAdapter {
             receiver,
         }
     }
+}
 
-    pub fn advertise(&self) {
+impl PresenceInterface for MdnsAdapter {
+    async fn advertise(&self) {
         let local_ip = local_ip_address::local_ip().unwrap();
         let hostname = hostname::get().unwrap().to_string_lossy().to_string() + ".local.";
 
@@ -50,18 +53,27 @@ impl MdnsAdapter {
             .expect("Failed to register mdns service");
     }
 
-    pub async fn recv(&self) -> io::Result<ServiceEvent> {
-        self.receiver.recv_async().await.map_err(io::Error::other)
+    async fn recv(&self) -> io::Result<PresenceEvent> {
+        loop {
+            match self.receiver.recv_async().await.map_err(io::Error::other)? {
+                ServiceEvent::ServiceData(info) => {
+                    if let Some(peer_data) = self.handle_service_data(*info) {
+                        return Ok(PresenceEvent::Ping(peer_data));
+                    }
+                }
+
+                ServiceEvent::ServiceRemoved(_, fullname) => {
+                    if let Some(peer_id) = self.handle_service_removed(&fullname) {
+                        return Ok(PresenceEvent::Disconnect(peer_id));
+                    }
+                }
+
+                _ => {}
+            }
+        }
     }
 
-    pub fn get_peer_id(&self, fullname: &str) -> Option<Uuid> {
-        fullname
-            .split('.')
-            .next()
-            .and_then(|id| Uuid::parse_str(id).ok())
-    }
-
-    pub fn shutdown(&self) {
+    async fn shutdown(&self) {
         for _ in 0..3 {
             match self.daemon.shutdown() {
                 Err(mdns_sd::Error::Again) => continue,
@@ -72,5 +84,46 @@ impl MdnsAdapter {
             }
         }
         error!("Failed to shutdown mDNS daemon after 3 attempts");
+    }
+}
+
+impl MdnsAdapter {
+    fn handle_service_data(&self, info: ResolvedService) -> Option<(Uuid, IpAddr)> {
+        let peer_id = self.get_peer_id(&info.fullname)?;
+
+        if peer_id == self.local_id {
+            return None;
+        }
+
+        for peer_ip in info.addresses {
+            if peer_ip.is_ipv6() {
+                continue;
+            }
+
+            let peer_ip = peer_ip.to_ip_addr();
+            if peer_ip.is_loopback() {
+                continue;
+            }
+
+            return Some((peer_id, peer_ip));
+        }
+        None
+    }
+
+    fn handle_service_removed(&self, fullname: &str) -> Option<Uuid> {
+        match self.get_peer_id(fullname) {
+            Some(peer_id) => Some(peer_id),
+            None => {
+                warn!(fullname = fullname, "Invalid mDNS peer id");
+                None
+            }
+        }
+    }
+
+    fn get_peer_id(&self, fullname: &str) -> Option<Uuid> {
+        fullname
+            .split('.')
+            .next()
+            .and_then(|id| Uuid::parse_str(id).ok())
     }
 }
