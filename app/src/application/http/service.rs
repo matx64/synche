@@ -6,8 +6,10 @@ use crate::{
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
 use tracing::{error, info};
+use uuid::Uuid;
 
 pub struct HttpService<P: PersistenceInterface> {
+    local_id: Uuid,
     entry_manager: Arc<EntryManager<P>>,
     peer_manager: Arc<PeerManager>,
     dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
@@ -16,12 +18,14 @@ pub struct HttpService<P: PersistenceInterface> {
 
 impl<P: PersistenceInterface> HttpService<P> {
     pub fn new(
+        local_id: Uuid,
         entry_manager: Arc<EntryManager<P>>,
         peer_manager: Arc<PeerManager>,
         dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
         handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            local_id,
             entry_manager,
             peer_manager,
             dirs_updates_tx,
@@ -63,6 +67,12 @@ impl<P: PersistenceInterface> HttpService<P> {
                 error!("Handshake send error: {err}");
             }
         }
+    }
+
+    pub fn get_local_info(&self) -> Result<(IpAddr, Uuid), local_ip_address::Error> {
+        let ip = local_ip_address::local_ip()?;
+
+        Ok((ip, self.local_id))
     }
 
     pub fn _send_event() {}

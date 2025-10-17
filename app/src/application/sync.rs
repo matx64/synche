@@ -79,6 +79,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         );
 
         let http_service = HttpService::new(
+            state.local_id,
             state.entry_manager.clone(),
             peer_manager.clone(),
             dirs_updates_tx,
