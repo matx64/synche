@@ -3,6 +3,7 @@ mod http;
 pub mod network;
 pub mod peer;
 pub mod persistence;
+mod state;
 pub mod sync;
 pub mod watcher;
 
