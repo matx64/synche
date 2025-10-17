@@ -102,8 +102,9 @@
         </div>
 
         <div id="dir-list">
-          <div>📂 <strong>Folder1</strong> Up to Date</div>
-          <div>📂 <strong>Folder2</strong> Up to Date</div>
+          {% for dir in dirs %}
+          <div>📂 <strong>{{dir.name}}</strong> Up to Date</div>
+          {% endfor %}
         </div>
       </div>
     </main>

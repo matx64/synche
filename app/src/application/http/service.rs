@@ -1,9 +1,7 @@
 use crate::{
     application::{
-        EntryManager, PeerManager, persistence::interface::PersistenceInterface,
-        watcher::interface::FileWatcherSyncDirectoryUpdate,
-    },
-    proto::transport::SyncHandshakeKind,
+        persistence::interface::PersistenceInterface, watcher::interface::FileWatcherSyncDirectoryUpdate, EntryManager, PeerManager
+    }, domain::SyncDirectory, proto::transport::SyncHandshakeKind
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
@@ -29,6 +27,10 @@ impl<P: PersistenceInterface> HttpService<P> {
             dirs_updates_tx,
             handshake_tx,
         })
+    }
+
+    pub async fn list_dirs(&self) -> Vec<SyncDirectory> {
+        self.entry_manager.list_dirs().await.values().cloned().collect()
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<bool> {

@@ -10,7 +10,7 @@ pub async fn run<P: PersistenceInterface>(
     http_service: Arc<HttpService<P>>,
 ) -> tokio::io::Result<()> {
     let service = Router::new()
-        .merge(gui::router())
+        .merge(gui::router(http_service.clone()))
         .merge(api::router(http_service));
 
     let addr = "127.0.0.1:8888";
