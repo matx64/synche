@@ -92,7 +92,6 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             peer_manager,
             sender_channels,
             state.paths.base_dir_path,
-            state.paths.tmp_dir_path,
         );
 
         Self {

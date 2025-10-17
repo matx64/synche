@@ -10,7 +10,7 @@ use crate::{
     domain::{CanonicalPath, EntryInfo, Peer, VersionCmp},
     proto::transport::{SyncEntryKind, SyncHandshakeKind, SyncKind},
 };
-use std::{net::IpAddr, sync::Arc};
+use std::{env, net::IpAddr, sync::Arc};
 use tokio::{
     fs::{self, File},
     io::{self, AsyncWriteExt},
@@ -25,7 +25,6 @@ pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     control_chan: ReceiverChannel<T>,
     data_chan: ReceiverChannel<T>,
     base_dir_path: CanonicalPath,
-    tmp_dir_path: CanonicalPath,
 }
 
 impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
@@ -35,7 +34,6 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         peer_manager: Arc<PeerManager>,
         senders: TransportSenders,
         base_dir_path: CanonicalPath,
-        tmp_dir_path: CanonicalPath,
     ) -> Self {
         Self {
             control_chan: ReceiverChannel::new(),
@@ -45,7 +43,6 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             peer_manager,
             senders,
             base_dir_path,
-            tmp_dir_path,
         }
     }
 
@@ -198,11 +195,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         let entry = self.entry_manager.insert_entry(entry).await;
 
         let original_path = self.base_dir_path.join(&*entry.name);
-        let tmp_path = self.tmp_dir_path.join(&*entry.name);
-
-        if let Some(parent) = tmp_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
+        let tmp_path = env::temp_dir().join(&*entry.name);
 
         let mut tmp_file = File::create(&tmp_path).await?;
         tmp_file.write_all(&contents).await?;

@@ -7,11 +7,11 @@ pub struct AppState {
     local_id: Uuid,
     local_ip: RwLock<IpAddr>,
 
-    sync_dirs: RwLock<HashMap<String, SyncDirectory>>,
-    peers: RwLock<HashMap<Uuid, Peer>>,
-
-    home_path: CanonicalPath,
     cfg_path: CanonicalPath,
+    home_path: CanonicalPath,
+
+    peers: RwLock<HashMap<Uuid, Peer>>,
+    sync_dirs: RwLock<HashMap<String, SyncDirectory>>,
 
     ports: Ports,
 }
