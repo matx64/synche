@@ -29,7 +29,8 @@ async fn add_sync_dir<P: PersistenceInterface>(
     let name = params.name.trim();
 
     match state.http_service.add_sync_dir(name).await {
-        Ok(()) => StatusCode::OK,
+        Ok(true) => StatusCode::CREATED,
+        Ok(false) => StatusCode::CONFLICT,
         Err(err) => {
             error!("Add sync dir error: {err}");
             StatusCode::INTERNAL_SERVER_ERROR

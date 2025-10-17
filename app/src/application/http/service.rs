@@ -31,14 +31,18 @@ impl<P: PersistenceInterface> HttpService<P> {
         })
     }
 
-    pub async fn add_sync_dir(&self, name: &str) -> io::Result<()> {
+    pub async fn add_sync_dir(&self, name: &str) -> io::Result<bool> {
+        if self.entry_manager.is_sync_dir(name).await {
+            return Ok(false);
+        }
+
         let path = self.entry_manager.add_sync_dir(name).await?;
 
         self.update_watcher_and_resync(FileWatcherSyncDirectoryUpdate::Added(path))
             .await;
 
-        info!("Sync dir added: {name}");
-        Ok(())
+        info!("📂 Sync dir added: {name}");
+        Ok(true)
     }
 
     pub fn _remove_folder() {}
