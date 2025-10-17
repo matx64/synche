@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     routing::post,
 };
+use serde::Deserialize;
 use std::sync::Arc;
 use tracing::error;
 
@@ -23,9 +24,9 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
 
 async fn add_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
-    Query(name): Query<String>,
+    Query(params): Query<AddSyncDirParams>,
 ) -> StatusCode {
-    let name = name.trim();
+    let name = params.name.trim();
 
     match state.http_service.add_sync_dir(name).await {
         Ok(()) => StatusCode::OK,
@@ -34,6 +35,11 @@ async fn add_sync_dir<P: PersistenceInterface>(
             StatusCode::INTERNAL_SERVER_ERROR
         }
     }
+}
+
+#[derive(Deserialize)]
+struct AddSyncDirParams {
+    pub name: String,
 }
 
 async fn remove_sync_dir<P: PersistenceInterface>(

@@ -6,6 +6,7 @@
     <title>Synche</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
+
   <body>
     <header>
       <h1>Synche</h1>
@@ -76,10 +77,31 @@
             </svg>
             Synced Folders
           </h2>
-          <button>+ Add Folder</button>
+          <button
+            onclick="document.getElementById('add-dir-dialog').showModal()"
+          >
+            + Add Folder
+          </button>
+
+          <dialog id="add-dir-dialog">
+            <h3>Add Sync Directory</h3>
+            <form id="add-dir-form">
+              <input
+                type="text"
+                name="dir-name"
+                placeholder="Directory Name"
+                minlength="1"
+                required
+              />
+              <div>
+                <button type="submit">Add</button>
+                <button onclick="this.closest('dialog').close()">Cancel</button>
+              </div>
+            </form>
+          </dialog>
         </div>
 
-        <div>
+        <div id="dir-list">
           <div>📂 <strong>Folder1</strong> Up to Date</div>
           <div>📂 <strong>Folder2</strong> Up to Date</div>
         </div>
