@@ -1,13 +1,10 @@
-use crate::{
-    application::{
-        AppState,
-        network::transport::interface::{
-            HandshakeData, HandshakeKind, TransportDataV2, TransportInterfaceV2,
-        },
+use crate::application::{
+    AppState,
+    network::transport::interface::{
+        TransportDataV2, TransportInterfaceV2, TransportRecvData, TransportSendData,
     },
-    domain::EntryInfo,
 };
-use std::{net::IpAddr, sync::Arc};
+use std::sync::Arc;
 use tokio::{
     io,
     sync::{
@@ -19,13 +16,13 @@ use tokio::{
 pub struct TransportService<T: TransportInterfaceV2> {
     adapter: T,
     state: Arc<AppState>,
-    send_rx: Mutex<Receiver<(IpAddr, TransportDataV2)>>,
-    data_chan: ReceiverChannel<EntryInfo>,
-    control_chan: ReceiverChannel<TransportDataV2>,
+    send_rx: Mutex<Receiver<TransportSendData>>,
+    data_chan: ReceiverChannel<TransportRecvData>,
+    control_chan: ReceiverChannel<TransportRecvData>,
 }
 
 impl<T: TransportInterfaceV2> TransportService<T> {
-    pub fn new(adapter: T, state: Arc<AppState>) -> (Self, Sender<(IpAddr, TransportDataV2)>) {
+    pub fn new(adapter: T, state: Arc<AppState>) -> (Self, Sender<TransportSendData>) {
         let (send_tx, send_rx) = mpsc::channel(100);
 
         (
@@ -41,44 +38,58 @@ impl<T: TransportInterfaceV2> TransportService<T> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        tokio::try_join!(self.send(), self.recv(), self.recv_data())?;
+        tokio::try_join!(
+            self.send(),
+            self.recv(),
+            self.recv_data(),
+            self.recv_control()
+        )?;
         Ok(())
     }
 
     async fn send(&self) -> io::Result<()> {
-        while let Some((target, data)) = self.send_rx.lock().await.recv().await {
-            let _ = self.adapter.send(target, data).await;
+        while let Some(data) = self.send_rx.lock().await.recv().await {
+            let _ = self.adapter.send(data).await;
         }
         Ok(())
     }
 
     async fn recv(&self) -> io::Result<()> {
         loop {
-            match self.adapter.recv().await? {
-                TransportDataV2::Transfer(entry) => {
-                    let _ = self.data_chan.tx.send(entry).await;
+            let data = self.adapter.recv().await?;
+            match data.data {
+                TransportDataV2::Transfer(_) => {
+                    let _ = self.data_chan.tx.send(data).await;
                 }
 
-                other => {
-                    let _ = self.control_chan.tx.send(other).await;
+                _ => {
+                    let _ = self.control_chan.tx.send(data).await;
                 }
             }
         }
     }
 
     async fn recv_data(&self) -> io::Result<()> {
-        while let Some(entry) = self.data_chan.rx.lock().await.recv().await {
-            self.handle_transfer(entry).await?;
+        while let Some(data) = self.data_chan.rx.lock().await.recv().await {
+            self.handle_transfer(data).await?;
         }
         Ok(())
     }
 
     async fn recv_control(&self) -> io::Result<()> {
         while let Some(data) = self.control_chan.rx.lock().await.recv().await {
-            match data {
-                TransportDataV2::Handshake((data, kind)) => todo!(),
-                TransportDataV2::Metadata(entry) => todo!(),
-                TransportDataV2::Request(entry) => todo!(),
+            match data.data {
+                TransportDataV2::Handshake(_) => {
+                    self.handle_handshake(data).await?;
+                }
+
+                TransportDataV2::Metadata(_) => {
+                    self.handle_metadata(data).await?;
+                }
+
+                TransportDataV2::Request(_) => {
+                    self.handle_request(data).await?;
+                }
 
                 _ => unreachable!(),
             }
@@ -86,15 +97,19 @@ impl<T: TransportInterfaceV2> TransportService<T> {
         Ok(())
     }
 
-    async fn handle_transfer(&self, entry: EntryInfo) -> io::Result<()> {
+    async fn handle_handshake(&self, data: TransportRecvData) -> io::Result<()> {
         Ok(())
     }
 
-    async fn handle_handshake(&self, data: HandshakeData, kind: HandshakeKind) -> io::Result<()> {
+    async fn handle_metadata(&self, data: TransportRecvData) -> io::Result<()> {
         Ok(())
     }
 
-    async fn handle_metadata(&self, entry: EntryInfo) -> io::Result<()> {
+    async fn handle_request(&self, data: TransportRecvData) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn handle_transfer(&self, data: TransportRecvData) -> io::Result<()> {
         Ok(())
     }
 }
