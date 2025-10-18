@@ -10,26 +10,45 @@ use crate::{
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
-use tokio::io;
+use tokio::{
+    io,
+    sync::{Mutex, mpsc::Receiver},
+};
 use tracing::{error, warn};
 
 pub struct TransportSenderV2<T: TransportInterfaceV2, P: PersistenceInterface> {
-    adapter: T,
+    adapter: Arc<T>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
-    send_chan: TransportChannel<TransportSendData>,
+    send_rx: Mutex<Receiver<TransportSendData>>,
     control_chan: TransportChannel<TransportSendData>,
     transfer_chan: TransportChannel<(IpAddr, EntryInfo)>,
 }
 
 impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
+    pub fn new(
+        adapter: Arc<T>,
+        peer_manager: Arc<PeerManager>,
+        entry_manager: Arc<EntryManager<P>>,
+        send_rx: Mutex<Receiver<TransportSendData>>,
+    ) -> Self {
+        Self {
+            adapter,
+            peer_manager,
+            entry_manager,
+            send_rx,
+            control_chan: TransportChannel::new(),
+            transfer_chan: TransportChannel::new(),
+        }
+    }
+
     pub async fn run(&self) -> io::Result<()> {
         tokio::try_join!(self.send(), self.send_control(), self.send_files())?;
         Ok(())
     }
 
     async fn send(&self) -> io::Result<()> {
-        while let Some(data) = self.send_chan.rx.lock().await.recv().await {
+        while let Some(data) = self.send_rx.lock().await.recv().await {
             match data {
                 TransportSendData::Transfer(data) => {
                     self.transfer_chan

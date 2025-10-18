@@ -15,7 +15,7 @@ use tokio::{fs, io, sync::mpsc::Sender};
 use tracing::{error, info, warn};
 
 pub struct TransportReceiverV2<T: TransportInterfaceV2, P: PersistenceInterface> {
-    adapter: T,
+    adapter: Arc<T>,
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
@@ -25,6 +25,24 @@ pub struct TransportReceiverV2<T: TransportInterfaceV2, P: PersistenceInterface>
 }
 
 impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P> {
+    pub fn new(
+        adapter: Arc<T>,
+        state: Arc<AppState>,
+        peer_manager: Arc<PeerManager>,
+        entry_manager: Arc<EntryManager<P>>,
+        send_tx: Sender<TransportSendData>,
+    ) -> Self {
+        Self {
+            adapter,
+            state,
+            peer_manager,
+            entry_manager,
+            send_tx,
+            control_chan: TransportChannel::new(),
+            transfer_chan: TransportChannel::new(),
+        }
+    }
+
     pub async fn run(&self) -> io::Result<()> {
         tokio::try_join!(self.recv(), self.recv_control(), self.recv_transfer())?;
         Ok(())
