@@ -1,8 +1,8 @@
 use crate::{
-    domain::EntryInfo,
+    domain::{EntryInfo, RelativePath, SyncDirectory},
     proto::transport::{PeerHandshakeData, SyncHandshakeKind, SyncKind},
 };
-use std::net::IpAddr;
+use std::{collections::HashMap, net::IpAddr};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite},
     sync::{
@@ -14,24 +14,24 @@ use uuid::Uuid;
 
 pub trait TransportInterfaceV2 {
     async fn recv(&self) -> TransportResult<TransportDataV2>;
-
-    async fn send_handshake(
-        &self,
-        target: IpAddr,
-        kind: SyncKind,
-        data: PeerHandshakeData,
-    ) -> TransportResult<()>;
-
-    async fn send_metadata(&self, target: IpAddr, entry: &EntryInfo) -> TransportResult<()>;
-
-    async fn transfer_entry(&self, target: IpAddr, entry: &EntryInfo) -> TransportResult<()>;
+    async fn send(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()>;
 }
 
 pub enum TransportDataV2 {
-    Handshake(PeerHandshakeData),
+    Handshake((HandshakeData, HandshakeKind)),
     Metadata(EntryInfo),
     Request(EntryInfo),
     Transfer(EntryInfo),
+}
+
+pub struct HandshakeData {
+    pub sync_dirs: Vec<SyncDirectory>,
+    pub entries: HashMap<RelativePath, EntryInfo>,
+}
+
+pub enum HandshakeKind {
+    Request,
+    Response,
 }
 
 pub type TransportResult<T> = Result<T, TransportError>;
