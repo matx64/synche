@@ -1,5 +1,5 @@
-use crate::domain::EntryInfo;
-use std::net::IpAddr;
+use crate::domain::{EntryInfo, RelativePath, SyncDirectory};
+use std::{collections::HashMap, net::IpAddr};
 use tokio::sync::{
     Mutex,
     mpsc::{self, Receiver, Sender},
@@ -12,6 +12,20 @@ pub enum TransportSendData {
     Transfer((IpAddr, EntryInfo)),
 }
 
+pub enum TransportDataV2 {
+    Handshake((HandshakeData, HandshakeKind)),
+    Metadata(EntryInfo),
+    Request(EntryInfo),
+    Transfer(EntryInfo),
+}
+
+#[derive(Clone)]
+pub struct HandshakeData {
+    pub sync_dirs: Vec<SyncDirectory>,
+    pub entries: HashMap<RelativePath, EntryInfo>,
+}
+
+#[derive(Clone)]
 pub enum HandshakeKind {
     Request,
     Response,

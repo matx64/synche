@@ -1,7 +1,9 @@
 use crate::{
     application::{entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface},
-    domain::{CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, VersionCmp},
-    proto::transport::PeerHandshakeData,
+    domain::{
+        CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, VersionCmp,
+        transport::HandshakeData,
+    },
     utils::fs::{compute_hash, is_ds_store},
 };
 use std::{
@@ -396,8 +398,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
         entry
     }
 
-    pub async fn get_handshake_data(&self) -> PeerHandshakeData {
-        let sync_directories = self
+    pub async fn get_handshake_data(&self) -> HandshakeData {
+        let sync_dirs = self
             .sync_directories
             .read()
             .await
@@ -414,10 +416,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .map(|f| (f.name.clone(), f))
             .collect::<HashMap<RelativePath, EntryInfo>>();
 
-        PeerHandshakeData {
-            sync_directories,
-            entries,
-        }
+        HandshakeData { sync_dirs, entries }
     }
 
     pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
