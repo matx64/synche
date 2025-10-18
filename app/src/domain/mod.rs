@@ -3,6 +3,7 @@ mod directory;
 mod entry;
 mod fs;
 mod peer;
+pub mod transport;
 
 pub use config::ConfigFileData;
 pub use directory::SyncDirectory;

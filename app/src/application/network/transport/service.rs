@@ -203,18 +203,3 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportService<T, P> {
         self.peer_manager.remove_peer_by_addr(addr);
     }
 }
-
-pub struct TransportChannel<K> {
-    tx: Sender<K>,
-    rx: Mutex<Receiver<K>>,
-}
-
-impl<K> TransportChannel<K> {
-    pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel(16);
-        Self {
-            tx,
-            rx: Mutex::new(rx),
-        }
-    }
-}
