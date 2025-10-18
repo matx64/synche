@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        EntryManager, PeerManager, network::transport::interface::TransportInterfaceV2,
+        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterfaceV2,
         persistence::interface::PersistenceInterface,
     },
     domain::{
@@ -18,6 +18,7 @@ use tracing::{error, warn};
 
 pub struct TransportSenderV2<T: TransportInterfaceV2, P: PersistenceInterface> {
     adapter: Arc<T>,
+    state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_rx: Mutex<Receiver<TransportSendData>>,
@@ -28,11 +29,13 @@ pub struct TransportSenderV2<T: TransportInterfaceV2, P: PersistenceInterface> {
 impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
     pub fn new(
         adapter: Arc<T>,
+        state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
         send_rx: Mutex<Receiver<TransportSendData>>,
     ) -> Self {
         Self {
+            state,
             adapter,
             peer_manager,
             entry_manager,
@@ -139,7 +142,23 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
     }
 
     async fn send_files(&self) -> io::Result<()> {
-        while let Some((target, entry)) = self.transfer_chan.rx.lock().await.recv().await {}
+        while let Some((target, entry)) = self.transfer_chan.rx.lock().await.recv().await {
+            let path = self.state.home_path.join(&*entry.name);
+
+            if !path.exists() || !path.is_file() {
+                continue;
+            }
+
+            self.try_send(
+                || {
+                    self.adapter
+                        .send(target, TransportDataV2::Transfer(entry.clone()))
+                        .map_err(|e| e.into())
+                },
+                target,
+            )
+            .await;
+        }
         Ok(())
     }
 

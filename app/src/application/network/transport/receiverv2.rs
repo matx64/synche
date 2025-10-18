@@ -195,7 +195,17 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
     }
 
     async fn handle_transfer(&self, event: TransportRecvEvent) -> io::Result<()> {
-        Ok(())
+        let received_entry = match event.data {
+            TransportDataV2::Transfer(entry) => entry,
+            _ => unreachable!(),
+        };
+
+        let entry = self.entry_manager.insert_entry(received_entry).await;
+
+        self.send_tx
+            .send(TransportSendData::Metadata(entry))
+            .await
+            .map_err(io::Error::other)
     }
 
     async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {

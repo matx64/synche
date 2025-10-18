@@ -30,6 +30,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportService<T, P> {
         Self {
             sender: TransportSenderV2::new(
                 adapter.clone(),
+                state.clone(),
                 peer_manager.clone(),
                 entry_manager.clone(),
                 sender_chan.rx,
