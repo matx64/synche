@@ -92,10 +92,30 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
     }
 
     async fn send_metadata(&self, entry: EntryInfo) -> io::Result<()> {
+        for target in self.peer_manager.get_peers_to_send_metadata(&entry) {
+            self.try_send(
+                || {
+                    self.adapter
+                        .send(target, TransportDataV2::Metadata(entry.clone()))
+                        .map_err(|e| e.into())
+                },
+                target,
+            )
+            .await;
+        }
         Ok(())
     }
 
     async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> io::Result<()> {
+        self.try_send(
+            || {
+                self.adapter
+                    .send(target, TransportDataV2::Request(entry.clone()))
+                    .map_err(|e| e.into())
+            },
+            target,
+        )
+        .await;
         Ok(())
     }
 
