@@ -5,7 +5,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
     },
     domain::{
-        EntryInfo, Peer,
+        EntryInfo, Peer, VersionCmp,
         transport::{HandshakeKind, TransportChannel, TransportDataV2, TransportSendData},
     },
 };
@@ -121,18 +121,59 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
                     .await
                     .map_err(io::Error::other)?;
             } else {
-                // self.create_received_dir(entry).await?;
+                self.create_received_dir(entry).await?;
             }
         }
         Ok(())
     }
 
     async fn handle_metadata(&self, event: TransportRecvEvent) -> io::Result<()> {
-        Ok(())
+        let peer_entry = match event.data {
+            TransportDataV2::Metadata(entry) => entry,
+            _ => unreachable!(),
+        };
+
+        match self
+            .entry_manager
+            .handle_metadata(event.src_id, &peer_entry)
+            .await?
+        {
+            VersionCmp::KeepOther => {
+                if peer_entry.is_removed() {
+                    self.remove_entry(&peer_entry.name).await
+                } else if peer_entry.is_file() {
+                    self.send_tx
+                        .send(TransportSendData::Request((event.src_ip, peer_entry)))
+                        .await
+                        .map_err(io::Error::other)
+                } else {
+                    self.create_received_dir(peer_entry).await
+                }
+            }
+
+            _ => Ok(()),
+        }
     }
 
     async fn handle_request(&self, event: TransportRecvEvent) -> io::Result<()> {
-        Ok(())
+        let requested_entry = match event.data {
+            TransportDataV2::Request(entry) => entry,
+            _ => unreachable!(),
+        };
+
+        match self.entry_manager.get_entry(&requested_entry.name).await {
+            Some(local_entry)
+                if local_entry.is_file()
+                    && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
+            {
+                self.send_tx
+                    .send(TransportSendData::Transfer((event.src_ip, local_entry)))
+                    .await
+                    .map_err(io::Error::other)
+            }
+
+            _ => Ok(()),
+        }
     }
 
     async fn handle_transfer(&self, event: TransportRecvEvent) -> io::Result<()> {
@@ -149,6 +190,19 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
             .send(TransportSendData::Metadata(dir))
             .await
             .map_err(io::Error::other)
+    }
+
+    async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
+        let _ = self.entry_manager.remove_entry(entry_name).await;
+
+        let path = self.state.home_path.join(entry_name);
+
+        if path.is_dir() {
+            fs::remove_dir_all(path).await?;
+        } else if path.is_file() {
+            fs::remove_file(path).await?;
+        }
+        Ok(())
     }
 
     async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
