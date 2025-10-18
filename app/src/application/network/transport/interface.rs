@@ -12,6 +12,42 @@ use tokio::{
 };
 use uuid::Uuid;
 
+pub trait TransportInterfaceV2 {
+    async fn recv(&self) -> TransportResult<TransportDataV2>;
+
+    async fn send_handshake(
+        &self,
+        target: IpAddr,
+        kind: SyncKind,
+        data: PeerHandshakeData,
+    ) -> TransportResult<()>;
+
+    async fn send_metadata(&self, target: IpAddr, entry: &EntryInfo) -> TransportResult<()>;
+
+    async fn transfer_entry(&self, target: IpAddr, entry: &EntryInfo) -> TransportResult<()>;
+}
+
+pub enum TransportDataV2 {
+    Handshake(PeerHandshakeData),
+    Metadata(EntryInfo),
+    Request(EntryInfo),
+    Transfer(EntryInfo),
+}
+
+pub type TransportResult<T> = Result<T, TransportError>;
+
+pub enum TransportError {
+    Failure(String),
+}
+
+impl From<TransportError> for io::Error {
+    fn from(err: TransportError) -> Self {
+        match err {
+            TransportError::Failure(str) => io::Error::other(str),
+        }
+    }
+}
+
 pub trait TransportInterface {
     type Stream: TransportStream;
 
