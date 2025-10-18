@@ -13,16 +13,16 @@ use tokio::{
 use uuid::Uuid;
 
 pub trait TransportInterfaceV2 {
-    async fn recv(&self) -> TransportResult<TransportRecvData>;
-    async fn send(&self, data: TransportSendData) -> TransportResult<()>;
+    async fn recv(&self) -> TransportResult<TransportRecvEvent>;
+    async fn send(&self, event: TransportSendEvent) -> TransportResult<()>;
 }
 
-pub struct TransportSendData {
+pub struct TransportSendEvent {
     pub target: IpAddr,
     pub data: TransportDataV2,
 }
 
-pub struct TransportRecvData {
+pub struct TransportRecvEvent {
     pub src_id: Uuid,
     pub src_ip: IpAddr,
     pub data: TransportDataV2,
