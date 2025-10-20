@@ -23,7 +23,7 @@ use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 const TCP_PORT: u16 = 8889;
@@ -147,6 +147,58 @@ impl TcpTransporter {
             .await?;
         stream.write_all(&contents).await?;
         Ok(())
+    }
+
+    async fn send_entry(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
+        let socket = SocketAddr::new(target, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
+
+        let Some(contents) = self.read_entry_contents(&entry).await? else {
+            return Ok(());
+        };
+
+        let kind = TcpStreamKind::Transfer;
+        let metadata_json = serde_json::to_vec(&entry)?;
+        let entry_size = contents.len() as u64;
+
+        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
+
+        // Write self peer id
+        stream.write_all(self.local_id.as_bytes()).await?;
+
+        // Write sync kind
+        stream.write_all(&[kind as u8]).await?;
+
+        // Write metadata json size
+        stream
+            .write_all(&u32::to_be_bytes(metadata_json.len() as u32))
+            .await?;
+
+        // Write metadata json
+        stream.write_all(&metadata_json).await?;
+
+        // Write entry size
+        stream.write_all(&u64::to_be_bytes(entry_size)).await?;
+
+        // Write entry contents
+        stream.write_all(&contents).await?;
+        Ok(())
+    }
+
+    async fn read_entry_contents(&self, entry: &EntryInfo) -> TransportResult<Option<Vec<u8>>> {
+        let path = self.home_path.join(&*entry.name);
+
+        let mut fs_file = File::open(path).await?;
+        let mut buffer = Vec::new();
+        fs_file.read_to_end(&mut buffer).await?;
+
+        let hash = format!("{:x}", Sha256::digest(&buffer));
+        if Some(hash) != entry.hash {
+            warn!("⚠️  Cancelled File Transfer because it was modified during process.");
+            return Ok(None);
+        }
+
+        Ok(Some(buffer))
     }
 
     async fn read_handshake(
