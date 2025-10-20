@@ -2,8 +2,8 @@ use crate::{
     application::network::{
         TransportInterface,
         transport::interface::{
-            TransportData, TransportInterfaceV2, TransportRecvEvent, TransportResult,
-            TransportStream,
+            TransportData, TransportError, TransportInterfaceV2, TransportRecvEvent,
+            TransportResult, TransportStream,
         },
     },
     domain::{
@@ -60,13 +60,12 @@ impl TransportInterfaceV2 for TcpTransporter {
         let mut kind_buf = [0u8; 1];
         stream.read_exact(&mut kind_buf).await?;
 
-        let data = match kind_buf[0] {
-            1 => self.read_handshake(&mut stream, true).await?,
-            2 => self.read_handshake(&mut stream, false).await?,
-            3 => self.read_metadata(&mut stream).await?,
-            4 => self.read_request(&mut stream).await?,
-            5 => self.read_transfer(&mut stream).await?,
-            _ => unreachable!(),
+        let data = match TcpStreamKind::try_from(kind_buf[0])? {
+            TcpStreamKind::HandshakeSyn => self.read_handshake(&mut stream, true).await?,
+            TcpStreamKind::HandshakeAck => self.read_handshake(&mut stream, false).await?,
+            TcpStreamKind::Metadata => self.read_metadata(&mut stream).await?,
+            TcpStreamKind::Request => self.read_request(&mut stream).await?,
+            TcpStreamKind::Transfer => self.read_transfer(&mut stream).await?,
         };
 
         Ok(TransportRecvEvent {
@@ -123,18 +122,29 @@ impl TcpTransporter {
 
         info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
 
-        // Write self peer id
         stream.write_all(self.local_id.as_bytes()).await?;
-
-        // Write sync kind
         stream.write_all(&[kind as u8]).await?;
-
-        // Write metadata json size
         stream
             .write_all(&u32::to_be_bytes(contents.len() as u32))
             .await?;
+        stream.write_all(&contents).await?;
+        Ok(())
+    }
 
-        // Write metadata json
+    async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
+        let socket = SocketAddr::new(target, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
+
+        let kind = TcpStreamKind::Request;
+        let contents = serde_json::to_vec(&entry)?;
+
+        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
+
+        stream.write_all(self.local_id.as_bytes()).await?;
+        stream.write_all(&[kind as u8]).await?;
+        stream
+            .write_all(&u32::to_be_bytes(contents.len() as u32))
+            .await?;
         stream.write_all(&contents).await?;
         Ok(())
     }
@@ -419,6 +429,23 @@ enum TcpStreamKind {
     Metadata = 3,
     Request = 4,
     Transfer = 5,
+}
+
+impl TryFrom<u8> for TcpStreamKind {
+    type Error = TransportError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::HandshakeSyn),
+            2 => Ok(Self::HandshakeAck),
+            3 => Ok(Self::Metadata),
+            4 => Ok(Self::Request),
+            5 => Ok(Self::Transfer),
+            _ => Err(TransportError::Failure(
+                "Invalid Tcp Stream kind".to_string(),
+            )),
+        }
+    }
 }
 
 impl From<&TransportDataV2> for TcpStreamKind {
