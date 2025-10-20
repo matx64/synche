@@ -1,7 +1,6 @@
 mod application;
 mod domain;
 mod infra;
-mod proto;
 mod utils;
 
 #[tokio::main]
