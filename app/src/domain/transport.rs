@@ -1,4 +1,5 @@
 use crate::domain::{EntryInfo, RelativePath, SyncDirectory};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::IpAddr};
 use tokio::sync::{
     Mutex,
@@ -19,13 +20,13 @@ pub enum TransportDataV2 {
     Transfer(EntryInfo),
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct HandshakeData {
     pub sync_dirs: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum HandshakeKind {
     Request,
     Response,

@@ -7,17 +7,19 @@ use crate::{
         },
     },
     domain::{
-        EntryInfo, EntryKind,
-        transport::{HandshakeKind, TransportDataV2},
+        CanonicalPath, EntryInfo, EntryKind,
+        transport::{HandshakeData, HandshakeKind, TransportDataV2},
     },
     proto::transport::{PeerHandshakeData, SyncEntryKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
 use std::{
+    env,
     io::ErrorKind,
     net::{IpAddr, SocketAddr},
 };
 use tokio::{
+    fs::{self, File},
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
@@ -27,37 +29,22 @@ use uuid::Uuid;
 const TCP_PORT: u16 = 8889;
 
 pub struct TcpTransporter {
-    listener: TcpListener,
     local_id: Uuid,
+    listener: TcpListener,
+    home_path: CanonicalPath,
 }
 
 impl TcpTransporter {
-    pub async fn new(local_id: Uuid) -> Self {
+    pub async fn new(local_id: Uuid, home_path: CanonicalPath) -> Self {
         let listener = TcpListener::bind(format!("0.0.0.0:{TCP_PORT}"))
             .await
             .unwrap();
 
-        Self { listener, local_id }
-    }
-
-    async fn read_handshake(
-        &self,
-        stream: &mut TcpStream,
-        kind: HandshakeKind,
-    ) -> io::Result<TransportDataV2> {
-        todo!()
-    }
-
-    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
-        todo!()
-    }
-
-    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
-        todo!()
-    }
-
-    async fn read_transfer(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
-        todo!()
+        Self {
+            local_id,
+            listener,
+            home_path,
+        }
     }
 }
 
@@ -99,7 +86,101 @@ impl TransportInterfaceV2 for TcpTransporter {
     }
 
     async fn send(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
-        todo!()
+        match data {
+            TransportDataV2::Handshake(_) => todo!(),
+            TransportDataV2::Metadata(_) => todo!(),
+            TransportDataV2::Request(_) => todo!(),
+            TransportDataV2::Transfer(_) => todo!(),
+        }
+    }
+}
+
+impl TcpTransporter {
+    async fn read_handshake(
+        &self,
+        stream: &mut TcpStream,
+        kind: HandshakeKind,
+    ) -> io::Result<TransportDataV2> {
+        let mut len_buf = [0u8; 4];
+        stream.read_exact(&mut len_buf).await?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+
+        let mut buf = vec![0u8; len];
+        stream.read_exact(&mut buf).await?;
+
+        let data_str =
+            String::from_utf8(buf).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+        let data = serde_json::from_str(&data_str)
+            .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+
+        Ok(TransportDataV2::Handshake((data, kind)))
+    }
+
+    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+        let entry = self.read_entry_info(stream).await?;
+
+        Ok(TransportDataV2::Metadata(entry))
+    }
+
+    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+        let entry = self.read_entry_info(stream).await?;
+
+        Ok(TransportDataV2::Request(entry))
+    }
+
+    async fn read_transfer(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+        let entry = self.read_entry_info(stream).await?;
+
+        let mut entry_size_buf = [0u8; 8];
+        stream.read_exact(&mut entry_size_buf).await?;
+        let entry_size = u64::from_be_bytes(entry_size_buf);
+
+        let mut entry_buf = vec![0u8; entry_size as usize];
+        stream.read_exact(&mut entry_buf).await?;
+
+        if let Some(hash) = &entry.hash
+            && !entry.is_removed()
+            && matches!(entry.kind, EntryKind::File)
+        {
+            let computed_hash = format!("{:x}", Sha256::digest(&entry_buf));
+            if computed_hash != *hash {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Hash mismatch: data corruption detected",
+                ));
+            }
+        }
+
+        self.save_entry(&entry, entry_buf).await?;
+
+        Ok(TransportDataV2::Transfer(entry))
+    }
+
+    async fn read_entry_info(&self, stream: &mut TcpStream) -> io::Result<EntryInfo> {
+        let mut json_len_buf = [0u8; 4];
+        stream.read_exact(&mut json_len_buf).await?;
+        let json_len = u32::from_be_bytes(json_len_buf) as usize;
+
+        let mut json_buf = vec![0u8; json_len];
+        stream.read_exact(&mut json_buf).await?;
+
+        let entry = serde_json::from_slice::<EntryInfo>(&json_buf)?;
+        Ok(entry)
+    }
+
+    async fn save_entry(&self, entry: &EntryInfo, contents: Vec<u8>) -> io::Result<()> {
+        let original_path = self.home_path.join(&*entry.name);
+        let tmp_path = env::temp_dir().join(&*entry.name);
+
+        let mut tmp_file = File::create(&tmp_path).await?;
+        tmp_file.write_all(&contents).await?;
+        tmp_file.flush().await?;
+
+        if let Some(parent) = original_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        fs::rename(&tmp_path, &original_path).await
     }
 }
 
