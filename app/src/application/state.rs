@@ -1,6 +1,12 @@
 use crate::domain::{CanonicalPath, Peer, SyncDirectory};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, net::IpAddr, path::Path, sync::RwLock};
+use std::{
+    collections::HashMap,
+    fs,
+    net::IpAddr,
+    path::Path,
+    sync::{Arc, RwLock},
+};
 use uuid::Uuid;
 
 pub struct AppState {
@@ -13,7 +19,7 @@ pub struct AppState {
     peers: RwLock<HashMap<Uuid, Peer>>,
     pub sync_dirs: RwLock<HashMap<String, SyncDirectory>>,
 
-    ports: Ports,
+    pub ports: Ports,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -24,7 +30,7 @@ pub struct Ports {
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new() -> Arc<Self> {
         let cfg_path = "./.synchev2/config.json";
         let config_data = ConfigFileData::init(cfg_path);
 
@@ -36,7 +42,7 @@ impl AppState {
             .map(|d| (d.name.clone(), d.to_owned()))
             .collect();
 
-        Self {
+        Arc::new(Self {
             home_path,
             cfg_path,
             ports: config_data.ports,
@@ -44,7 +50,7 @@ impl AppState {
             sync_dirs: RwLock::new(sync_dirs),
             peers: RwLock::new(HashMap::new()),
             local_ip: RwLock::new(local_ip_address::local_ip().unwrap()),
-        }
+        })
     }
 
     fn create_required_paths(cfg_path: &str, home_path: &str) -> (CanonicalPath, CanonicalPath) {

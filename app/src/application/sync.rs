@@ -1,13 +1,16 @@
 use crate::{
     application::{
         AppState, EntryManager, HttpService, PeerManager,
-        network::presence::{PresenceService, interface::PresenceInterface},
+        network::{
+            presence::{interface::PresenceInterface, service::PresenceService},
+            transport::{TransportService, interface::TransportInterface},
+        },
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
     infra::{
         self,
-        network::{mdns::MdnsAdapter, tcp::TcpTransporter},
+        network::{mdns::MdnsAdapter, tcp::TcpAdapter},
         persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
@@ -23,21 +26,25 @@ pub struct Synchronizer<
 > {
     file_watcher: FileWatcher<W, P>,
     presence_service: PresenceService<R>,
-    transport_sender: TransportSender<T, P>,
-    transport_receiver: TransportReceiver<T, P>,
+    transport_service: TransportService<T, P>,
     http_service: Arc<HttpService<P>>,
 }
 
-impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb, MdnsAdapter> {
+impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
     pub async fn new_default() -> Self {
         let state = AppState::new();
 
         let notify = NotifyFileWatcher::new();
         let mdns_adapter = MdnsAdapter::new(state.local_id);
-        let tcp_transporter = TcpTransporter::new(state.local_id, state.home_path.clone()).await;
+        let tcp_adapter = TcpAdapter::new(
+            state.ports.transport,
+            state.local_id,
+            state.home_path.clone(),
+        )
+        .await;
         let sqlite_adapter = SqliteDb::new(state.cfg_path.join("db.db")).await.unwrap();
 
-        Self::new(state, notify, mdns_adapter, tcp_transporter, sqlite_adapter).await
+        Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
     }
 }
 
@@ -45,7 +52,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     Synchronizer<W, T, P, D>
 {
     pub async fn new(
-        state: AppState,
+        state: Arc<AppState>,
         watch_adapter: W,
         presence_adapter: D,
         transport_adapter: T,
@@ -62,19 +69,18 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         entry_manager.init().await.unwrap();
 
         let peer_manager = Arc::new(PeerManager::new());
-        let transport_adapter = Arc::new(transport_adapter);
 
-        let (transport_sender, sender_channels) = TransportSender::new(
-            transport_adapter.clone(),
-            entry_manager.clone(),
+        let (transport_service, sender_tx) = TransportService::new(
+            transport_adapter,
+            state.clone(),
             peer_manager.clone(),
-            state.home_path.clone(),
+            entry_manager.clone(),
         );
 
         let (file_watcher, dirs_updates_tx) = FileWatcher::new(
             watch_adapter,
             entry_manager.clone(),
-            sender_channels.metadata_tx.clone(),
+            sender_tx.clone(),
             state.home_path.clone(),
         );
 
@@ -82,7 +88,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             presence_adapter,
             state.local_id,
             peer_manager.clone(),
-            sender_channels.handshake_tx.clone(),
+            sender_tx.clone(),
         );
 
         let http_service = HttpService::new(
@@ -90,23 +96,14 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             entry_manager.clone(),
             peer_manager.clone(),
             dirs_updates_tx,
-            sender_channels.handshake_tx.clone(),
-        );
-
-        let transport_receiver = TransportReceiver::new(
-            transport_adapter,
-            entry_manager,
-            peer_manager,
-            sender_channels,
-            state.home_path,
+            sender_tx,
         );
 
         Self {
             file_watcher,
-            presence_service,
-            transport_sender,
-            transport_receiver,
             http_service,
+            presence_service,
+            transport_service,
         }
     }
 
@@ -158,8 +155,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     async fn _run(&mut self) -> io::Result<()> {
         tokio::try_join!(
             infra::http::server::run(self.http_service.clone()),
-            self.transport_receiver.run(),
-            self.transport_sender.run(),
+            self.transport_service.run(),
             self.presence_service.run(),
             self.file_watcher.run(),
         )?;

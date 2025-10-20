@@ -1,7 +1,9 @@
 use crate::{
     application::{
-        persistence::interface::PersistenceInterface, watcher::interface::FileWatcherSyncDirectoryUpdate, EntryManager, PeerManager
-    }, domain::SyncDirectory, proto::transport::SyncHandshakeKind
+        EntryManager, PeerManager, persistence::interface::PersistenceInterface,
+        watcher::interface::FileWatcherSyncDirectoryUpdate,
+    },
+    domain::{SyncDirectory, TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
@@ -13,7 +15,7 @@ pub struct HttpService<P: PersistenceInterface> {
     entry_manager: Arc<EntryManager<P>>,
     peer_manager: Arc<PeerManager>,
     dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
-    handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
+    sender_tx: Sender<TransportChannelData>,
 }
 
 impl<P: PersistenceInterface> HttpService<P> {
@@ -22,19 +24,24 @@ impl<P: PersistenceInterface> HttpService<P> {
         entry_manager: Arc<EntryManager<P>>,
         peer_manager: Arc<PeerManager>,
         dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
-        handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
+        sender_tx: Sender<TransportChannelData>,
     ) -> Arc<Self> {
         Arc::new(Self {
             local_id,
             entry_manager,
             peer_manager,
             dirs_updates_tx,
-            handshake_tx,
+            sender_tx,
         })
     }
 
     pub async fn list_dirs(&self) -> Vec<SyncDirectory> {
-        self.entry_manager.list_dirs().await.values().cloned().collect()
+        self.entry_manager
+            .list_dirs()
+            .await
+            .values()
+            .cloned()
+            .collect()
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<bool> {
@@ -60,8 +67,8 @@ impl<P: PersistenceInterface> HttpService<P> {
 
         for (_, addr) in self.peer_manager.list() {
             if let Err(err) = self
-                .handshake_tx
-                .send((addr, SyncHandshakeKind::Request))
+                .sender_tx
+                .send(TransportChannelData::HandshakeSyn(addr))
                 .await
             {
                 error!("Handshake send error: {err}");

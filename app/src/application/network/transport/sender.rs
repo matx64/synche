@@ -77,7 +77,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
                     self.send_handshake(target, true).await?;
                 }
 
-                TransportChannelData::HandshakeAck(target) => {
+                TransportChannelData::_HandshakeAck(target) => {
                     self.send_handshake(target, false).await?;
                 }
 

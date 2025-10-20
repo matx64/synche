@@ -8,7 +8,8 @@ use crate::{
         },
     },
     domain::{
-        CanonicalPath, EntryInfo, EntryKind, WatcherEvent, WatcherEventKind, WatcherEventPath,
+        CanonicalPath, EntryInfo, EntryKind, TransportChannelData, WatcherEvent, WatcherEventKind,
+        WatcherEventPath,
     },
     utils::fs::compute_hash,
 };
@@ -22,7 +23,7 @@ pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     buffer: WatcherBuffer,
     watch_rx: Receiver<WatcherEvent>,
     dirs_updates_rx: Receiver<FileWatcherSyncDirectoryUpdate>,
-    metadata_tx: Sender<EntryInfo>,
+    sender_tx: Sender<TransportChannelData>,
     base_dir_path: CanonicalPath,
 }
 
@@ -30,7 +31,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub fn new(
         watch_adapter: T,
         entry_manager: Arc<EntryManager<P>>,
-        metadata_tx: Sender<EntryInfo>,
+        sender_tx: Sender<TransportChannelData>,
         base_dir_path: CanonicalPath,
     ) -> (Self, Sender<FileWatcherSyncDirectoryUpdate>) {
         let (watch_tx, watch_rx) = mpsc::channel(1000);
@@ -42,7 +43,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                 entry_manager,
                 watch_rx,
                 dirs_updates_rx: dirs_rx,
-                metadata_tx,
+                sender_tx,
                 base_dir_path,
                 buffer: WatcherBuffer::new(watch_tx),
             },
@@ -187,7 +188,11 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     async fn send_metadata(&self, file: EntryInfo) {
-        if let Err(err) = self.metadata_tx.send(file).await {
+        if let Err(err) = self
+            .sender_tx
+            .send(TransportChannelData::Metadata(file))
+            .await
+        {
             error!("Failed to buffer metadata {}", err);
         }
     }

@@ -29,7 +29,7 @@ pub struct HandshakeData {
 
 pub enum TransportChannelData {
     HandshakeSyn(IpAddr),
-    HandshakeAck(IpAddr),
+    _HandshakeAck(IpAddr),
     Metadata(EntryInfo),
     Request((IpAddr, EntryInfo)),
     Transfer((IpAddr, EntryInfo)),

@@ -3,25 +3,21 @@ use crate::{
     domain::{CanonicalPath, EntryInfo, EntryKind, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
 };
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::env;
 use tokio::{
     fs::{self, File},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
-use uuid::Uuid;
 
 pub struct TcpReceiver {
-    local_id: Uuid,
     home_path: CanonicalPath,
 }
 
 impl TcpReceiver {
-    pub fn new(local_id: Uuid, home_path: CanonicalPath) -> Self {
-        Self {
-            local_id,
-            home_path,
-        }
+    pub fn new(home_path: CanonicalPath) -> Self {
+        Self { home_path }
     }
 
     pub async fn read_data(
@@ -50,7 +46,7 @@ impl TcpReceiver {
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await?;
 
-        let data_str = String::from_utf8(buf)?;
+        let data_str = String::from_utf8(buf).map_err(|e| TransportError::new(&e.to_string()))?;
         let data = serde_json::from_str(&data_str)?;
 
         if is_syn {
@@ -123,6 +119,7 @@ impl TcpReceiver {
             fs::create_dir_all(parent).await?;
         }
 
-        fs::rename(&tmp_path, &original_path).await
+        fs::rename(&tmp_path, &original_path).await?;
+        Ok(())
     }
 }

@@ -1,6 +1,9 @@
-use crate::application::{
-    PeerManager,
-    network::presence::interface::{PresenceEvent, PresenceInterface},
+use crate::{
+    application::{
+        PeerManager,
+        network::presence::interface::{PresenceEvent, PresenceInterface},
+    },
+    domain::TransportChannelData,
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
@@ -10,7 +13,7 @@ pub struct PresenceService<P: PresenceInterface> {
     adapter: P,
     local_id: Uuid,
     peer_manager: Arc<PeerManager>,
-    handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
+    sender_tx: Sender<TransportChannelData>,
 }
 
 impl<P: PresenceInterface> PresenceService<P> {
@@ -18,13 +21,13 @@ impl<P: PresenceInterface> PresenceService<P> {
         adapter: P,
         local_id: Uuid,
         peer_manager: Arc<PeerManager>,
-        handshake_tx: Sender<(IpAddr, SyncHandshakeKind)>,
+        sender_tx: Sender<TransportChannelData>,
     ) -> Self {
         Self {
             adapter,
             local_id,
             peer_manager,
-            handshake_tx,
+            sender_tx,
         }
     }
 
@@ -48,8 +51,8 @@ impl<P: PresenceInterface> PresenceService<P> {
         let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
 
         if inserted && self.local_id < peer_id {
-            self.handshake_tx
-                .send((peer_ip, SyncHandshakeKind::Request))
+            self.sender_tx
+                .send(TransportChannelData::HandshakeSyn(peer_ip))
                 .await
                 .map_err(io::Error::other)?;
         }

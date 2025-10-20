@@ -6,10 +6,10 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::Channel,
+    domain::{Channel, TransportChannelData},
 };
 use std::sync::Arc;
-use tokio::io;
+use tokio::{io, sync::mpsc::Sender};
 
 pub struct TransportService<T: TransportInterface, P: PersistenceInterface> {
     sender: TransportSender<T, P>,
@@ -22,26 +22,29 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportService<T, P> {
         state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
-    ) -> Self {
+    ) -> (Self, Sender<TransportChannelData>) {
         let adapter = Arc::new(adapter);
         let sender_chan = Channel::new(100);
 
-        Self {
-            sender: TransportSender::new(
-                adapter.clone(),
-                state.clone(),
-                peer_manager.clone(),
-                entry_manager.clone(),
-                sender_chan.rx,
-            ),
-            receiver: TransportReceiver::new(
-                adapter,
-                state,
-                peer_manager,
-                entry_manager,
-                sender_chan.tx,
-            ),
-        }
+        (
+            Self {
+                sender: TransportSender::new(
+                    adapter.clone(),
+                    state.clone(),
+                    peer_manager.clone(),
+                    entry_manager.clone(),
+                    sender_chan.rx,
+                ),
+                receiver: TransportReceiver::new(
+                    adapter,
+                    state,
+                    peer_manager,
+                    entry_manager,
+                    sender_chan.tx.clone(),
+                ),
+            },
+            sender_chan.tx,
+        )
     }
 
     pub async fn run(&self) -> io::Result<()> {

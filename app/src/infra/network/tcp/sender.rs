@@ -3,9 +3,13 @@ use crate::{
     domain::{CanonicalPath, EntryInfo, HandshakeData, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
 };
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::net::{IpAddr, SocketAddr};
-use tokio::{fs::File, net::TcpStream};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
