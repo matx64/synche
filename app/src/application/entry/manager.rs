@@ -1,8 +1,8 @@
 use crate::{
     application::{entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface},
     domain::{
-        CanonicalPath, EntryInfo, EntryKind, Peer, RelativePath, SyncDirectory, VersionCmp,
-        transport::HandshakeData,
+        CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath, SyncDirectory,
+        VersionCmp,
     },
     utils::fs::{compute_hash, is_ds_store},
 };

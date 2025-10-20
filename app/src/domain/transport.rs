@@ -1,10 +1,6 @@
 use crate::domain::{EntryInfo, RelativePath, SyncDirectory};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::IpAddr};
-use tokio::sync::{
-    Mutex,
-    mpsc::{self, Receiver, Sender},
-};
 
 pub enum TransportChannelData {
     HandshakeSyn(IpAddr),
@@ -14,7 +10,7 @@ pub enum TransportChannelData {
     Transfer((IpAddr, EntryInfo)),
 }
 
-pub enum TransportDataV2 {
+pub enum TransportData {
     HandshakeSyn(HandshakeData),
     HandshakeAck(HandshakeData),
     Metadata(EntryInfo),
@@ -26,19 +22,4 @@ pub enum TransportDataV2 {
 pub struct HandshakeData {
     pub sync_dirs: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
-}
-
-pub struct TransportChannel<K> {
-    pub tx: Sender<K>,
-    pub rx: Mutex<Receiver<K>>,
-}
-
-impl<K> TransportChannel<K> {
-    pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel(16);
-        Self {
-            tx,
-            rx: Mutex::new(rx),
-        }
-    }
 }

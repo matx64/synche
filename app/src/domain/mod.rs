@@ -1,10 +1,12 @@
+mod chan;
 mod config;
 mod directory;
 mod entry;
 mod fs;
 mod peer;
-pub mod transport;
+mod transport;
 
+pub use chan::Channel;
 pub use config::ConfigFileData;
 pub use directory::SyncDirectory;
 pub use entry::EntryInfo;
@@ -17,3 +19,6 @@ pub use fs::WatcherEvent;
 pub use fs::WatcherEventKind;
 pub use fs::WatcherEventPath;
 pub use peer::Peer;
+pub use transport::HandshakeData;
+pub use transport::TransportChannelData;
+pub use transport::TransportData;

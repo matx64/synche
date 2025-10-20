@@ -1,4 +1,6 @@
 pub mod interface;
-mod receiverv2;
-mod senderv2;
+mod receiver;
+mod sender;
 mod service;
+
+pub use service::TransportService;

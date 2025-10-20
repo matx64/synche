@@ -1,11 +1,8 @@
 use crate::{
     application::network::transport::interface::{
-        TransportError, TransportInterfaceV2, TransportRecvEvent, TransportResult,
+        TransportError, TransportInterface, TransportRecvEvent, TransportResult,
     },
-    domain::{
-        CanonicalPath, EntryInfo, EntryKind,
-        transport::{HandshakeData, TransportDataV2},
-    },
+    domain::{CanonicalPath, EntryInfo, EntryKind, HandshakeData, TransportData},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -43,7 +40,7 @@ impl TcpTransporter {
     }
 }
 
-impl TransportInterfaceV2 for TcpTransporter {
+impl TransportInterface for TcpTransporter {
     async fn recv(&self) -> TransportResult<TransportRecvEvent> {
         let (mut stream, src_addr) = self.listener.accept().await?;
         let src_ip = src_addr.ip();
@@ -70,16 +67,16 @@ impl TransportInterfaceV2 for TcpTransporter {
         })
     }
 
-    async fn send(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
+    async fn send(&self, target: IpAddr, data: TransportData) -> TransportResult<()> {
         let kind = TcpStreamKind::from(&data);
 
         match data {
-            TransportDataV2::HandshakeSyn(hs_data) | TransportDataV2::HandshakeAck(hs_data) => {
+            TransportData::HandshakeSyn(hs_data) | TransportData::HandshakeAck(hs_data) => {
                 self.send_handshake(target, hs_data, kind).await
             }
-            TransportDataV2::Metadata(entry) => self.send_metadata(target, entry).await,
-            TransportDataV2::Request(entry) => self.send_request(target, entry).await,
-            TransportDataV2::Transfer(entry) => self.send_entry(target, entry).await,
+            TransportData::Metadata(entry) => self.send_metadata(target, entry).await,
+            TransportData::Request(entry) => self.send_request(target, entry).await,
+            TransportData::Transfer(entry) => self.send_entry(target, entry).await,
         }
     }
 }
@@ -200,7 +197,7 @@ impl TcpTransporter {
         &self,
         stream: &mut TcpStream,
         is_syn: bool,
-    ) -> io::Result<TransportDataV2> {
+    ) -> io::Result<TransportData> {
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
         let len = u32::from_be_bytes(len_buf) as usize;
@@ -214,25 +211,25 @@ impl TcpTransporter {
             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
 
         if is_syn {
-            Ok(TransportDataV2::HandshakeSyn(data))
+            Ok(TransportData::HandshakeSyn(data))
         } else {
-            Ok(TransportDataV2::HandshakeAck(data))
+            Ok(TransportData::HandshakeAck(data))
         }
     }
 
-    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<TransportData> {
         let entry = self.read_entry_info(stream).await?;
 
-        Ok(TransportDataV2::Metadata(entry))
+        Ok(TransportData::Metadata(entry))
     }
 
-    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<TransportData> {
         let entry = self.read_entry_info(stream).await?;
 
-        Ok(TransportDataV2::Request(entry))
+        Ok(TransportData::Request(entry))
     }
 
-    async fn read_transfer(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+    async fn read_transfer(&self, stream: &mut TcpStream) -> io::Result<TransportData> {
         let entry = self.read_entry_info(stream).await?;
 
         let mut entry_size_buf = [0u8; 8];
@@ -257,7 +254,7 @@ impl TcpTransporter {
 
         self.save_entry(&entry, entry_buf).await?;
 
-        Ok(TransportDataV2::Transfer(entry))
+        Ok(TransportData::Transfer(entry))
     }
 
     async fn read_entry_info(&self, stream: &mut TcpStream) -> io::Result<EntryInfo> {
@@ -314,14 +311,14 @@ impl TryFrom<u8> for TcpStreamKind {
     }
 }
 
-impl From<&TransportDataV2> for TcpStreamKind {
-    fn from(value: &TransportDataV2) -> Self {
+impl From<&TransportData> for TcpStreamKind {
+    fn from(value: &TransportData) -> Self {
         match value {
-            TransportDataV2::HandshakeSyn(_) => Self::HandshakeSyn,
-            TransportDataV2::HandshakeAck(_) => Self::HandshakeAck,
-            TransportDataV2::Metadata(_) => Self::Metadata,
-            TransportDataV2::Request(_) => Self::Request,
-            TransportDataV2::Transfer(_) => Self::Transfer,
+            TransportData::HandshakeSyn(_) => Self::HandshakeSyn,
+            TransportData::HandshakeAck(_) => Self::HandshakeAck,
+            TransportData::Metadata(_) => Self::Metadata,
+            TransportData::Request(_) => Self::Request,
+            TransportData::Transfer(_) => Self::Transfer,
         }
     }
 }

@@ -2,22 +2,21 @@ use crate::{
     application::{
         AppState, EntryManager, PeerManager,
         network::transport::{
-            interface::TransportInterfaceV2, receiverv2::TransportReceiverV2,
-            senderv2::TransportSenderV2,
+            interface::TransportInterface, receiver::TransportReceiver, sender::TransportSender,
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::transport::TransportChannel,
+    domain::Channel,
 };
 use std::sync::Arc;
 use tokio::io;
 
-pub struct TransportService<T: TransportInterfaceV2, P: PersistenceInterface> {
-    sender: TransportSenderV2<T, P>,
-    receiver: TransportReceiverV2<T, P>,
+pub struct TransportService<T: TransportInterface, P: PersistenceInterface> {
+    sender: TransportSender<T, P>,
+    receiver: TransportReceiver<T, P>,
 }
 
-impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportService<T, P> {
+impl<T: TransportInterface, P: PersistenceInterface> TransportService<T, P> {
     pub fn new(
         adapter: T,
         state: Arc<AppState>,
@@ -25,17 +24,17 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportService<T, P> {
         entry_manager: Arc<EntryManager<P>>,
     ) -> Self {
         let adapter = Arc::new(adapter);
-        let sender_chan = TransportChannel::new();
+        let sender_chan = Channel::new(100);
 
         Self {
-            sender: TransportSenderV2::new(
+            sender: TransportSender::new(
                 adapter.clone(),
                 state.clone(),
                 peer_manager.clone(),
                 entry_manager.clone(),
                 sender_chan.rx,
             ),
-            receiver: TransportReceiverV2::new(
+            receiver: TransportReceiver::new(
                 adapter,
                 state,
                 peer_manager,

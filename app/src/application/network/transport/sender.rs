@@ -1,12 +1,9 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterfaceV2,
+        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
-    domain::{
-        EntryInfo,
-        transport::{TransportChannel, TransportChannelData, TransportDataV2},
-    },
+    domain::{Channel, EntryInfo, TransportChannelData, TransportData},
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -16,17 +13,17 @@ use tokio::{
 };
 use tracing::{error, warn};
 
-pub struct TransportSenderV2<T: TransportInterfaceV2, P: PersistenceInterface> {
+pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
     adapter: Arc<T>,
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_rx: Mutex<Receiver<TransportChannelData>>,
-    control_chan: TransportChannel<TransportChannelData>,
-    transfer_chan: TransportChannel<(IpAddr, EntryInfo)>,
+    control_chan: Channel<TransportChannelData>,
+    transfer_chan: Channel<(IpAddr, EntryInfo)>,
 }
 
-impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
+impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     pub fn new(
         adapter: Arc<T>,
         state: Arc<AppState>,
@@ -40,8 +37,8 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
             peer_manager,
             entry_manager,
             send_rx,
-            control_chan: TransportChannel::new(),
-            transfer_chan: TransportChannel::new(),
+            control_chan: Channel::new(100),
+            transfer_chan: Channel::new(16),
         }
     }
 
@@ -104,9 +101,9 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
         self.try_send(
             || {
                 let data = if is_syn {
-                    TransportDataV2::HandshakeSyn(data.clone())
+                    TransportData::HandshakeSyn(data.clone())
                 } else {
-                    TransportDataV2::HandshakeAck(data.clone())
+                    TransportData::HandshakeAck(data.clone())
                 };
 
                 self.adapter.send(target, data).map_err(|e| e.into())
@@ -123,7 +120,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
             self.try_send(
                 || {
                     self.adapter
-                        .send(target, TransportDataV2::Metadata(entry.clone()))
+                        .send(target, TransportData::Metadata(entry.clone()))
                         .map_err(|e| e.into())
                 },
                 target,
@@ -137,7 +134,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
         self.try_send(
             || {
                 self.adapter
-                    .send(target, TransportDataV2::Request(entry.clone()))
+                    .send(target, TransportData::Request(entry.clone()))
                     .map_err(|e| e.into())
             },
             target,
@@ -157,7 +154,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
             self.try_send(
                 || {
                     self.adapter
-                        .send(target, TransportDataV2::Transfer(entry.clone()))
+                        .send(target, TransportData::Transfer(entry.clone()))
                         .map_err(|e| e.into())
                 },
                 target,

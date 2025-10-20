@@ -1,30 +1,27 @@
 use crate::{
     application::{
         AppState, EntryManager, PeerManager,
-        network::transport::interface::{TransportInterfaceV2, TransportRecvEvent},
+        network::transport::interface::{TransportInterface, TransportRecvEvent},
         persistence::interface::PersistenceInterface,
     },
-    domain::{
-        EntryInfo, Peer, VersionCmp,
-        transport::{TransportChannel, TransportChannelData, TransportDataV2},
-    },
+    domain::{Channel, EntryInfo, Peer, TransportChannelData, TransportData, VersionCmp},
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::mpsc::Sender};
 use tracing::{error, info, warn};
 
-pub struct TransportReceiverV2<T: TransportInterfaceV2, P: PersistenceInterface> {
+pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     adapter: Arc<T>,
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_tx: Sender<TransportChannelData>,
-    control_chan: TransportChannel<TransportRecvEvent>,
-    transfer_chan: TransportChannel<TransportRecvEvent>,
+    control_chan: Channel<TransportRecvEvent>,
+    transfer_chan: Channel<TransportRecvEvent>,
 }
 
-impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P> {
+impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     pub fn new(
         adapter: Arc<T>,
         state: Arc<AppState>,
@@ -38,8 +35,8 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
             peer_manager,
             entry_manager,
             send_tx,
-            control_chan: TransportChannel::new(),
-            transfer_chan: TransportChannel::new(),
+            control_chan: Channel::new(100),
+            transfer_chan: Channel::new(16),
         }
     }
 
@@ -52,7 +49,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
         loop {
             let event = self.adapter.recv().await?;
             match event.data {
-                TransportDataV2::Transfer(_) => {
+                TransportData::Transfer(_) => {
                     self.transfer_chan
                         .tx
                         .send(event)
@@ -81,15 +78,15 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
     async fn recv_control(&self) -> io::Result<()> {
         while let Some(event) = self.control_chan.rx.lock().await.recv().await {
             match event.data {
-                TransportDataV2::HandshakeSyn(_) | TransportDataV2::HandshakeAck(_) => {
+                TransportData::HandshakeSyn(_) | TransportData::HandshakeAck(_) => {
                     self.handle_handshake(event).await?;
                 }
 
-                TransportDataV2::Metadata(_) => {
+                TransportData::Metadata(_) => {
                     self.handle_metadata(event).await?;
                 }
 
-                TransportDataV2::Request(_) => {
+                TransportData::Request(_) => {
                     self.handle_request(event).await?;
                 }
 
@@ -101,8 +98,8 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
 
     async fn handle_handshake(&self, event: TransportRecvEvent) -> io::Result<()> {
         let (hs_data, is_syn) = match event.data {
-            TransportDataV2::HandshakeSyn(data) => (data, true),
-            TransportDataV2::HandshakeAck(data) => (data, false),
+            TransportData::HandshakeSyn(data) => (data, true),
+            TransportData::HandshakeAck(data) => (data, false),
             _ => unreachable!(),
         };
 
@@ -115,7 +112,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
             self.try_send(
                 || {
                     self.adapter
-                        .send(peer.addr, TransportDataV2::HandshakeAck(data.clone()))
+                        .send(peer.addr, TransportData::HandshakeAck(data.clone()))
                         .map_err(|e| e.into())
                 },
                 peer.addr,
@@ -145,7 +142,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
 
     async fn handle_metadata(&self, event: TransportRecvEvent) -> io::Result<()> {
         let peer_entry = match event.data {
-            TransportDataV2::Metadata(entry) => entry,
+            TransportData::Metadata(entry) => entry,
             _ => unreachable!(),
         };
 
@@ -173,7 +170,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
 
     async fn handle_request(&self, event: TransportRecvEvent) -> io::Result<()> {
         let requested_entry = match event.data {
-            TransportDataV2::Request(entry) => entry,
+            TransportData::Request(entry) => entry,
             _ => unreachable!(),
         };
 
@@ -194,7 +191,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
 
     async fn handle_transfer(&self, event: TransportRecvEvent) -> io::Result<()> {
         let received_entry = match event.data {
-            TransportDataV2::Transfer(entry) => entry,
+            TransportData::Transfer(entry) => entry,
             _ => unreachable!(),
         };
 
