@@ -1,4 +1,4 @@
 pub mod presence;
 pub mod transport;
 
-pub use transport::TransportInterface;
+pub use transport::interface::TransportInterfaceV2;

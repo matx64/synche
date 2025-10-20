@@ -1,9 +1,6 @@
-use crate::{
-    application::{
-        PeerManager,
-        network::presence::interface::{PresenceEvent, PresenceInterface},
-    },
-    proto::transport::SyncHandshakeKind,
+use crate::application::{
+    PeerManager,
+    network::presence::interface::{PresenceEvent, PresenceInterface},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};

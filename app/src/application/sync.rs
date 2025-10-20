@@ -1,11 +1,7 @@
 use crate::{
     application::{
         AppState, EntryManager, HttpService, PeerManager,
-        network::{
-            TransportInterface,
-            presence::{PresenceService, interface::PresenceInterface},
-            transport::{TransportReceiver, TransportSender},
-        },
+        network::presence::{PresenceService, interface::PresenceInterface},
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
