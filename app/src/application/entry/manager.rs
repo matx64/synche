@@ -9,7 +9,6 @@ use crate::{
 use std::{
     collections::{HashMap, VecDeque},
     io,
-    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -175,12 +174,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<CanonicalPath> {
-        let path = PathBuf::from(self.base_dir_path.as_ref()).join(name);
+        let path = self.base_dir_path.join(name);
         fs::create_dir_all(&path).await?;
 
-        let canonical = CanonicalPath::from_canonical(path);
-
-        let dir_entries = self.build_dir(canonical.clone()).await?;
+        let dir_entries = self.build_dir(path.clone()).await?;
 
         for (_, info) in dir_entries {
             self.insert_entry(info).await;
@@ -192,7 +189,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                 name: name.to_string(),
             },
         );
-        Ok(canonical)
+        Ok(path)
     }
 
     pub async fn list_dirs(&self) -> HashMap<String, SyncDirectory> {

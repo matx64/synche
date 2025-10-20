@@ -25,9 +25,9 @@ pub struct Synchronizer<
     R: PresenceInterface,
 > {
     file_watcher: FileWatcher<W, P>,
+    http_service: Arc<HttpService<P>>,
     presence_service: PresenceService<R>,
     transport_service: TransportService<T, P>,
-    http_service: Arc<HttpService<P>>,
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
@@ -35,7 +35,7 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
         let state = AppState::new();
 
         let notify = NotifyFileWatcher::new();
-        let mdns_adapter = MdnsAdapter::new(state.local_id);
+        let mdns_adapter = MdnsAdapter::new(state.clone());
         let tcp_adapter = TcpAdapter::new(
             state.ports.transport,
             state.local_id,
@@ -58,7 +58,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         transport_adapter: T,
         persistence_adapter: P,
     ) -> Self {
-        let dirs = { state.sync_dirs.read().unwrap().clone() };
+        let dirs = { state.sync_dirs.read().await.clone() };
 
         let entry_manager = Arc::new(EntryManager::new(
             persistence_adapter,

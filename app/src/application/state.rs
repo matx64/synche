@@ -1,16 +1,12 @@
 use crate::domain::{CanonicalPath, Peer, SyncDirectory};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs,
-    net::IpAddr,
-    path::Path,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, fs, net::IpAddr, path::Path, sync::Arc};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 pub struct AppState {
     pub local_id: Uuid,
+    pub hostname: String,
     local_ip: RwLock<IpAddr>,
 
     pub cfg_path: CanonicalPath,
@@ -31,7 +27,7 @@ pub struct Ports {
 
 impl AppState {
     pub fn new() -> Arc<Self> {
-        let cfg_path = "./.synchev2/config.json";
+        let cfg_path = "./.synche";
         let config_data = ConfigFileData::init(cfg_path);
 
         let (home_path, cfg_path) = Self::create_required_paths(cfg_path, &config_data.home_path);
@@ -42,9 +38,12 @@ impl AppState {
             .map(|d| (d.name.clone(), d.to_owned()))
             .collect();
 
+        let hostname = hostname::get().unwrap().to_string_lossy().to_string();
+
         Arc::new(Self {
             home_path,
             cfg_path,
+            hostname,
             ports: config_data.ports,
             local_id: config_data.device_id,
             sync_dirs: RwLock::new(sync_dirs),
@@ -57,9 +56,13 @@ impl AppState {
         fs::create_dir_all(home_path).unwrap();
 
         (
-            CanonicalPath::from_canonical(home_path),
-            CanonicalPath::from_canonical(cfg_path),
+            CanonicalPath::new(home_path).unwrap(),
+            CanonicalPath::new(cfg_path).unwrap(),
         )
+    }
+
+    pub async fn local_ip(&self) -> IpAddr {
+        *self.local_ip.read().await
     }
 }
 
@@ -73,7 +76,7 @@ struct ConfigFileData {
 
 impl ConfigFileData {
     pub fn init(path: &str) -> Self {
-        let path = Path::new(path);
+        let path = Path::new(path).join("config.json");
 
         if path.exists() {
             let contents = fs::read_to_string(path).unwrap();
@@ -81,6 +84,10 @@ impl ConfigFileData {
             serde_json::from_str(&contents).unwrap()
         } else {
             let data = Self::new_default();
+
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
 
             fs::write(path, serde_json::to_string(&data).unwrap()).unwrap();
             data

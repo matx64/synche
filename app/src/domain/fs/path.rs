@@ -41,9 +41,9 @@ impl AsRef<Path> for CanonicalPath {
 pub struct RelativePath(String);
 
 impl RelativePath {
-    pub fn new(path: &CanonicalPath, base_dir_path: &CanonicalPath) -> Self {
+    pub fn new(path: &CanonicalPath, home_path: &CanonicalPath) -> Self {
         let relative = path
-            .strip_prefix(base_dir_path)
+            .strip_prefix(home_path)
             .unwrap_or_else(|_| {
                 panic!(
                     "Path isn`t from a sync directory: {}",

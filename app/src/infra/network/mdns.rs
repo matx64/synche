@@ -1,21 +1,22 @@
-use crate::application::network::presence::interface::{PresenceEvent, PresenceInterface};
+use crate::application::{
+    AppState,
+    network::presence::interface::{PresenceEvent, PresenceInterface},
+};
 use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
-use std::{collections::HashMap, net::IpAddr};
+use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::io;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-const MDNS_PORT: u16 = 5200;
-
 pub struct MdnsAdapter {
+    state: Arc<AppState>,
     daemon: ServiceDaemon,
-    local_id: Uuid,
     service_type: String,
     receiver: Receiver<ServiceEvent>,
 }
 
 impl MdnsAdapter {
-    pub fn new(local_id: Uuid) -> Self {
+    pub fn new(state: Arc<AppState>) -> Self {
         let daemon = ServiceDaemon::new().expect("Failed to create mdns daemon");
 
         daemon.disable_interface(IfKind::IPv6).unwrap();
@@ -25,8 +26,8 @@ impl MdnsAdapter {
         let receiver = daemon.browse(&service_type).expect("Failed to browse");
 
         Self {
+            state,
             daemon,
-            local_id,
             service_type,
             receiver,
         }
@@ -35,15 +36,14 @@ impl MdnsAdapter {
 
 impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) {
-        let local_ip = local_ip_address::local_ip().unwrap();
-        let hostname = hostname::get().unwrap().to_string_lossy().to_string() + ".local.";
+        let hostname = self.state.hostname.clone() + ".local.";
 
         let service_info = ServiceInfo::new(
             &self.service_type,
-            &self.local_id.to_string(),
+            &self.state.local_id.to_string(),
             &hostname,
-            local_ip,
-            MDNS_PORT,
+            self.state.local_ip().await,
+            self.state.ports.presence,
             None::<HashMap<String, String>>,
         )
         .unwrap();
@@ -91,7 +91,7 @@ impl MdnsAdapter {
     fn handle_service_data(&self, info: ResolvedService) -> Option<(Uuid, IpAddr)> {
         let peer_id = self.get_peer_id(&info.fullname)?;
 
-        if peer_id == self.local_id {
+        if peer_id == self.state.local_id {
             return None;
         }
 
