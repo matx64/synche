@@ -77,30 +77,28 @@ impl TransportInterfaceV2 for TcpTransporter {
     }
 
     async fn send(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
+        let kind = TcpStreamKind::from(&data);
+
         match data {
-            TransportDataV2::HandshakeSyn(_) | TransportDataV2::HandshakeAck(_) => {
-                self.send_handshake(target, data).await
+            TransportDataV2::HandshakeSyn(hs_data) | TransportDataV2::HandshakeAck(hs_data) => {
+                self.send_handshake(target, hs_data, kind).await
             }
-            TransportDataV2::Metadata(_) => todo!(),
-            TransportDataV2::Request(_) => todo!(),
-            TransportDataV2::Transfer(_) => todo!(),
+            TransportDataV2::Metadata(entry) => self.send_metadata(target, entry).await,
+            TransportDataV2::Request(entry) => todo!(),
+            TransportDataV2::Transfer(entry) => todo!(),
         }
     }
 }
 
 impl TcpTransporter {
-    async fn send_handshake(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
+    async fn send_handshake(
+        &self,
+        target: IpAddr,
+        hs_data: HandshakeData,
+        kind: TcpStreamKind,
+    ) -> TransportResult<()> {
         let socket = SocketAddr::new(target, TCP_PORT);
         let mut stream = TcpStream::connect(socket).await?;
-
-        let kind = TcpStreamKind::from(&data);
-
-        let hs_data = match data {
-            TransportDataV2::HandshakeSyn(hs_data) | TransportDataV2::HandshakeAck(hs_data) => {
-                hs_data
-            }
-            _ => unreachable!(),
-        };
 
         let contents = serde_json::to_vec(&hs_data)?;
 
@@ -113,6 +111,31 @@ impl TcpTransporter {
             .await?;
         stream.write_all(&contents).await?;
 
+        Ok(())
+    }
+
+    async fn send_metadata(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
+        let socket = SocketAddr::new(target, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
+
+        let kind = TcpStreamKind::Metadata;
+        let contents = serde_json::to_vec(&entry)?;
+
+        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
+
+        // Write self peer id
+        stream.write_all(self.local_id.as_bytes()).await?;
+
+        // Write sync kind
+        stream.write_all(&[kind as u8]).await?;
+
+        // Write metadata json size
+        stream
+            .write_all(&u32::to_be_bytes(contents.len() as u32))
+            .await?;
+
+        // Write metadata json
+        stream.write_all(&contents).await?;
         Ok(())
     }
 
