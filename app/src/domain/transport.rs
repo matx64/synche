@@ -7,14 +7,16 @@ use tokio::sync::{
 };
 
 pub enum TransportChannelData {
-    Handshake((IpAddr, HandshakeKind)),
+    HandshakeSyn(IpAddr),
+    HandshakeAck(IpAddr),
     Metadata(EntryInfo),
     Request((IpAddr, EntryInfo)),
     Transfer((IpAddr, EntryInfo)),
 }
 
 pub enum TransportDataV2 {
-    Handshake((HandshakeData, HandshakeKind)),
+    HandshakeSyn(HandshakeData),
+    HandshakeAck(HandshakeData),
     Metadata(EntryInfo),
     Request(EntryInfo),
     Transfer(EntryInfo),
@@ -24,12 +26,6 @@ pub enum TransportDataV2 {
 pub struct HandshakeData {
     pub sync_dirs: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
-}
-
-#[derive(Debug, Clone)]
-pub enum HandshakeKind {
-    Request,
-    Response,
 }
 
 pub struct TransportChannel<K> {

@@ -5,7 +5,7 @@ use crate::{
     },
     domain::{
         EntryInfo,
-        transport::{HandshakeKind, TransportChannel, TransportChannelData, TransportDataV2},
+        transport::{TransportChannel, TransportChannelData, TransportDataV2},
     },
 };
 use futures::TryFutureExt;
@@ -76,8 +76,12 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
     async fn send_control(&self) -> io::Result<()> {
         while let Some(data) = self.control_chan.rx.lock().await.recv().await {
             match data {
-                TransportChannelData::Handshake((target, kind)) => {
-                    self.send_handshake(target, kind).await?;
+                TransportChannelData::HandshakeSyn(target) => {
+                    self.send_handshake(target, true).await?;
+                }
+
+                TransportChannelData::HandshakeAck(target) => {
+                    self.send_handshake(target, false).await?;
                 }
 
                 TransportChannelData::Metadata(entry) => {
@@ -94,17 +98,18 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
         Ok(())
     }
 
-    async fn send_handshake(&self, target: IpAddr, kind: HandshakeKind) -> io::Result<()> {
+    async fn send_handshake(&self, target: IpAddr, is_syn: bool) -> io::Result<()> {
         let data = self.entry_manager.get_handshake_data().await;
 
         self.try_send(
             || {
-                self.adapter
-                    .send(
-                        target,
-                        TransportDataV2::Handshake((data.clone(), kind.clone())),
-                    )
-                    .map_err(|e| e.into())
+                let data = if is_syn {
+                    TransportDataV2::HandshakeSyn(data.clone())
+                } else {
+                    TransportDataV2::HandshakeAck(data.clone())
+                };
+
+                self.adapter.send(target, data).map_err(|e| e.into())
             },
             target,
         )

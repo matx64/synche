@@ -43,6 +43,12 @@ impl From<io::Error> for TransportError {
     }
 }
 
+impl From<serde_json::Error> for TransportError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Failure(err.to_string())
+    }
+}
+
 pub trait TransportInterface {
     type Stream: TransportStream;
 

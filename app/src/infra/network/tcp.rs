@@ -8,7 +8,7 @@ use crate::{
     },
     domain::{
         CanonicalPath, EntryInfo, EntryKind,
-        transport::{HandshakeData, HandshakeKind, TransportDataV2},
+        transport::{HandshakeData, TransportDataV2},
     },
     proto::transport::{PeerHandshakeData, SyncEntryKind, SyncKind},
 };
@@ -61,20 +61,11 @@ impl TransportInterfaceV2 for TcpTransporter {
         stream.read_exact(&mut kind_buf).await?;
 
         let data = match kind_buf[0] {
-            1 => {
-                self.read_handshake(&mut stream, HandshakeKind::Request)
-                    .await?
-            }
-
-            2 => {
-                self.read_handshake(&mut stream, HandshakeKind::Response)
-                    .await?
-            }
-
+            1 => self.read_handshake(&mut stream, true).await?,
+            2 => self.read_handshake(&mut stream, false).await?,
             3 => self.read_metadata(&mut stream).await?,
             4 => self.read_request(&mut stream).await?,
             5 => self.read_transfer(&mut stream).await?,
-
             _ => unreachable!(),
         };
 
@@ -87,7 +78,9 @@ impl TransportInterfaceV2 for TcpTransporter {
 
     async fn send(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
         match data {
-            TransportDataV2::Handshake(_) => todo!(),
+            TransportDataV2::HandshakeSyn(_) | TransportDataV2::HandshakeAck(_) => {
+                self.send_handshake(target, data).await
+            }
             TransportDataV2::Metadata(_) => todo!(),
             TransportDataV2::Request(_) => todo!(),
             TransportDataV2::Transfer(_) => todo!(),
@@ -96,10 +89,37 @@ impl TransportInterfaceV2 for TcpTransporter {
 }
 
 impl TcpTransporter {
+    async fn send_handshake(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
+        let socket = SocketAddr::new(target, TCP_PORT);
+        let mut stream = TcpStream::connect(socket).await?;
+
+        let kind = TcpStreamKind::from(&data);
+
+        let hs_data = match data {
+            TransportDataV2::HandshakeSyn(hs_data) | TransportDataV2::HandshakeAck(hs_data) => {
+                hs_data
+            }
+            _ => unreachable!(),
+        };
+
+        let contents = serde_json::to_vec(&hs_data)?;
+
+        info!(kind = kind.to_string(), target = ?target, "[⬆️  SEND]");
+
+        stream.write_all(self.local_id.as_bytes()).await?;
+        stream.write_all(&[kind as u8]).await?;
+        stream
+            .write_all(&(contents.len() as u32).to_be_bytes())
+            .await?;
+        stream.write_all(&contents).await?;
+
+        Ok(())
+    }
+
     async fn read_handshake(
         &self,
         stream: &mut TcpStream,
-        kind: HandshakeKind,
+        is_syn: bool,
     ) -> io::Result<TransportDataV2> {
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
@@ -113,7 +133,11 @@ impl TcpTransporter {
         let data = serde_json::from_str(&data_str)
             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
 
-        Ok(TransportDataV2::Handshake((data, kind)))
+        if is_syn {
+            Ok(TransportDataV2::HandshakeSyn(data))
+        } else {
+            Ok(TransportDataV2::HandshakeAck(data))
+        }
     }
 
     async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
@@ -362,6 +386,39 @@ impl TransportInterface for TcpTransporter {
         }
 
         Ok((metadata, entry_buf))
+    }
+}
+
+#[repr(u8)]
+enum TcpStreamKind {
+    HandshakeSyn = 1,
+    HandshakeAck = 2,
+    Metadata = 3,
+    Request = 4,
+    Transfer = 5,
+}
+
+impl From<&TransportDataV2> for TcpStreamKind {
+    fn from(value: &TransportDataV2) -> Self {
+        match value {
+            TransportDataV2::HandshakeSyn(_) => Self::HandshakeSyn,
+            TransportDataV2::HandshakeAck(_) => Self::HandshakeAck,
+            TransportDataV2::Metadata(_) => Self::Metadata,
+            TransportDataV2::Request(_) => Self::Request,
+            TransportDataV2::Transfer(_) => Self::Transfer,
+        }
+    }
+}
+
+impl std::fmt::Display for TcpStreamKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TcpStreamKind::HandshakeSyn => f.write_str("Handshake SYN"),
+            TcpStreamKind::HandshakeAck => f.write_str("Handshake ACK"),
+            TcpStreamKind::Metadata => f.write_str("Metadata"),
+            TcpStreamKind::Request => f.write_str("Request"),
+            TcpStreamKind::Transfer => f.write_str("Transfer"),
+        }
     }
 }
 

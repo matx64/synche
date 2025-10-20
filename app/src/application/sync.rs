@@ -38,7 +38,7 @@ impl Synchronizer<NotifyFileWatcher, TcpTransporter, SqliteDb, MdnsAdapter> {
 
         let notify = NotifyFileWatcher::new();
         let mdns_adapter = MdnsAdapter::new(state.local_id);
-        let tcp_transporter = TcpTransporter::new(state.local_id).await;
+        let tcp_transporter = TcpTransporter::new(state.local_id, state.home_path.clone()).await;
         let sqlite_adapter = SqliteDb::new(state.cfg_path.join("db.db")).await.unwrap();
 
         Self::new(state, notify, mdns_adapter, tcp_transporter, sqlite_adapter).await

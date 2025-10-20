@@ -6,7 +6,7 @@ use crate::{
     },
     domain::{
         EntryInfo, Peer, VersionCmp,
-        transport::{HandshakeKind, TransportChannel, TransportChannelData, TransportDataV2},
+        transport::{TransportChannel, TransportChannelData, TransportDataV2},
     },
 };
 use futures::TryFutureExt;
@@ -81,7 +81,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
     async fn recv_control(&self) -> io::Result<()> {
         while let Some(event) = self.control_chan.rx.lock().await.recv().await {
             match event.data {
-                TransportDataV2::Handshake(_) => {
+                TransportDataV2::HandshakeSyn(_) | TransportDataV2::HandshakeAck(_) => {
                     self.handle_handshake(event).await?;
                 }
 
@@ -100,24 +100,22 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
     }
 
     async fn handle_handshake(&self, event: TransportRecvEvent) -> io::Result<()> {
-        let (hs_data, kind) = match event.data {
-            TransportDataV2::Handshake(data) => data,
+        let (hs_data, is_syn) = match event.data {
+            TransportDataV2::HandshakeSyn(data) => (data, true),
+            TransportDataV2::HandshakeAck(data) => (data, false),
             _ => unreachable!(),
         };
 
         let peer = Peer::new(event.src_id, event.src_ip, Some(hs_data.sync_dirs));
         self.peer_manager.insert(peer.clone());
 
-        if matches!(kind, HandshakeKind::Request) {
+        if is_syn {
             // Can't use send_tx because Response must be sent strictly BEFORE syncing
             let data = self.entry_manager.get_handshake_data().await;
             self.try_send(
                 || {
                     self.adapter
-                        .send(
-                            peer.addr,
-                            TransportDataV2::Handshake((data.clone(), kind.clone())),
-                        )
+                        .send(peer.addr, TransportDataV2::HandshakeAck(data.clone()))
                         .map_err(|e| e.into())
                 },
                 peer.addr,
