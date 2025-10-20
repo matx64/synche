@@ -6,7 +6,7 @@ use crate::{
     },
     domain::{
         EntryInfo, Peer, VersionCmp,
-        transport::{HandshakeKind, TransportChannel, TransportDataV2, TransportSendData},
+        transport::{HandshakeKind, TransportChannel, TransportChannelData, TransportDataV2},
     },
 };
 use futures::TryFutureExt;
@@ -19,7 +19,7 @@ pub struct TransportReceiverV2<T: TransportInterfaceV2, P: PersistenceInterface>
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
-    send_tx: Sender<TransportSendData>,
+    send_tx: Sender<TransportChannelData>,
     control_chan: TransportChannel<TransportRecvEvent>,
     transfer_chan: TransportChannel<TransportRecvEvent>,
 }
@@ -30,7 +30,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
         state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
-        send_tx: Sender<TransportSendData>,
+        send_tx: Sender<TransportChannelData>,
     ) -> Self {
         Self {
             adapter,
@@ -135,7 +135,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
         for entry in entries_to_request {
             if entry.is_file() {
                 self.send_tx
-                    .send(TransportSendData::Request((peer.addr, entry)))
+                    .send(TransportChannelData::Request((peer.addr, entry)))
                     .await
                     .map_err(io::Error::other)?;
             } else {
@@ -161,7 +161,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
                     self.send_tx
-                        .send(TransportSendData::Request((event.src_ip, peer_entry)))
+                        .send(TransportChannelData::Request((event.src_ip, peer_entry)))
                         .await
                         .map_err(io::Error::other)
                 } else {
@@ -185,7 +185,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
                     && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
             {
                 self.send_tx
-                    .send(TransportSendData::Transfer((event.src_ip, local_entry)))
+                    .send(TransportChannelData::Transfer((event.src_ip, local_entry)))
                     .await
                     .map_err(io::Error::other)
             }
@@ -203,7 +203,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
         let entry = self.entry_manager.insert_entry(received_entry).await;
 
         self.send_tx
-            .send(TransportSendData::Metadata(entry))
+            .send(TransportChannelData::Metadata(entry))
             .await
             .map_err(io::Error::other)
     }
@@ -215,7 +215,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportReceiverV2<T, P>
         fs::create_dir_all(path).await?;
 
         self.send_tx
-            .send(TransportSendData::Metadata(dir))
+            .send(TransportChannelData::Metadata(dir))
             .await
             .map_err(io::Error::other)
     }

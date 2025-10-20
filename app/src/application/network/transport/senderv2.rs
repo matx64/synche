@@ -5,7 +5,7 @@ use crate::{
     },
     domain::{
         EntryInfo,
-        transport::{HandshakeKind, TransportChannel, TransportDataV2, TransportSendData},
+        transport::{HandshakeKind, TransportChannel, TransportChannelData, TransportDataV2},
     },
 };
 use futures::TryFutureExt;
@@ -21,8 +21,8 @@ pub struct TransportSenderV2<T: TransportInterfaceV2, P: PersistenceInterface> {
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
-    send_rx: Mutex<Receiver<TransportSendData>>,
-    control_chan: TransportChannel<TransportSendData>,
+    send_rx: Mutex<Receiver<TransportChannelData>>,
+    control_chan: TransportChannel<TransportChannelData>,
     transfer_chan: TransportChannel<(IpAddr, EntryInfo)>,
 }
 
@@ -32,7 +32,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
         state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
-        send_rx: Mutex<Receiver<TransportSendData>>,
+        send_rx: Mutex<Receiver<TransportChannelData>>,
     ) -> Self {
         Self {
             state,
@@ -53,7 +53,7 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
     async fn send(&self) -> io::Result<()> {
         while let Some(data) = self.send_rx.lock().await.recv().await {
             match data {
-                TransportSendData::Transfer(data) => {
+                TransportChannelData::Transfer(data) => {
                     self.transfer_chan
                         .tx
                         .send(data)
@@ -76,15 +76,15 @@ impl<T: TransportInterfaceV2, P: PersistenceInterface> TransportSenderV2<T, P> {
     async fn send_control(&self) -> io::Result<()> {
         while let Some(data) = self.control_chan.rx.lock().await.recv().await {
             match data {
-                TransportSendData::Handshake((target, kind)) => {
+                TransportChannelData::Handshake((target, kind)) => {
                     self.send_handshake(target, kind).await?;
                 }
 
-                TransportSendData::Metadata(entry) => {
+                TransportChannelData::Metadata(entry) => {
                     self.send_metadata(entry).await?;
                 }
 
-                TransportSendData::Request((target, entry)) => {
+                TransportChannelData::Request((target, entry)) => {
                     self.send_request(target, entry).await?;
                 }
 

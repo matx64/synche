@@ -5,7 +5,7 @@ use tokio::sync::{
     mpsc::{self, Receiver, Sender},
 };
 
-pub enum TransportSendData {
+pub enum TransportChannelData {
     Handshake((IpAddr, HandshakeKind)),
     Metadata(EntryInfo),
     Request((IpAddr, EntryInfo)),

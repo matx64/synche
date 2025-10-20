@@ -37,6 +37,12 @@ impl From<TransportError> for io::Error {
     }
 }
 
+impl From<io::Error> for TransportError {
+    fn from(err: io::Error) -> Self {
+        Self::Failure(err.to_string())
+    }
+}
+
 pub trait TransportInterface {
     type Stream: TransportStream;
 

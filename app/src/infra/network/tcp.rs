@@ -1,9 +1,15 @@
 use crate::{
     application::network::{
         TransportInterface,
-        transport::interface::{TransportData, TransportStream},
+        transport::interface::{
+            TransportData, TransportInterfaceV2, TransportRecvEvent, TransportResult,
+            TransportStream,
+        },
     },
-    domain::{EntryInfo, EntryKind},
+    domain::{
+        EntryInfo, EntryKind,
+        transport::{HandshakeKind, TransportDataV2},
+    },
     proto::transport::{PeerHandshakeData, SyncEntryKind, SyncKind},
 };
 use sha2::{Digest, Sha256};
@@ -32,6 +38,68 @@ impl TcpTransporter {
             .unwrap();
 
         Self { listener, local_id }
+    }
+
+    async fn read_handshake(
+        &self,
+        stream: &mut TcpStream,
+        kind: HandshakeKind,
+    ) -> io::Result<TransportDataV2> {
+        todo!()
+    }
+
+    async fn read_metadata(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+        todo!()
+    }
+
+    async fn read_request(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+        todo!()
+    }
+
+    async fn read_transfer(&self, stream: &mut TcpStream) -> io::Result<TransportDataV2> {
+        todo!()
+    }
+}
+
+impl TransportInterfaceV2 for TcpTransporter {
+    async fn recv(&self) -> TransportResult<TransportRecvEvent> {
+        let (mut stream, src_addr) = self.listener.accept().await?;
+        let src_ip = src_addr.ip();
+
+        let mut src_id_buf = [0u8; 16];
+        stream.read_exact(&mut src_id_buf).await?;
+        let src_id = Uuid::from_bytes(src_id_buf);
+
+        let mut kind_buf = [0u8; 1];
+        stream.read_exact(&mut kind_buf).await?;
+
+        let data = match kind_buf[0] {
+            1 => {
+                self.read_handshake(&mut stream, HandshakeKind::Request)
+                    .await?
+            }
+
+            2 => {
+                self.read_handshake(&mut stream, HandshakeKind::Response)
+                    .await?
+            }
+
+            3 => self.read_metadata(&mut stream).await?,
+            4 => self.read_request(&mut stream).await?,
+            5 => self.read_transfer(&mut stream).await?,
+
+            _ => unreachable!(),
+        };
+
+        Ok(TransportRecvEvent {
+            src_id,
+            src_ip,
+            data,
+        })
+    }
+
+    async fn send(&self, target: IpAddr, data: TransportDataV2) -> TransportResult<()> {
+        todo!()
     }
 }
 
