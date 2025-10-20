@@ -1,18 +1,11 @@
-use crate::domain::TransportData;
+use crate::domain::{TransportData, TransportEvent};
 use std::net::IpAddr;
 use tokio::io::{self};
-use uuid::Uuid;
 
 pub trait TransportInterface {
-    async fn recv(&self) -> TransportResult<TransportRecvEvent>;
+    async fn recv(&self) -> TransportResult<TransportEvent>;
 
     async fn send(&self, target: IpAddr, data: TransportData) -> TransportResult<()>;
-}
-
-pub struct TransportRecvEvent {
-    pub src_id: Uuid,
-    pub src_ip: IpAddr,
-    pub data: TransportData,
 }
 
 pub type TransportResult<T> = Result<T, TransportError>;

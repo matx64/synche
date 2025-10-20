@@ -1,10 +1,11 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager,
-        network::transport::interface::{TransportInterface, TransportRecvEvent},
+        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
-    domain::{Channel, EntryInfo, Peer, TransportChannelData, TransportData, VersionCmp},
+    domain::{
+        Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent, VersionCmp,
+    },
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -17,8 +18,8 @@ pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_tx: Sender<TransportChannelData>,
-    control_chan: Channel<TransportRecvEvent>,
-    transfer_chan: Channel<TransportRecvEvent>,
+    control_chan: Channel<TransportEvent>,
+    transfer_chan: Channel<TransportEvent>,
 }
 
 impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
@@ -48,7 +49,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     async fn recv(&self) -> io::Result<()> {
         loop {
             let event = self.adapter.recv().await?;
-            match event.data {
+            match event.payload {
                 TransportData::Transfer(_) => {
                     self.transfer_chan
                         .tx
@@ -77,7 +78,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
     async fn recv_control(&self) -> io::Result<()> {
         while let Some(event) = self.control_chan.rx.lock().await.recv().await {
-            match event.data {
+            match event.payload {
                 TransportData::HandshakeSyn(_) | TransportData::HandshakeAck(_) => {
                     self.handle_handshake(event).await?;
                 }
@@ -96,14 +97,18 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         Ok(())
     }
 
-    async fn handle_handshake(&self, event: TransportRecvEvent) -> io::Result<()> {
-        let (hs_data, is_syn) = match event.data {
+    async fn handle_handshake(&self, event: TransportEvent) -> io::Result<()> {
+        let (hs_data, is_syn) = match event.payload {
             TransportData::HandshakeSyn(data) => (data, true),
             TransportData::HandshakeAck(data) => (data, false),
             _ => unreachable!(),
         };
 
-        let peer = Peer::new(event.src_id, event.src_ip, Some(hs_data.sync_dirs));
+        let peer = Peer::new(
+            event.metadata.source_id,
+            event.metadata.source_ip,
+            Some(hs_data.sync_dirs),
+        );
         self.peer_manager.insert(peer.clone());
 
         if is_syn {
@@ -140,15 +145,15 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         Ok(())
     }
 
-    async fn handle_metadata(&self, event: TransportRecvEvent) -> io::Result<()> {
-        let peer_entry = match event.data {
+    async fn handle_metadata(&self, event: TransportEvent) -> io::Result<()> {
+        let peer_entry = match event.payload {
             TransportData::Metadata(entry) => entry,
             _ => unreachable!(),
         };
 
         match self
             .entry_manager
-            .handle_metadata(event.src_id, &peer_entry)
+            .handle_metadata(event.metadata.source_id, &peer_entry)
             .await?
         {
             VersionCmp::KeepOther => {
@@ -156,7 +161,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
                     self.send_tx
-                        .send(TransportChannelData::Request((event.src_ip, peer_entry)))
+                        .send(TransportChannelData::Request((
+                            event.metadata.source_ip,
+                            peer_entry,
+                        )))
                         .await
                         .map_err(io::Error::other)
                 } else {
@@ -168,8 +176,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         }
     }
 
-    async fn handle_request(&self, event: TransportRecvEvent) -> io::Result<()> {
-        let requested_entry = match event.data {
+    async fn handle_request(&self, event: TransportEvent) -> io::Result<()> {
+        let requested_entry = match event.payload {
             TransportData::Request(entry) => entry,
             _ => unreachable!(),
         };
@@ -180,7 +188,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
             {
                 self.send_tx
-                    .send(TransportChannelData::Transfer((event.src_ip, local_entry)))
+                    .send(TransportChannelData::Transfer((
+                        event.metadata.source_ip,
+                        local_entry,
+                    )))
                     .await
                     .map_err(io::Error::other)
             }
@@ -189,8 +200,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         }
     }
 
-    async fn handle_transfer(&self, event: TransportRecvEvent) -> io::Result<()> {
-        let received_entry = match event.data {
+    async fn handle_transfer(&self, event: TransportEvent) -> io::Result<()> {
+        let received_entry = match event.payload {
             TransportData::Transfer(entry) => entry,
             _ => unreachable!(),
         };

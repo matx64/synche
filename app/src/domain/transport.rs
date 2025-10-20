@@ -1,13 +1,16 @@
 use crate::domain::{EntryInfo, RelativePath, SyncDirectory};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::IpAddr};
+use uuid::Uuid;
 
-pub enum TransportChannelData {
-    HandshakeSyn(IpAddr),
-    HandshakeAck(IpAddr),
-    Metadata(EntryInfo),
-    Request((IpAddr, EntryInfo)),
-    Transfer((IpAddr, EntryInfo)),
+pub struct TransportEvent {
+    pub payload: TransportData,
+    pub metadata: TransportMetadata,
+}
+
+pub struct TransportMetadata {
+    pub source_id: Uuid,
+    pub source_ip: IpAddr,
 }
 
 pub enum TransportData {
@@ -22,4 +25,12 @@ pub enum TransportData {
 pub struct HandshakeData {
     pub sync_dirs: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
+}
+
+pub enum TransportChannelData {
+    HandshakeSyn(IpAddr),
+    HandshakeAck(IpAddr),
+    Metadata(EntryInfo),
+    Request((IpAddr, EntryInfo)),
+    Transfer((IpAddr, EntryInfo)),
 }

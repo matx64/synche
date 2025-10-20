@@ -22,3 +22,5 @@ pub use peer::Peer;
 pub use transport::HandshakeData;
 pub use transport::TransportChannelData;
 pub use transport::TransportData;
+pub use transport::TransportEvent;
+pub use transport::TransportMetadata;
