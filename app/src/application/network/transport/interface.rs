@@ -21,6 +21,12 @@ pub enum TransportError {
     Failure(String),
 }
 
+impl TransportError {
+    pub fn new(s: &str) -> Self {
+        Self::Failure(s.into())
+    }
+}
+
 impl From<TransportError> for io::Error {
     fn from(err: TransportError) -> Self {
         match err {
