@@ -1,19 +1,22 @@
-use crate::domain::{CanonicalPath, RelativePath};
+use crate::{
+    application::AppState,
+    domain::{CanonicalPath, RelativePath},
+};
 use ignore::gitignore::Gitignore;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tokio::io;
 use tracing::warn;
 
 pub struct IgnoreHandler {
+    state: Arc<AppState>,
     gis: HashMap<String, Gitignore>,
-    base_dir_path: CanonicalPath,
 }
 
 impl IgnoreHandler {
-    pub fn new(base_dir_path: CanonicalPath) -> Self {
+    pub fn new(state: Arc<AppState>) -> Self {
         Self {
+            state,
             gis: HashMap::new(),
-            base_dir_path,
         }
     }
 
@@ -29,7 +32,7 @@ impl IgnoreHandler {
         };
 
         if let Some(relative) =
-            RelativePath::new(gitignore_path, &self.base_dir_path).strip_suffix("/.gitignore")
+            RelativePath::new(gitignore_path, &self.state.home_path).strip_suffix("/.gitignore")
         {
             self.gis.insert(relative.to_string(), gi);
             Ok(true)

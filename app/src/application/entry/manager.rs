@@ -1,5 +1,7 @@
 use crate::{
-    application::{entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface},
+    application::{
+        AppState, entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface,
+    },
     domain::{
         CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath, SyncDirectory,
         VersionCmp,
@@ -22,25 +24,22 @@ use walkdir::WalkDir;
 
 pub struct EntryManager<P: PersistenceInterface> {
     db: P,
-    local_id: Uuid,
+    state: Arc<AppState>,
     sync_directories: RwLock<HashMap<String, SyncDirectory>>,
     ignore_handler: RwLock<IgnoreHandler>,
-    base_dir_path: CanonicalPath,
 }
 
 impl<P: PersistenceInterface> EntryManager<P> {
     pub fn new(
         db: P,
-        local_id: Uuid,
+        state: Arc<AppState>,
         sync_directories: HashMap<String, SyncDirectory>,
-        base_dir_path: CanonicalPath,
     ) -> Arc<Self> {
         Arc::new(Self {
             db,
-            local_id,
+            state: state.clone(),
             sync_directories: RwLock::new(sync_directories),
-            ignore_handler: RwLock::new(IgnoreHandler::new(base_dir_path.clone())),
-            base_dir_path,
+            ignore_handler: RwLock::new(IgnoreHandler::new(state)),
         })
     }
 
@@ -48,7 +47,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let mut filesystem_entries = HashMap::new();
 
         for dir in self.sync_directories.read().await.values() {
-            let path = self.base_dir_path.join(&dir.name);
+            let path = self.state.home_path.join(&dir.name);
 
             fs::create_dir_all(&path).await?;
 
@@ -93,7 +92,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .filter_map(Result::ok)
         {
             let canonical = CanonicalPath::new(entry.path())?;
-            let relative = RelativePath::new(&canonical, &self.base_dir_path);
+            let relative = RelativePath::new(&canonical, &self.state.home_path);
 
             if self.is_ignored(&canonical, &relative).await {
                 continue;
@@ -106,7 +105,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                         name: relative,
                         kind: EntryKind::File,
                         hash: Some(compute_hash(&canonical)?),
-                        version: HashMap::from([(self.local_id, 0)]),
+                        version: HashMap::from([(self.state.local_id, 0)]),
                     },
                 );
             } else if canonical.is_dir() {
@@ -116,7 +115,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                         name: relative,
                         kind: EntryKind::Directory,
                         hash: None,
-                        version: HashMap::from([(self.local_id, 0)]),
+                        version: HashMap::from([(self.state.local_id, 0)]),
                     },
                 );
 
@@ -142,7 +141,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         for (name, entry) in &mut db_entries {
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
-                    *entry.version.entry(self.local_id).or_insert(0) += 1;
+                    *entry.version.entry(self.state.local_id).or_insert(0) += 1;
 
                     self.db
                         .insert_or_replace_entry(&EntryInfo {
@@ -175,7 +174,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<CanonicalPath> {
-        let path = self.base_dir_path.join(name);
+        let path = self.state.home_path.join(name);
         fs::create_dir_all(&path).await?;
 
         let dir_entries = self.build_dir(path.clone()).await?;
@@ -202,7 +201,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
-        entry.version.entry(self.local_id).or_insert(0);
+        entry.version.entry(self.state.local_id).or_insert(0);
         self.db.insert_or_replace_entry(&entry).await.unwrap();
         entry
     }
@@ -217,14 +216,14 @@ impl<P: PersistenceInterface> EntryManager<P> {
             name: name.to_owned(),
             kind,
             hash,
-            version: HashMap::from([(self.local_id, 0)]),
+            version: HashMap::from([(self.state.local_id, 0)]),
         })
         .await
     }
 
     pub async fn entry_modified(&self, mut entry: EntryInfo, hash: Option<String>) -> EntryInfo {
         entry.hash = hash;
-        *entry.version.entry(self.local_id).or_insert(0) += 1;
+        *entry.version.entry(self.state.local_id).or_insert(0) += 1;
 
         self.db.insert_or_replace_entry(&entry).await.unwrap();
         entry
@@ -308,11 +307,11 @@ impl<P: PersistenceInterface> EntryManager<P> {
             (false, false) => {}
         }
 
-        if self.local_id < peer_id {
+        if self.state.local_id < peer_id {
             return Ok(VersionCmp::KeepSelf);
         }
 
-        let path = self.base_dir_path.join(&*local_entry.name);
+        let path = self.state.home_path.join(&*local_entry.name);
 
         if !path.exists() || path.is_dir() {
             return Ok(VersionCmp::KeepOther);
@@ -328,7 +327,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
         let new_path = path.with_file_name(format!(
             "{}_CONFLICT_{}_{}.{}",
-            stem, now, self.local_id, ext
+            stem, now, self.state.local_id, ext
         ));
 
         fs::copy(path, new_path).await?;
@@ -390,7 +389,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub async fn delete_and_update_entry(&self, mut entry: EntryInfo) -> EntryInfo {
         self.db.delete_entry(&entry.name).await.unwrap();
 
-        *entry.version.entry(self.local_id).or_insert(0) += 1;
+        *entry.version.entry(self.state.local_id).or_insert(0) += 1;
         entry.set_removed_hash();
 
         entry
