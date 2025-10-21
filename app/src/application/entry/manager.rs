@@ -411,7 +411,11 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .map(|f| (f.name.clone(), f))
             .collect::<HashMap<RelativePath, EntryInfo>>();
 
-        HandshakeData { sync_dirs, entries }
+        HandshakeData {
+            sync_dirs,
+            entries,
+            hostname: self.state.hostname.clone(),
+        }
     }
 
     pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {

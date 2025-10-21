@@ -28,14 +28,14 @@ impl PeerManager {
         }
     }
 
-    pub fn insert_or_update(&self, id: Uuid, addr: IpAddr) -> bool {
+    pub fn insert_or_update(&self, id: Uuid, addr: IpAddr, hostname: String) -> bool {
         self.peers.write().is_ok_and(|mut peers| {
             if let Some(peer) = peers.get_mut(&id) {
                 peer.last_seen = SystemTime::now();
                 false
             } else {
                 info!("🟢 Peer connected: {id}");
-                peers.insert(id, Peer::new(id, addr, None));
+                peers.insert(id, Peer::new(id, addr, hostname, None));
                 true
             }
         })
@@ -63,7 +63,7 @@ impl PeerManager {
             .map(|peers| {
                 peers
                     .values()
-                    .filter(|peer| peer.sync_directories.contains_key(&root_dir))
+                    .filter(|peer| peer.sync_dirs.contains_key(&root_dir))
                     .map(|peer| peer.addr)
                     .collect()
             })

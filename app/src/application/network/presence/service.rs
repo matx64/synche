@@ -36,8 +36,8 @@ impl<P: PresenceInterface> PresenceService<P> {
 
         loop {
             match self.adapter.recv().await? {
-                PresenceEvent::Ping((peer_id, peer_ip)) => {
-                    self.handle_peer_connect(peer_id, peer_ip).await?;
+                PresenceEvent::Ping { id, ip, hostname } => {
+                    self.handle_peer_connect(id, ip, hostname).await?;
                 }
 
                 PresenceEvent::Disconnect(peer_id) => {
@@ -47,8 +47,15 @@ impl<P: PresenceInterface> PresenceService<P> {
         }
     }
 
-    async fn handle_peer_connect(&self, peer_id: Uuid, peer_ip: IpAddr) -> io::Result<()> {
-        let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
+    async fn handle_peer_connect(
+        &self,
+        peer_id: Uuid,
+        peer_ip: IpAddr,
+        hostname: String,
+    ) -> io::Result<()> {
+        let inserted = self
+            .peer_manager
+            .insert_or_update(peer_id, peer_ip, hostname);
 
         if inserted && self.state.local_id < peer_id {
             self.sender_tx

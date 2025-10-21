@@ -9,6 +9,10 @@ pub trait PresenceInterface {
 }
 
 pub enum PresenceEvent {
-    Ping((Uuid, IpAddr)),
+    Ping {
+        id: Uuid,
+        ip: IpAddr,
+        hostname: String,
+    },
     Disconnect(Uuid),
 }

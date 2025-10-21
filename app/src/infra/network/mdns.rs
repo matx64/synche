@@ -57,8 +57,9 @@ impl PresenceInterface for MdnsAdapter {
         loop {
             match self.receiver.recv_async().await.map_err(io::Error::other)? {
                 ServiceEvent::ServiceData(info) => {
-                    if let Some(peer_data) = self.handle_service_data(*info) {
-                        return Ok(PresenceEvent::Ping(peer_data));
+                    let hostname = info.host.clone();
+                    if let Some((id, ip)) = self.handle_service_data(*info) {
+                        return Ok(PresenceEvent::Ping { id, ip, hostname });
                     }
                 }
 

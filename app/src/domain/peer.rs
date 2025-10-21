@@ -6,13 +6,14 @@ use uuid::Uuid;
 pub struct Peer {
     pub id: Uuid,
     pub addr: IpAddr,
-    pub sync_directories: HashMap<String, SyncDirectory>,
+    pub hostname: String,
     pub last_seen: SystemTime,
+    pub sync_dirs: HashMap<String, SyncDirectory>,
 }
 
 impl Peer {
-    pub fn new(id: Uuid, addr: IpAddr, dirs: Option<Vec<SyncDirectory>>) -> Self {
-        let sync_directories = dirs
+    pub fn new(id: Uuid, addr: IpAddr, hostname: String, dirs: Option<Vec<SyncDirectory>>) -> Self {
+        let sync_dirs = dirs
             .map(|dirs| {
                 dirs.into_iter()
                     .map(|d| (d.name.clone(), d))
@@ -23,7 +24,8 @@ impl Peer {
         Self {
             id,
             addr,
-            sync_directories,
+            hostname,
+            sync_dirs,
             last_seen: SystemTime::now(),
         }
     }

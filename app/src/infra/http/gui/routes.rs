@@ -27,7 +27,7 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
 async fn index<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
 ) -> Result<Html<String>, StatusCode> {
-    let (local_ip, local_id) = state.http_service.get_local_info().await;
+    let (local_ip, local_id, hostname) = state.http_service.get_local_info().await;
     let dirs = state.http_service.list_dirs().await;
 
     let tmpl = state
@@ -37,6 +37,7 @@ async fn index<P: PersistenceInterface>(
 
     let rendered = tmpl
         .render(context! {
+            hostname => hostname,
             local_ip => local_ip,
             local_id => local_id,
             dirs => dirs
