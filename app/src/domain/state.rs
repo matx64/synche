@@ -1,6 +1,9 @@
-use crate::domain::{CanonicalPath, Config, ConfigPorts};
-use std::{net::IpAddr, sync::Arc};
-use tokio::sync::RwLock;
+use crate::{
+    domain::{CanonicalPath, Config, ConfigPorts, SyncDirectory},
+    utils::fs::get_os_config_dir,
+};
+use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use tokio::{fs, io, sync::RwLock};
 use uuid::Uuid;
 
 pub struct AppState {
@@ -27,5 +30,25 @@ impl AppState {
 
     pub async fn local_ip(&self) -> IpAddr {
         *self.local_ip.read().await
+    }
+
+    pub async fn update_config_file(
+        &self,
+        sync_dirs: HashMap<String, SyncDirectory>,
+    ) -> io::Result<()> {
+        let path = get_os_config_dir().await?.join("config.json");
+        let sync_dirs = sync_dirs.values().cloned().collect();
+
+        let config = Config {
+            sync_dirs,
+            device_id: self.local_id,
+            ports: self.ports.clone(),
+            home_path: self.home_path.clone(),
+        };
+
+        let contents =
+            serde_json::to_string(&config).map_err(|e| io::Error::other(e.to_string()))?;
+
+        fs::write(path, contents).await
     }
 }

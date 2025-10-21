@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
-use tracing::{error, info};
+use tracing::info;
 use uuid::Uuid;
 
 pub struct HttpService<P: PersistenceInterface> {
@@ -51,8 +51,12 @@ impl<P: PersistenceInterface> HttpService<P> {
 
         let path = self.entry_manager.add_sync_dir(name).await?;
 
+        self.state
+            .update_config_file(self.entry_manager.list_dirs().await)
+            .await?;
+
         self.update_watcher_and_resync(FileWatcherSyncDirectoryUpdate::Added(path))
-            .await;
+            .await?;
 
         info!("📂 Sync dir added: {name}");
         Ok(true)
@@ -60,20 +64,22 @@ impl<P: PersistenceInterface> HttpService<P> {
 
     pub fn _remove_folder() {}
 
-    async fn update_watcher_and_resync(&self, event: FileWatcherSyncDirectoryUpdate) {
-        if let Err(err) = self.dirs_updates_tx.send(event).await {
-            error!("Dir update send error: {err}");
-        }
+    async fn update_watcher_and_resync(
+        &self,
+        event: FileWatcherSyncDirectoryUpdate,
+    ) -> io::Result<()> {
+        self.dirs_updates_tx
+            .send(event)
+            .await
+            .map_err(|e| io::Error::other(e.to_string()))?;
 
         for (_, addr) in self.peer_manager.list() {
-            if let Err(err) = self
-                .sender_tx
+            self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(addr))
                 .await
-            {
-                error!("Handshake send error: {err}");
-            }
+                .map_err(|e| io::Error::other(e.to_string()))?;
         }
+        Ok(())
     }
 
     pub async fn get_local_info(&self) -> (IpAddr, Uuid) {
