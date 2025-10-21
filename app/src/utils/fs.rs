@@ -9,10 +9,8 @@ use tokio::{
 pub async fn get_os_config_dir() -> io::Result<CanonicalPath> {
     let path = Path::new("./.synche");
 
-    if !path.exists()
-        && let Some(parent) = path.parent()
-    {
-        fs::create_dir_all(parent).await?;
+    if !path.exists() {
+        fs::create_dir_all(path).await?;
     }
 
     CanonicalPath::new(path)
@@ -21,10 +19,8 @@ pub async fn get_os_config_dir() -> io::Result<CanonicalPath> {
 pub async fn get_os_synche_home_dir() -> io::Result<CanonicalPath> {
     let path = Path::new("./Synche");
 
-    if !path.exists()
-        && let Some(parent) = path.parent()
-    {
-        fs::create_dir_all(parent).await?;
+    if !path.exists() {
+        fs::create_dir_all(path).await?;
     }
 
     CanonicalPath::new(path)
