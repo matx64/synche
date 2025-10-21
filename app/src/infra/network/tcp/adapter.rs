@@ -1,9 +1,6 @@
 use crate::{
-    application::{
-        AppState,
-        network::transport::interface::{TransportInterface, TransportResult},
-    },
-    domain::{TransportData, TransportEvent, TransportMetadata},
+    application::network::transport::interface::{TransportInterface, TransportResult},
+    domain::{AppState, TransportData, TransportEvent, TransportMetadata},
     infra::network::tcp::{kind::TcpStreamKind, receiver::TcpReceiver, sender::TcpSender},
 };
 use std::{net::IpAddr, sync::Arc};

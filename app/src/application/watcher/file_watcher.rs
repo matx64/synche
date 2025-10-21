@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        AppState, EntryManager,
+        EntryManager,
         persistence::interface::PersistenceInterface,
         watcher::{
             buffer::WatcherBuffer,
@@ -8,8 +8,8 @@ use crate::{
         },
     },
     domain::{
-        CanonicalPath, EntryInfo, EntryKind, TransportChannelData, WatcherEvent, WatcherEventKind,
-        WatcherEventPath,
+        AppState, CanonicalPath, EntryInfo, EntryKind, TransportChannelData, WatcherEvent,
+        WatcherEventKind, WatcherEventPath,
     },
     utils::fs::compute_hash,
 };

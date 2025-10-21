@@ -4,6 +4,7 @@ mod directory;
 mod entry;
 mod fs;
 mod peer;
+mod state;
 mod transport;
 
 pub use chan::Channel;
@@ -20,6 +21,7 @@ pub use fs::WatcherEvent;
 pub use fs::WatcherEventKind;
 pub use fs::WatcherEventPath;
 pub use peer::Peer;
+pub use state::AppState;
 pub use transport::HandshakeData;
 pub use transport::TransportChannelData;
 pub use transport::TransportData;

@@ -1,12 +1,12 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager,
+        EntryManager, PeerManager,
         network::transport::{
             interface::TransportInterface, receiver::TransportReceiver, sender::TransportSender,
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{Channel, TransportChannelData},
+    domain::{AppState, Channel, TransportChannelData},
 };
 use std::sync::Arc;
 use tokio::{io, sync::mpsc::Sender};

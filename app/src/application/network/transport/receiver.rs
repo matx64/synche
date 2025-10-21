@@ -1,10 +1,11 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
+        EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
     domain::{
-        Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent, VersionCmp,
+        AppState, Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent,
+        VersionCmp,
     },
 };
 use futures::TryFutureExt;

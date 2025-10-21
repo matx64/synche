@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        AppState, EntryManager, HttpService, PeerManager,
+        EntryManager, HttpService, PeerManager,
         network::{
             presence::{interface::PresenceInterface, service::PresenceService},
             transport::{TransportService, interface::TransportInterface},
@@ -8,7 +8,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
-    domain::Config,
+    domain::{AppState, Config},
     infra::{
         self,
         network::{mdns::MdnsAdapter, tcp::TcpAdapter},

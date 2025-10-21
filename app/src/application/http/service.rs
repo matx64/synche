@@ -1,9 +1,9 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager, persistence::interface::PersistenceInterface,
+        EntryManager, PeerManager, persistence::interface::PersistenceInterface,
         watcher::interface::FileWatcherSyncDirectoryUpdate,
     },
-    domain::{SyncDirectory, TransportChannelData},
+    domain::{AppState, SyncDirectory, TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};

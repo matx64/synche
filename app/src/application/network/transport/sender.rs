@@ -1,9 +1,9 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
+        EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
-    domain::{Channel, EntryInfo, TransportChannelData, TransportData},
+    domain::{AppState, Channel, EntryInfo, TransportChannelData, TransportData},
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};

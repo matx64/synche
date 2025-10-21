@@ -1,9 +1,9 @@
 use crate::{
     application::{
-        AppState, PeerManager,
+        PeerManager,
         network::presence::interface::{PresenceEvent, PresenceInterface},
     },
-    domain::TransportChannelData,
+    domain::{AppState, TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};

@@ -1,6 +1,6 @@
-use crate::application::{
-    AppState,
-    network::presence::interface::{PresenceEvent, PresenceInterface},
+use crate::{
+    application::network::presence::interface::{PresenceEvent, PresenceInterface},
+    domain::AppState,
 };
 use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
