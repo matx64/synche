@@ -22,9 +22,44 @@ el_dir_form.addEventListener("submit", async (e) => {
   if (res.status == 201) {
     el_dir_list.insertAdjacentHTML(
       "beforeend",
-      `<details class="list-item">
-            <summary><strong>📂 ${dir_name}</strong><small>Up to Date</small></summary>
-          </details>`
+      dir_list_item_component(dir_name)
     );
   }
 });
+
+el_dir_list.addEventListener("click", async (e) => {
+  if (e.target.matches(".remove-dir-btn")) {
+    const dir_id = e.target.closest("details")?.id ?? null;
+    const prefix = "dir-";
+
+    if (dir_id && dir_id.startsWith(prefix)) {
+      await delete_dir(dir_id.slice(prefix.length));
+    }
+  }
+});
+
+async function delete_dir(dir_name) {
+  const confirmed = confirm(`Stop syncing "${dir_name}" directory?`);
+
+  if (confirmed) {
+    const res = await fetch(`/api/remove-sync-dir?name=${dir_name}`, {
+      method: "POST",
+    });
+
+    if (res.status == 200) {
+      el_dir_list.getElementById(`dir-${dir_name}`).remove();
+    }
+  }
+}
+
+function dir_list_item_component(name) {
+  return `<details class="list-item" id="dir-${name}">
+            <summary>
+              <strong>📂 ${name}</strong><small>Up to Date</small>
+            </summary>
+
+            <div class="dir-actions">
+              <button class="btn remove-dir-btn">Stop Syncing</button>
+            </div>
+          </details>`;
+}
