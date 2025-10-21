@@ -47,7 +47,7 @@ async function delete_dir(dir_name) {
     });
 
     if (res.status == 200) {
-      el_dir_list.getElementById(`dir-${dir_name}`).remove();
+      el_dir_list.querySelector(`#dir-${dir_name}`).remove();
     }
   }
 }

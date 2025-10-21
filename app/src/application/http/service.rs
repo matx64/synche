@@ -14,8 +14,8 @@ pub struct HttpService<P: PersistenceInterface> {
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
-    dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
     sender_tx: Sender<TransportChannelData>,
+    dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
 }
 
 impl<P: PersistenceInterface> HttpService<P> {
@@ -45,7 +45,7 @@ impl<P: PersistenceInterface> HttpService<P> {
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<bool> {
-        if self.entry_manager.is_sync_dir(name).await {
+        if self.entry_manager.get_sync_dir(name).await.is_some() {
             return Ok(false);
         }
 
@@ -62,7 +62,13 @@ impl<P: PersistenceInterface> HttpService<P> {
         Ok(true)
     }
 
-    pub fn _remove_folder() {}
+    pub async fn remove_sync_dir(&self, name: &str) -> io::Result<()> {
+        let Some(dir) = self.entry_manager.get_sync_dir(name).await else {
+            return Ok(());
+        };
+
+        Ok(())
+    }
 
     async fn update_watcher_and_resync(
         &self,

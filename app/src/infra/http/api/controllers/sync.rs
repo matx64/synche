@@ -22,9 +22,14 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
         .with_state(state)
 }
 
+#[derive(Deserialize)]
+struct ModifySyncDirParams {
+    pub name: String,
+}
+
 async fn add_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
-    Query(params): Query<AddSyncDirParams>,
+    Query(params): Query<ModifySyncDirParams>,
 ) -> StatusCode {
     let name = params.name.trim();
 
@@ -38,15 +43,17 @@ async fn add_sync_dir<P: PersistenceInterface>(
     }
 }
 
-#[derive(Deserialize)]
-struct AddSyncDirParams {
-    pub name: String,
-}
-
 async fn remove_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
-    Query(name): Query<String>,
+    Query(params): Query<ModifySyncDirParams>,
 ) -> StatusCode {
-    let name = name.trim();
-    StatusCode::OK
+    let name = params.name.trim();
+
+    match state.http_service.remove_sync_dir(name).await {
+        Ok(_) => StatusCode::OK,
+        Err(err) => {
+            error!("Remove sync dir error: {err}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }

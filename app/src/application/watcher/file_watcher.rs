@@ -77,7 +77,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                 Some(event) = self.dirs_updates_rx.recv() => {
                     match event {
                         FileWatcherSyncDirectoryUpdate::Added(path) => self.add_sync_dir(path),
-                        FileWatcherSyncDirectoryUpdate::Removed(path) => self.remove_sync_dir(path),
+                        FileWatcherSyncDirectoryUpdate::Removed(dir_name) => self.remove_sync_dir(dir_name),
                     }
                 }
             }
@@ -100,8 +100,8 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         self.adapter.add_sync_dir(dir_path);
     }
 
-    fn remove_sync_dir(&mut self, dir_path: CanonicalPath) {
-        self.adapter.remove_sync_dir(dir_path);
+    fn remove_sync_dir(&mut self, dir_name: String) {
+        self.adapter.remove_sync_dir(dir_name);
     }
 
     async fn handle_create_or_modify(&self, path: WatcherEventPath) {

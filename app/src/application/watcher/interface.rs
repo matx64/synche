@@ -11,10 +11,10 @@ pub trait FileWatcherInterface {
     async fn next(&mut self) -> Option<WatcherEvent>;
 
     fn add_sync_dir(&mut self, dir_path: CanonicalPath);
-    fn remove_sync_dir(&mut self, dir_path: CanonicalPath);
+    fn remove_sync_dir(&mut self, dir_name: String);
 }
 
 pub enum FileWatcherSyncDirectoryUpdate {
     Added(CanonicalPath),
-    Removed(CanonicalPath),
+    Removed(String),
 }

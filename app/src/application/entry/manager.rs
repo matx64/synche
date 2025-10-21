@@ -136,14 +136,21 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .map(|f| (f.name.clone(), f))
             .collect();
 
+        let sync_dirs = { self.sync_directories.read().await.clone() };
+
         for (name, entry) in &mut db_entries {
+            if !sync_dirs.contains_key(&entry.get_root_parent()) {
+                self.db.delete_entry(name).await.unwrap();
+                continue;
+            }
+
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
                     *entry.version.entry(self.state.local_id).or_insert(0) += 1;
 
                     self.db
                         .insert_or_replace_entry(&EntryInfo {
-                            name: entry.name.clone(),
+                            name: name.clone(),
                             version: entry.version.clone(),
                             kind: fs_entry.kind.clone(),
                             hash: fs_entry.hash.clone(),
@@ -153,7 +160,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                 }
 
                 None => {
-                    self.db.delete_entry(&entry.name).await.unwrap();
+                    self.db.delete_entry(name).await.unwrap();
                 }
 
                 _ => {}
@@ -167,8 +174,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
     }
 
-    pub async fn is_sync_dir(&self, name: &str) -> bool {
-        self.sync_directories.read().await.contains_key(name)
+    pub async fn get_sync_dir(&self, name: &str) -> Option<SyncDirectory> {
+        self.sync_directories.read().await.get(name).cloned()
     }
 
     pub async fn add_sync_dir(&self, name: &str) -> io::Result<CanonicalPath> {

@@ -62,8 +62,8 @@ impl FileWatcherInterface for NotifyFileWatcher {
         self.sync_directories.insert(dir_path);
     }
 
-    fn remove_sync_dir(&mut self, dir_path: CanonicalPath) {
-        self.sync_directories.remove(&dir_path);
+    fn remove_sync_dir(&mut self, dir_name: String) {
+        todo!()
     }
 
     async fn next(&mut self) -> Option<WatcherEvent> {
