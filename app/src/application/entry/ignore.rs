@@ -4,23 +4,23 @@ use crate::{
 };
 use ignore::gitignore::Gitignore;
 use std::{collections::HashMap, sync::Arc};
-use tokio::io;
+use tokio::{io, sync::RwLock};
 use tracing::warn;
 
 pub struct IgnoreHandler {
     state: Arc<AppState>,
-    gis: HashMap<String, Gitignore>,
+    gis: RwLock<HashMap<String, Gitignore>>,
 }
 
 impl IgnoreHandler {
-    pub fn new(state: Arc<AppState>) -> Self {
-        Self {
+    pub fn new(state: Arc<AppState>) -> Arc<Self> {
+        Arc::new(Self {
             state,
-            gis: HashMap::new(),
-        }
+            gis: RwLock::new(HashMap::new()),
+        })
     }
 
-    pub fn insert_gitignore(&mut self, gitignore_path: &CanonicalPath) -> io::Result<bool> {
+    pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) -> io::Result<bool> {
         let (gi, err) = Gitignore::new(gitignore_path);
 
         if let Some(err) = err {
@@ -34,17 +34,19 @@ impl IgnoreHandler {
         if let Some(relative) =
             RelativePath::new(gitignore_path, &self.state.home_path).strip_suffix("/.gitignore")
         {
-            self.gis.insert(relative.to_string(), gi);
+            self.gis.write().await.insert(relative.to_string(), gi);
             Ok(true)
         } else {
             Ok(false)
         }
     }
 
-    pub fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
-        if self.gis.is_empty() {
-            return false;
-        };
+    pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
+        {
+            if self.gis.read().await.is_empty() {
+                return false;
+            }
+        }
 
         let is_dir = path.is_dir();
 
@@ -62,7 +64,7 @@ impl IgnoreHandler {
             }
             current_path.push_str(part);
 
-            if let Some(gi) = self.gis.get(&current_path)
+            if let Some(gi) = self.gis.read().await.get(&current_path)
                 && gi.matched_path_or_any_parents(path, is_dir).is_ignore()
             {
                 return true;
@@ -71,9 +73,9 @@ impl IgnoreHandler {
         false
     }
 
-    pub fn remove_gitignore(&mut self, relative: &RelativePath) {
+    pub async fn remove_gitignore(&self, relative: &RelativePath) {
         if let Some(key) = relative.strip_suffix("/.gitignore") {
-            self.gis.remove(key);
+            self.gis.write().await.remove(key);
         }
     }
 }

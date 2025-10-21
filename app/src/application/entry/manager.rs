@@ -26,7 +26,7 @@ pub struct EntryManager<P: PersistenceInterface> {
     db: P,
     state: Arc<AppState>,
     sync_directories: RwLock<HashMap<String, SyncDirectory>>,
-    ignore_handler: RwLock<IgnoreHandler>,
+    ignore_handler: Arc<IgnoreHandler>,
 }
 
 impl<P: PersistenceInterface> EntryManager<P> {
@@ -39,7 +39,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             db,
             state: state.clone(),
             sync_directories: RwLock::new(sync_directories),
-            ignore_handler: RwLock::new(IgnoreHandler::new(state)),
+            ignore_handler: IgnoreHandler::new(state),
         })
     }
 
@@ -197,7 +197,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
-        self.ignore_handler.read().await.is_ignored(path, relative)
+        self.ignore_handler.is_ignored(path, relative).await
     }
 
     pub async fn insert_entry(&self, mut entry: EntryInfo) -> EntryInfo {
@@ -417,12 +417,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
-        match self
-            .ignore_handler
-            .write()
-            .await
-            .insert_gitignore(gitignore_path)
-        {
+        match self.ignore_handler.insert_gitignore(gitignore_path).await {
             Ok(_) => {
                 info!(
                     "⭕  Inserted or Updated .gitignore: {}",
@@ -436,6 +431,6 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn remove_gitignore(&self, relative: &RelativePath) {
-        self.ignore_handler.write().await.remove_gitignore(relative);
+        self.ignore_handler.remove_gitignore(relative).await;
     }
 }
