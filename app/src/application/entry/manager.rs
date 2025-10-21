@@ -102,7 +102,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                     EntryInfo {
                         name: relative,
                         kind: EntryKind::File,
-                        hash: Some(compute_hash(&canonical)?),
+                        hash: Some(compute_hash(&canonical).await?),
                         version: HashMap::from([(self.state.local_id, 0)]),
                     },
                 );

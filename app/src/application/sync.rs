@@ -35,13 +35,13 @@ pub struct Synchronizer<
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
     pub async fn new_default() -> Self {
-        let config = Config::init();
+        let config = Config::init().await.unwrap();
         let state = AppState::new(&config);
 
         let notify = NotifyFileWatcher::new();
         let mdns_adapter = MdnsAdapter::new(state.clone());
         let tcp_adapter = TcpAdapter::new(state.clone()).await;
-        let sqlite_adapter = SqliteDb::new(get_os_config_dir().join("db.db"))
+        let sqlite_adapter = SqliteDb::new(get_os_config_dir().await.unwrap().join("db.db"))
             .await
             .unwrap();
 

@@ -125,7 +125,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     async fn handle_create_file(&self, path: WatcherEventPath) {
-        let disk_hash = Some(compute_hash(&path.canonical).unwrap());
+        let disk_hash = Some(compute_hash(&path.canonical).await.unwrap());
 
         let file = self
             .entry_manager
@@ -151,7 +151,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     async fn handle_modify_file(&self, path: WatcherEventPath, file: EntryInfo) {
-        let disk_hash = Some(compute_hash(&path.canonical).unwrap());
+        let disk_hash = Some(compute_hash(&path.canonical).await.unwrap());
 
         if file.hash != disk_hash {
             let file = self.entry_manager.entry_modified(file, disk_hash).await;
