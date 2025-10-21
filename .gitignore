@@ -1,7 +1,5 @@
 /target
-
-/synche-files
-/.tmp
+/Synche
 
 /.synche/*
 !/.synche/config.json.example

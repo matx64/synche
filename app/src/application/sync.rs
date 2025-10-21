@@ -60,15 +60,15 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     ) -> Self {
         let dirs = { state.sync_dirs.read().await.clone() };
 
-        let entry_manager = Arc::new(EntryManager::new(
+        let entry_manager = EntryManager::new(
             persistence_adapter,
             state.local_id,
             dirs,
             state.home_path.clone(),
-        ));
+        );
         entry_manager.init().await.unwrap();
 
-        let peer_manager = Arc::new(PeerManager::new());
+        let peer_manager = PeerManager::new();
 
         let (transport_service, sender_tx) = TransportService::new(
             transport_adapter,
@@ -79,9 +79,9 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
 
         let (file_watcher, dirs_updates_tx) = FileWatcher::new(
             watch_adapter,
+            state.clone(),
             entry_manager.clone(),
             sender_tx.clone(),
-            state.home_path.clone(),
         );
 
         let presence_service = PresenceService::new(

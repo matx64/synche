@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        EntryManager,
+        AppState, EntryManager,
         persistence::interface::PersistenceInterface,
         watcher::{
             buffer::WatcherBuffer,
@@ -18,36 +18,36 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{error, info};
 
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
-    watch_adapter: T,
+    adapter: T,
+    state: Arc<AppState>,
     entry_manager: Arc<EntryManager<P>>,
     buffer: WatcherBuffer,
     watch_rx: Receiver<WatcherEvent>,
     dirs_updates_rx: Receiver<FileWatcherSyncDirectoryUpdate>,
     sender_tx: Sender<TransportChannelData>,
-    base_dir_path: CanonicalPath,
 }
 
 impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub fn new(
-        watch_adapter: T,
+        adapter: T,
+        state: Arc<AppState>,
         entry_manager: Arc<EntryManager<P>>,
         sender_tx: Sender<TransportChannelData>,
-        base_dir_path: CanonicalPath,
     ) -> (Self, Sender<FileWatcherSyncDirectoryUpdate>) {
         let (watch_tx, watch_rx) = mpsc::channel(1000);
-        let (dirs_tx, dirs_rx) = mpsc::channel(16);
+        let (dirs_updates_tx, dirs_updates_rx) = mpsc::channel(16);
 
         (
             Self {
-                watch_adapter,
-                entry_manager,
+                state,
+                adapter,
                 watch_rx,
-                dirs_updates_rx: dirs_rx,
                 sender_tx,
-                base_dir_path,
+                entry_manager,
+                dirs_updates_rx,
                 buffer: WatcherBuffer::new(watch_tx),
             },
-            dirs_tx,
+            dirs_updates_tx,
         )
     }
 
@@ -56,7 +56,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         loop {
             tokio::select! {
-                Some(event) = self.watch_adapter.next() => {
+                Some(event) = self.adapter.next() => {
                     if !self.entry_manager.is_ignored(&event.path.canonical, &event.path.relative).await {
                         self.buffer.insert(event).await;
                     }
@@ -90,20 +90,18 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
             .list_dirs()
             .await
             .keys()
-            .map(|dir| self.base_dir_path.join(dir))
+            .map(|dir| self.state.home_path.join(dir))
             .collect();
 
-        self.watch_adapter
-            .watch(self.base_dir_path.clone(), dirs)
-            .await
+        self.adapter.watch(self.state.home_path.clone(), dirs).await
     }
 
     fn add_sync_dir(&mut self, dir_path: CanonicalPath) {
-        self.watch_adapter.add_sync_dir(dir_path);
+        self.adapter.add_sync_dir(dir_path);
     }
 
     fn remove_sync_dir(&mut self, dir_path: CanonicalPath) {
-        self.watch_adapter.remove_sync_dir(dir_path);
+        self.adapter.remove_sync_dir(dir_path);
     }
 
     async fn handle_create_or_modify(&self, path: WatcherEventPath) {

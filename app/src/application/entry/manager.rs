@@ -9,6 +9,7 @@ use crate::{
 use std::{
     collections::{HashMap, VecDeque},
     io,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -33,14 +34,14 @@ impl<P: PersistenceInterface> EntryManager<P> {
         local_id: Uuid,
         sync_directories: HashMap<String, SyncDirectory>,
         base_dir_path: CanonicalPath,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        Arc::new(Self {
             db,
             local_id,
             sync_directories: RwLock::new(sync_directories),
             ignore_handler: RwLock::new(IgnoreHandler::new(base_dir_path.clone())),
             base_dir_path,
-        }
+        })
     }
 
     pub async fn init(&self) -> io::Result<()> {

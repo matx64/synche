@@ -1,5 +1,10 @@
 use crate::domain::{EntryInfo, Peer};
-use std::{collections::HashMap, net::IpAddr, sync::RwLock, time::SystemTime};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    sync::{Arc, RwLock},
+    time::SystemTime,
+};
 use tracing::info;
 use uuid::Uuid;
 
@@ -8,10 +13,10 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
             peers: RwLock::new(HashMap::new()),
-        }
+        })
     }
 
     pub fn insert(&self, peer: Peer) {
