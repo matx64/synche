@@ -22,7 +22,9 @@ el_dir_form.addEventListener("submit", async (e) => {
   if (res.status == 201) {
     el_dir_list.insertAdjacentHTML(
       "beforeend",
-      `<div>📂 <strong>${dir_name}</strong> Up to Date</div>`
+      `<details class="list-item">
+            <summary><strong>📂 ${dir_name}</strong><small>Up to Date</small></summary>
+          </details>`
     );
   }
 });

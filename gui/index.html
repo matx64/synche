@@ -36,18 +36,11 @@
         </div>
 
         <div id="devices-list">
-          <details>
-            <summary><strong>{{ hostname }} (My Device)</strong></summary>
+          <details class="list-item">
+            <summary><strong>🖥️ {{ hostname }} (My Device)</strong></summary>
             <p><strong>Status: </strong> 🟢 Connected</p>
             <p><strong>IP:</strong> {{local_ip}}</p>
             <p><strong>ID:</strong> {{local_id}}</p>
-          </details>
-
-          <details>
-            <summary><strong>Macbook Air</strong></summary>
-            <p><strong>Status: </strong> Connected</p>
-            <p><strong>ID:</strong> uuidv4</p>
-            <p><strong>IP:</strong> ipv4</p>
           </details>
         </div>
       </div>
@@ -105,7 +98,11 @@
 
         <div id="dir-list">
           {% for dir in dirs %}
-          <div>📂 <strong>{{dir.name}}</strong> Up to Date</div>
+          <details class="list-item">
+            <summary>
+              <strong>📂 {{dir.name}}</strong><small>Up to Date</small>
+            </summary>
+          </details>
           {% endfor %}
         </div>
       </div>
