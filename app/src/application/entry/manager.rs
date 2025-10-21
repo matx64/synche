@@ -18,15 +18,15 @@ use tokio::{
     fs::{self},
     sync::RwLock,
 };
-use tracing::{error, info, warn};
+use tracing::warn;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub struct EntryManager<P: PersistenceInterface> {
     db: P,
     state: Arc<AppState>,
+    ignore_handler: IgnoreHandler,
     sync_directories: RwLock<HashMap<String, SyncDirectory>>,
-    ignore_handler: Arc<IgnoreHandler>,
 }
 
 impl<P: PersistenceInterface> EntryManager<P> {
@@ -38,8 +38,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Arc::new(Self {
             db,
             state: state.clone(),
-            sync_directories: RwLock::new(sync_directories),
             ignore_handler: IgnoreHandler::new(state),
+            sync_directories: RwLock::new(sync_directories),
         })
     }
 
@@ -417,17 +417,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
-        match self.ignore_handler.insert_gitignore(gitignore_path).await {
-            Ok(_) => {
-                info!(
-                    "⭕  Inserted or Updated .gitignore: {}",
-                    gitignore_path.as_ref().to_string_lossy()
-                );
-            }
-            Err(err) => {
-                error!("Error inserting gitignore: {err}");
-            }
-        }
+        self.ignore_handler.insert_gitignore(gitignore_path).await;
     }
 
     pub async fn remove_gitignore(&self, relative: &RelativePath) {

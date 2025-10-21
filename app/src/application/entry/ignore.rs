@@ -4,8 +4,8 @@ use crate::{
 };
 use ignore::gitignore::Gitignore;
 use std::{collections::HashMap, sync::Arc};
-use tokio::{io, sync::RwLock};
-use tracing::warn;
+use tokio::sync::RwLock;
+use tracing::{info, warn};
 
 pub struct IgnoreHandler {
     state: Arc<AppState>,
@@ -13,14 +13,14 @@ pub struct IgnoreHandler {
 }
 
 impl IgnoreHandler {
-    pub fn new(state: Arc<AppState>) -> Arc<Self> {
-        Arc::new(Self {
+    pub fn new(state: Arc<AppState>) -> Self {
+        Self {
             state,
             gis: RwLock::new(HashMap::new()),
-        })
+        }
     }
 
-    pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) -> io::Result<bool> {
+    pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
         let (gi, err) = Gitignore::new(gitignore_path);
 
         if let Some(err) = err {
@@ -28,16 +28,14 @@ impl IgnoreHandler {
         }
 
         if gi.is_empty() {
-            return Ok(false);
+            return;
         };
 
         if let Some(relative) =
             RelativePath::new(gitignore_path, &self.state.home_path).strip_suffix("/.gitignore")
         {
             self.gis.write().await.insert(relative.to_string(), gi);
-            Ok(true)
-        } else {
-            Ok(false)
+            info!("⭕  Inserted or Updated .gitignore: {relative}");
         }
     }
 
