@@ -7,7 +7,8 @@ mod peer;
 mod transport;
 
 pub use chan::Channel;
-pub use config::ConfigFileData;
+pub use config::Config;
+pub use config::ConfigPorts;
 pub use directory::SyncDirectory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;

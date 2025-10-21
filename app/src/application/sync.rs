@@ -8,12 +8,14 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
+    domain::Config,
     infra::{
         self,
         network::{mdns::MdnsAdapter, tcp::TcpAdapter},
         persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
+    utils::fs::get_os_config_dir,
 };
 use std::sync::Arc;
 use tokio::io;
@@ -33,14 +35,25 @@ pub struct Synchronizer<
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
     pub async fn new_default() -> Self {
-        let state = AppState::new();
+        let config = Config::init();
+        let state = AppState::new(&config);
 
         let notify = NotifyFileWatcher::new();
         let mdns_adapter = MdnsAdapter::new(state.clone());
         let tcp_adapter = TcpAdapter::new(state.clone()).await;
-        let sqlite_adapter = SqliteDb::new(state.cfg_path.join("db.db")).await.unwrap();
+        let sqlite_adapter = SqliteDb::new(get_os_config_dir().join("db.db"))
+            .await
+            .unwrap();
 
-        Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
+        Self::new(
+            config,
+            state,
+            notify,
+            mdns_adapter,
+            tcp_adapter,
+            sqlite_adapter,
+        )
+        .await
     }
 }
 
@@ -48,15 +61,16 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     Synchronizer<W, T, P, D>
 {
     pub async fn new(
+        config: Config,
         state: Arc<AppState>,
         watch_adapter: W,
         presence_adapter: D,
         transport_adapter: T,
         persistence_adapter: P,
     ) -> Self {
-        let dirs = { state.sync_dirs.read().await.clone() };
+        let configured_dirs = config.get_sync_dirs();
 
-        let entry_manager = EntryManager::new(persistence_adapter, state.clone(), dirs);
+        let entry_manager = EntryManager::new(persistence_adapter, state.clone(), configured_dirs);
         entry_manager.init().await.unwrap();
 
         let peer_manager = PeerManager::new();

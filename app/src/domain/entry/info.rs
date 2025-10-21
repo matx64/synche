@@ -1,7 +1,4 @@
-use crate::domain::{
-    RelativePath,
-    entry::{VersionCmp, VersionVector},
-};
+use crate::domain::{RelativePath, VersionCmp, VersionVector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;

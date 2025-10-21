@@ -1,7 +1,35 @@
 use crate::domain::CanonicalPath;
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, path::Path};
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::Path,
+};
 use tokio::io;
+
+pub fn get_os_config_dir() -> CanonicalPath {
+    let path = Path::new("./.synche");
+
+    if !path.exists()
+        && let Some(parent) = path.parent()
+    {
+        fs::create_dir_all(parent).unwrap();
+    }
+
+    CanonicalPath::new(path).unwrap()
+}
+
+pub fn get_os_synche_home_dir() -> CanonicalPath {
+    let path = Path::new("./Synche");
+
+    if !path.exists()
+        && let Some(parent) = path.parent()
+    {
+        fs::create_dir_all(parent).unwrap();
+    }
+
+    CanonicalPath::new(path).unwrap()
+}
 
 pub fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     let mut file = File::open(path)?;
