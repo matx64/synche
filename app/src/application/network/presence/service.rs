@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        PeerManager,
+        AppState, PeerManager,
         network::presence::interface::{PresenceEvent, PresenceInterface},
     },
     domain::TransportChannelData,
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 pub struct PresenceService<P: PresenceInterface> {
     adapter: P,
-    local_id: Uuid,
+    state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     sender_tx: Sender<TransportChannelData>,
 }
@@ -19,15 +19,15 @@ pub struct PresenceService<P: PresenceInterface> {
 impl<P: PresenceInterface> PresenceService<P> {
     pub fn new(
         adapter: P,
-        local_id: Uuid,
+        state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         sender_tx: Sender<TransportChannelData>,
     ) -> Self {
         Self {
+            state,
             adapter,
-            local_id,
-            peer_manager,
             sender_tx,
+            peer_manager,
         }
     }
 
@@ -50,7 +50,7 @@ impl<P: PresenceInterface> PresenceService<P> {
     async fn handle_peer_connect(&self, peer_id: Uuid, peer_ip: IpAddr) -> io::Result<()> {
         let inserted = self.peer_manager.insert_or_update(peer_id, peer_ip);
 
-        if inserted && self.local_id < peer_id {
+        if inserted && self.state.local_id < peer_id {
             self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(peer_ip))
                 .await

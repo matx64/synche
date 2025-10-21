@@ -1,9 +1,12 @@
 use crate::{
-    application::network::transport::interface::{TransportInterface, TransportResult},
-    domain::{CanonicalPath, TransportData, TransportEvent, TransportMetadata},
+    application::{
+        AppState,
+        network::transport::interface::{TransportInterface, TransportResult},
+    },
+    domain::{TransportData, TransportEvent, TransportMetadata},
     infra::network::tcp::{kind::TcpStreamKind, receiver::TcpReceiver, sender::TcpSender},
 };
-use std::net::IpAddr;
+use std::{net::IpAddr, sync::Arc};
 use tokio::{io::AsyncReadExt, net::TcpListener};
 use uuid::Uuid;
 
@@ -14,11 +17,12 @@ pub struct TcpAdapter {
 }
 
 impl TcpAdapter {
-    pub async fn new(port: u16, local_id: Uuid, home_path: CanonicalPath) -> Self {
-        let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
+    pub async fn new(state: Arc<AppState>) -> Self {
+        let addr = format!("0.0.0.0:{}", state.ports.transport);
+        let listener = TcpListener::bind(addr).await.unwrap();
 
-        let receiver = TcpReceiver::new(home_path.clone());
-        let sender = TcpSender::new(port, local_id, home_path);
+        let receiver = TcpReceiver::new(state.clone());
+        let sender = TcpSender::new(state);
 
         Self {
             sender,

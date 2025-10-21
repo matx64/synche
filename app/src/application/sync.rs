@@ -37,12 +37,7 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
 
         let notify = NotifyFileWatcher::new();
         let mdns_adapter = MdnsAdapter::new(state.clone());
-        let tcp_adapter = TcpAdapter::new(
-            state.ports.transport,
-            state.local_id,
-            state.home_path.clone(),
-        )
-        .await;
+        let tcp_adapter = TcpAdapter::new(state.clone()).await;
         let sqlite_adapter = SqliteDb::new(state.cfg_path.join("db.db")).await.unwrap();
 
         Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
@@ -87,7 +82,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
 
         let presence_service = PresenceService::new(
             presence_adapter,
-            state.local_id,
+            state.clone(),
             peer_manager.clone(),
             sender_tx.clone(),
         );

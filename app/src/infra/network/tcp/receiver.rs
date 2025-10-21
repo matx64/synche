@@ -1,10 +1,13 @@
 use crate::{
-    application::network::transport::interface::{TransportError, TransportResult},
-    domain::{CanonicalPath, EntryInfo, EntryKind, TransportData},
+    application::{
+        AppState,
+        network::transport::interface::{TransportError, TransportResult},
+    },
+    domain::{EntryInfo, EntryKind, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
 };
 use sha2::{Digest, Sha256};
-use std::env;
+use std::{env, sync::Arc};
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
@@ -12,12 +15,12 @@ use tokio::{
 };
 
 pub struct TcpReceiver {
-    home_path: CanonicalPath,
+    state: Arc<AppState>,
 }
 
 impl TcpReceiver {
-    pub fn new(home_path: CanonicalPath) -> Self {
-        Self { home_path }
+    pub fn new(state: Arc<AppState>) -> Self {
+        Self { state }
     }
 
     pub async fn read_data(
@@ -108,7 +111,7 @@ impl TcpReceiver {
     }
 
     async fn save_entry(&self, entry: &EntryInfo, contents: Vec<u8>) -> TransportResult<()> {
-        let original_path = self.home_path.join(&*entry.name);
+        let original_path = self.state.home_path.join(&*entry.name);
         let tmp_path = env::temp_dir().join(&*entry.name);
 
         let mut tmp_file = File::create(&tmp_path).await?;
