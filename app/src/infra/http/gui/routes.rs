@@ -1,7 +1,10 @@
-use std::sync::Arc;
-use crate::{application::{persistence::interface::PersistenceInterface, HttpService}, infra::http::gui::engine};
+use crate::{
+    application::{HttpService, persistence::interface::PersistenceInterface},
+    infra::http::gui::engine,
+};
 use axum::{Router, extract::State, http::StatusCode, response::Html, routing::get};
 use minijinja::{Environment, context};
+use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 struct ControllerState<P: PersistenceInterface> {
@@ -21,11 +24,14 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
         .nest_service("/static", ServeDir::new("./gui/static"))
 }
 
-async fn index<P: PersistenceInterface>(State(state): State<Arc<ControllerState<P>>>,) -> Result<Html<String>, StatusCode> {
-    let (local_ip, local_id) = state.http_service.get_local_info().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+async fn index<P: PersistenceInterface>(
+    State(state): State<Arc<ControllerState<P>>>,
+) -> Result<Html<String>, StatusCode> {
+    let (local_ip, local_id) = state.http_service.get_local_info().await;
     let dirs = state.http_service.list_dirs().await;
 
-    let tmpl = state.engine
+    let tmpl = state
+        .engine
         .get_template("index")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

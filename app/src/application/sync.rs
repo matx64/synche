@@ -24,6 +24,7 @@ pub struct Synchronizer<
     P: PersistenceInterface,
     R: PresenceInterface,
 > {
+    state: Arc<AppState>,
     file_watcher: FileWatcher<W, P>,
     http_service: Arc<HttpService<P>>,
     presence_service: PresenceService<R>,
@@ -92,14 +93,15 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         );
 
         let http_service = HttpService::new(
-            state.local_id,
-            entry_manager.clone(),
-            peer_manager.clone(),
-            dirs_updates_tx,
+            state.clone(),
+            peer_manager,
+            entry_manager,
             sender_tx,
+            dirs_updates_tx,
         );
 
         Self {
+            state,
             file_watcher,
             http_service,
             presence_service,
@@ -154,7 +156,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
 
     async fn _run(&mut self) -> io::Result<()> {
         tokio::try_join!(
-            infra::http::server::run(self.http_service.clone()),
+            infra::http::server::run(self.state.ports.http, self.http_service.clone()),
             self.transport_service.run(),
             self.presence_service.run(),
             self.file_watcher.run(),

@@ -1,6 +1,6 @@
 use crate::{
     application::{
-        EntryManager, PeerManager, persistence::interface::PersistenceInterface,
+        AppState, EntryManager, PeerManager, persistence::interface::PersistenceInterface,
         watcher::interface::FileWatcherSyncDirectoryUpdate,
     },
     domain::{SyncDirectory, TransportChannelData},
@@ -11,27 +11,27 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 pub struct HttpService<P: PersistenceInterface> {
-    local_id: Uuid,
-    entry_manager: Arc<EntryManager<P>>,
+    state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
+    entry_manager: Arc<EntryManager<P>>,
     dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
     sender_tx: Sender<TransportChannelData>,
 }
 
 impl<P: PersistenceInterface> HttpService<P> {
     pub fn new(
-        local_id: Uuid,
-        entry_manager: Arc<EntryManager<P>>,
+        state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
-        dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
+        entry_manager: Arc<EntryManager<P>>,
         sender_tx: Sender<TransportChannelData>,
+        dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            local_id,
-            entry_manager,
-            peer_manager,
-            dirs_updates_tx,
+            state,
             sender_tx,
+            peer_manager,
+            entry_manager,
+            dirs_updates_tx,
         })
     }
 
@@ -76,10 +76,8 @@ impl<P: PersistenceInterface> HttpService<P> {
         }
     }
 
-    pub fn get_local_info(&self) -> Result<(IpAddr, Uuid), local_ip_address::Error> {
-        let ip = local_ip_address::local_ip()?;
-
-        Ok((ip, self.local_id))
+    pub async fn get_local_info(&self) -> (IpAddr, Uuid) {
+        (self.state.local_ip().await, self.state.local_id)
     }
 
     pub fn _send_event() {}
