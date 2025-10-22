@@ -9,7 +9,7 @@ This document explains how to build and run **Synche** from source. As the proje
 - [Rust](https://www.rust-lang.org/tools/install) (version 1.80+ recommended)
 - Git
 
-By default, Synche uses ports 42880 (http), 42881 (mDNS) and 42882 (TCP), so make sure these ports are allowed by your OS Firewall. It shouldn't be an issue, but it is **recommended** to guarantee mDNS service is allowed for **MacOS** by executing these commands:
+By default, Synche uses ports 42880 (http), 42881 (presence/mDNS) and 42882 (TCP), so make sure these ports are allowed by your OS Firewall. It shouldn't be an issue, but it is **recommended** to guarantee mDNS service is allowed for **MacOS** by executing these commands:
 
 ```sh
 # allow mDNS in MacOS
@@ -60,22 +60,22 @@ Synced entries will reside in `Synche` folder.
 
 ## Practical Example
 
-Synche is running in my laptop and desktop computers with the same `config.toml` file:
+Synche is running in my laptop and desktop computers with the same `sync_dirs` in `config.toml` file:
 
 ```toml
-device_id = "88bd9d3e-6c27-471f-a4d1-07446f0f3a1f"
-home_path = "/home/matx/dev/synche/Synche"
-
 [[sync_dirs]]
 name = "synche-git-repo"
 
 [[sync_dirs]]
 name = "project001"
 
-[ports]
-http = 42880
-presence = 42881
-transport = 42882
+# Device specific settings
+# device_id = ...
+# home_path = ...
+
+# [ports]
+# ...
+
 ```
 
 I modify the `Synche/synche-git-repo/INSTALL.md` file in the laptop. This change must be propagated to the desktop automatically.
