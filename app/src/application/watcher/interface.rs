@@ -16,5 +16,6 @@ pub trait FileWatcherInterface {
 
 pub enum FileWatcherSyncDirectoryUpdate {
     Added(CanonicalPath),
+    #[allow(dead_code)]
     Removed(String),
 }

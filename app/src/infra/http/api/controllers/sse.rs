@@ -15,7 +15,7 @@ use tokio::sync::{
 use tracing::error;
 
 struct ControllerState {
-    pub tx: Sender<ServerEvent>,
+    pub _tx: Sender<ServerEvent>,
     pub rx: Mutex<Receiver<ServerEvent>>,
 }
 
@@ -23,7 +23,7 @@ pub fn router() -> Router {
     let (tx, rx) = mpsc::channel::<ServerEvent>(16);
 
     let state = Arc::new(ControllerState {
-        tx,
+        _tx: tx,
         rx: Mutex::new(rx),
     });
 
