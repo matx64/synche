@@ -24,17 +24,17 @@ pub struct ConfigPorts {
 
 impl Config {
     pub async fn init() -> io::Result<Self> {
-        let path = get_os_config_dir().await?.join("config.json");
+        let path = get_os_config_dir().await?.join("config.toml");
 
         if path.exists() {
             let contents = fs::read_to_string(path).await?;
 
-            serde_json::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
+            toml::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
         } else {
             let data = Self::new_default().await?;
 
             let contents =
-                serde_json::to_string(&data).map_err(|e| io::Error::other(e.to_string()))?;
+                toml::to_string_pretty(&data).map_err(|e| io::Error::other(e.to_string()))?;
 
             fs::write(path, contents).await?;
             Ok(data)

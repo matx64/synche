@@ -9,7 +9,7 @@ This document explains how to build and run **Synche** from source. As the proje
 - [Rust](https://www.rust-lang.org/tools/install) (version 1.80+ recommended)
 - Git
 
-Synche uses ports 5200 (mDNS) and 8889 (TCP), so make sure these ports are allowed by your OS Firewall. It shouldn't be an issue, but it is **recommended** to guarantee mDNS service is allowed for **MacOS** by executing these commands:
+By default, Synche uses ports 42880 (http), 42881 (mDNS) and 42882 (TCP), so make sure these ports are allowed by your OS Firewall. It shouldn't be an issue, but it is **recommended** to guarantee mDNS service is allowed for **MacOS** by executing these commands:
 
 ```sh
 # allow mDNS in MacOS
@@ -36,43 +36,49 @@ Execution command:
 ./target/release/synche
 ```
 
-You can now configure which folders you want to sync across devices using the `.synche/config.json` file (same location as the executable).
+You can now configure which folders you want to sync across devices using the `.synche/config.toml` file (same location as the executable).
 
 Make sure to add the same folders in the other devices config file as well and to restart Synche on every config change. Pattern to follow:
 
-```json
-{
-  "sync_directories": [
-    {
-      "name": "myfolder"
-    },
-    {
-      "name": "project001"
-    }
-  ]
-}
+```toml
+device_id = "88bd9d3e-6c27-471f-a4d1-07446f0f3a1f"
+home_path = "/home/matx/dev/synche/Synche"
+
+[[sync_dirs]]
+name = "Default Folder"
+
+[[sync_dirs]]
+name = "A tiny Project"
+
+[ports]
+http = 42880
+presence = 42881
+transport = 42882
 ```
 
-Synced entries will reside in `synche-files` folder.
+Synced entries will reside in `Synche` folder.
 
 ## Practical Example
 
-Synche is running in my laptop and desktop computers with the same `config.json` file:
+Synche is running in my laptop and desktop computers with the same `config.toml` file:
 
-```json
-{
-  "sync_directories": [
-    {
-      "name": "synche-git-repo"
-    },
-    {
-      "name": "project001"
-    }
-  ]
-}
+```toml
+device_id = "88bd9d3e-6c27-471f-a4d1-07446f0f3a1f"
+home_path = "/home/matx/dev/synche/Synche"
+
+[[sync_dirs]]
+name = "synche-git-repo"
+
+[[sync_dirs]]
+name = "project001"
+
+[ports]
+http = 42880
+presence = 42881
+transport = 42882
 ```
 
-I modify the `synche-files/synche-git-repo/INSTALL.md` file in the laptop. This change must be propagated to the desktop automatically.
+I modify the `Synche/synche-git-repo/INSTALL.md` file in the laptop. This change must be propagated to the desktop automatically.
 
 ## Feedback
 

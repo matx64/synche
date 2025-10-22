@@ -36,7 +36,7 @@ impl AppState {
         &self,
         sync_dirs: HashMap<String, SyncDirectory>,
     ) -> io::Result<()> {
-        let path = get_os_config_dir().await?.join("config.json");
+        let path = get_os_config_dir().await?.join("config.toml");
         let sync_dirs = sync_dirs.values().cloned().collect();
 
         let config = Config {
@@ -47,7 +47,7 @@ impl AppState {
         };
 
         let contents =
-            serde_json::to_string(&config).map_err(|e| io::Error::other(e.to_string()))?;
+            toml::to_string_pretty(&config).map_err(|e| io::Error::other(e.to_string()))?;
 
         fs::write(path, contents).await
     }
