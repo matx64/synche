@@ -62,7 +62,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
         self.sync_directories.insert(dir_path);
     }
 
-    fn remove_sync_dir(&mut self, dir_name: String) {
+    fn remove_sync_dir(&mut self, _dir_name: String) {
         todo!()
     }
 

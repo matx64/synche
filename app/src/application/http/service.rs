@@ -63,7 +63,7 @@ impl<P: PersistenceInterface> HttpService<P> {
     }
 
     pub async fn remove_sync_dir(&self, name: &str) -> io::Result<()> {
-        let Some(dir) = self.entry_manager.get_sync_dir(name).await else {
+        let Some(_dir) = self.entry_manager.get_sync_dir(name).await else {
             return Ok(());
         };
 

@@ -6,7 +6,7 @@ use uuid::Uuid;
 pub struct Peer {
     pub id: Uuid,
     pub addr: IpAddr,
-    pub hostname: String,
+    pub _hostname: String,
     pub last_seen: SystemTime,
     pub sync_dirs: HashMap<String, SyncDirectory>,
 }
@@ -24,7 +24,7 @@ impl Peer {
         Self {
             id,
             addr,
-            hostname,
+            _hostname: hostname,
             sync_dirs,
             last_seen: SystemTime::now(),
         }
