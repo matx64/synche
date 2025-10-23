@@ -56,12 +56,12 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
                 Ok(event) => {
                     if let Some(path) = event.paths.first().cloned()
-                        && let path = CanonicalPath::from_canonical(path)
-                        && !self.sync_dirs.contains(&path)
-                        && self.sync_dirs.iter().any(|dir| path.starts_with(dir))
-                        && !is_ds_store(&path)
+                        && let canonical = CanonicalPath::from_canonical(path)
+                        && let relative = RelativePath::new(&canonical, &self.state.home_path)
+                        && self.is_valid_entry(&relative).await
+                        && !is_ds_store(&canonical)
                     {
-                        if let Some(event) = self.handle_event(event, path) {
+                        if let Some(event) = self.handle_event(event, canonical, relative) {
                             return Some(event);
                         } else {
                             continue;
@@ -81,29 +81,40 @@ impl FileWatcherInterface for NotifyFileWatcher {
 }
 
 impl NotifyFileWatcher {
-    fn handle_event(&self, event: Event, path: CanonicalPath) -> Option<WatcherEvent> {
+    fn handle_event(
+        &self,
+        event: Event,
+        canonical: CanonicalPath,
+        relative: RelativePath,
+    ) -> Option<WatcherEvent> {
         match event.kind {
             EventKind::Create(_)
             | EventKind::Modify(ModifyKind::Data(_))
             | EventKind::Modify(ModifyKind::Any)
             | EventKind::Modify(ModifyKind::Name(RenameMode::To))
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
-                if path.exists() && (path.is_file() || path.is_dir()) =>
+                if canonical.exists() && (canonical.is_file() || canonical.is_dir()) =>
             {
                 Some(WatcherEvent::new(
                     WatcherEventKind::CreateOrModify,
-                    self.build_path(path),
+                    WatcherEventPath {
+                        canonical,
+                        relative,
+                    },
                 ))
             }
 
             EventKind::Remove(_)
             | EventKind::Modify(ModifyKind::Name(RenameMode::From))
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
-                if !path.exists() =>
+                if !canonical.exists() =>
             {
                 Some(WatcherEvent::new(
                     WatcherEventKind::Remove,
-                    self.build_path(path),
+                    WatcherEventPath {
+                        canonical,
+                        relative,
+                    },
                 ))
             }
 
@@ -111,10 +122,9 @@ impl NotifyFileWatcher {
         }
     }
 
-    fn build_path(&self, canonical: CanonicalPath) -> WatcherEventPath {
-        WatcherEventPath {
-            relative: RelativePath::new(&canonical, &self.state.home_path),
-            canonical,
-        }
+    async fn is_valid_entry(&self, path: &RelativePath) -> bool {
+        let dirs = self.state.sync_dirs.read().await;
+
+        !dirs.contains_key(path) && dirs.keys().any(|d| path.starts_with(&**d))
     }
 }

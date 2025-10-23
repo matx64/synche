@@ -50,7 +50,6 @@ impl AppState {
                 .read()
                 .await
                 .values()
-                .into_iter()
                 .map(|d| d.to_config())
                 .collect()
         };

@@ -1,9 +1,8 @@
 use crate::{
-    domain::{CanonicalPath, ConfigDirectory, ConfigPorts, RelativePath, SyncDirectory},
+    domain::{CanonicalPath, ConfigDirectory, ConfigPorts},
     utils::fs::{get_os_config_dir, get_os_synche_home_dir},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tokio::{fs, io};
 use uuid::Uuid;
 
@@ -45,12 +44,5 @@ impl Config {
                 transport: 42882,
             },
         })
-    }
-
-    pub fn get_sync_dirs(&self) -> HashMap<RelativePath, SyncDirectory> {
-        self.directory
-            .iter()
-            .map(|d| (d.name.clone(), d.to_sync()))
-            .collect()
     }
 }

@@ -16,7 +16,7 @@ use tracing::{error, info};
 
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
-    state: Arc<AppState>,
+    _state: Arc<AppState>,
     buffer: WatcherBuffer,
     watch_rx: Receiver<WatcherEvent>,
     entry_manager: Arc<EntryManager<P>>,
@@ -33,7 +33,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         let (watch_tx, watch_rx) = mpsc::channel(1000);
 
         Self {
-            state,
+            _state: state,
             adapter,
             watch_rx,
             sender_tx,
