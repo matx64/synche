@@ -90,7 +90,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
             .list_dirs()
             .await
             .keys()
-            .map(|dir| self.state.home_path.join(dir))
+            .map(|dir| self.state.home_path.join(&**dir))
             .collect();
 
         self.adapter.watch(self.state.home_path.clone(), dirs).await

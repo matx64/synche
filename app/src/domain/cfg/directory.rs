@@ -8,14 +8,12 @@ pub struct ConfigDirectory {
 
 impl ConfigDirectory {
     pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string().into(),
-        }
+        Self { name: name.into() }
     }
 
     pub fn to_sync(&self) -> SyncDirectory {
         SyncDirectory {
-            name: self.name.to_string(),
+            name: self.name.clone(),
         }
     }
 }

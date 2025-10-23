@@ -56,7 +56,7 @@ impl PeerManager {
     }
 
     pub fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
-        let root_dir = entry.get_root_parent();
+        let root_dir = entry.get_sync_dir();
 
         self.peers
             .read()

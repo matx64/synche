@@ -3,7 +3,7 @@ use crate::{
         EntryManager, PeerManager, persistence::interface::PersistenceInterface,
         watcher::interface::FileWatcherSyncDirectoryUpdate,
     },
-    domain::{AppState, SyncDirectory, TransportChannelData},
+    domain::{AppState, RelativePath, SyncDirectory, TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
@@ -44,12 +44,12 @@ impl<P: PersistenceInterface> HttpService<P> {
             .collect()
     }
 
-    pub async fn add_sync_dir(&self, name: &str) -> io::Result<bool> {
-        if self.entry_manager.get_sync_dir(name).await.is_some() {
+    pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<bool> {
+        if self.entry_manager.get_sync_dir(&name).await.is_some() {
             return Ok(false);
         }
 
-        let path = self.entry_manager.add_sync_dir(name).await?;
+        let path = self.entry_manager.add_sync_dir(name.clone()).await?;
 
         self.state
             .update_config_file(self.entry_manager.list_dirs().await)
@@ -58,12 +58,12 @@ impl<P: PersistenceInterface> HttpService<P> {
         self.update_watcher_and_resync(FileWatcherSyncDirectoryUpdate::Added(path))
             .await?;
 
-        info!("📂 Sync dir added: {name}");
+        info!("📂 Sync dir added: {name:?}");
         Ok(true)
     }
 
-    pub async fn remove_sync_dir(&self, name: &str) -> io::Result<()> {
-        let Some(dir) = self.entry_manager.get_sync_dir(name).await else {
+    pub async fn remove_sync_dir(&self, name: RelativePath) -> io::Result<()> {
+        let Some(_dir) = self.entry_manager.get_sync_dir(&name).await else {
             return Ok(());
         };
 

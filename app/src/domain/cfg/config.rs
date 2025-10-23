@@ -1,5 +1,5 @@
 use crate::{
-    domain::{CanonicalPath, ConfigDirectory, ConfigPorts, SyncDirectory},
+    domain::{CanonicalPath, ConfigDirectory, ConfigPorts, RelativePath, SyncDirectory},
     utils::fs::{get_os_config_dir, get_os_synche_home_dir},
 };
 use serde::{Deserialize, Serialize};
@@ -47,10 +47,10 @@ impl Config {
         })
     }
 
-    pub fn get_sync_dirs(&self) -> HashMap<String, SyncDirectory> {
+    pub fn get_sync_dirs(&self) -> HashMap<RelativePath, SyncDirectory> {
         self.directory
             .iter()
-            .map(|d| (d.name.to_string(), d.to_sync()))
+            .map(|d| (d.name.clone(), d.to_sync()))
             .collect()
     }
 }

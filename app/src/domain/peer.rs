@@ -1,4 +1,4 @@
-use crate::domain::SyncDirectory;
+use crate::domain::{RelativePath, SyncDirectory};
 use std::{collections::HashMap, net::IpAddr, time::SystemTime};
 use uuid::Uuid;
 
@@ -8,7 +8,7 @@ pub struct Peer {
     pub addr: IpAddr,
     pub hostname: String,
     pub last_seen: SystemTime,
-    pub sync_dirs: HashMap<String, SyncDirectory>,
+    pub sync_dirs: HashMap<RelativePath, SyncDirectory>,
 }
 
 impl Peer {
@@ -17,7 +17,7 @@ impl Peer {
             .map(|dirs| {
                 dirs.into_iter()
                     .map(|d| (d.name.clone(), d))
-                    .collect::<HashMap<String, SyncDirectory>>()
+                    .collect::<HashMap<RelativePath, SyncDirectory>>()
             })
             .unwrap_or_default();
 

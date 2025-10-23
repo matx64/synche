@@ -1,4 +1,7 @@
-use crate::application::{HttpService, persistence::interface::PersistenceInterface};
+use crate::{
+    application::{HttpService, persistence::interface::PersistenceInterface},
+    domain::RelativePath,
+};
 use axum::{
     Router,
     extract::{Query, State},
@@ -24,14 +27,14 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
 
 #[derive(Deserialize)]
 struct ModifySyncDirParams {
-    pub name: String,
+    pub name: RelativePath,
 }
 
 async fn add_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
     Query(params): Query<ModifySyncDirParams>,
 ) -> StatusCode {
-    let name = params.name.trim();
+    let name = params.name.trim().into();
 
     match state.http_service.add_sync_dir(name).await {
         Ok(true) => StatusCode::CREATED,
@@ -47,7 +50,7 @@ async fn remove_sync_dir<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
     Query(params): Query<ModifySyncDirParams>,
 ) -> StatusCode {
-    let name = params.name.trim();
+    let name = params.name.trim().into();
 
     match state.http_service.remove_sync_dir(name).await {
         Ok(_) => StatusCode::OK,

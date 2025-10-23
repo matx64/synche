@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncDirectory {
-    pub name: String,
+    pub name: RelativePath,
 }
 
 impl SyncDirectory {
     pub fn to_config(&self) -> ConfigDirectory {
         ConfigDirectory {
-            name: RelativePath::from(self.name.to_string()),
+            name: self.name.clone(),
         }
     }
 }

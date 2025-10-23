@@ -1,5 +1,5 @@
 use crate::{
-    domain::{CanonicalPath, Config, ConfigPorts, SyncDirectory},
+    domain::{CanonicalPath, Config, ConfigPorts, RelativePath, SyncDirectory},
     utils::fs::get_os_config_dir,
 };
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
@@ -34,7 +34,7 @@ impl AppState {
 
     pub async fn update_config_file(
         &self,
-        sync_dirs: HashMap<String, SyncDirectory>,
+        sync_dirs: HashMap<RelativePath, SyncDirectory>,
     ) -> io::Result<()> {
         let path = get_os_config_dir().await?.join("config.toml");
         let sync_dirs = sync_dirs.values().map(|d| d.to_config()).collect();

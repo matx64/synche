@@ -53,8 +53,8 @@ impl EntryInfo {
         matches!(self.kind, EntryKind::File)
     }
 
-    pub fn get_root_parent(&self) -> String {
-        self.name.split("/").next().unwrap_or_default().to_owned()
+    pub fn get_sync_dir(&self) -> RelativePath {
+        self.name.split("/").next().unwrap_or_default().into()
     }
 
     pub fn set_removed_hash(&mut self) {

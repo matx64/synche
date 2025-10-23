@@ -24,28 +24,28 @@ pub struct EntryManager<P: PersistenceInterface> {
     db: P,
     state: Arc<AppState>,
     ignore_handler: IgnoreHandler,
-    sync_directories: RwLock<HashMap<String, SyncDirectory>>,
+    sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
 }
 
 impl<P: PersistenceInterface> EntryManager<P> {
     pub fn new(
         db: P,
         state: Arc<AppState>,
-        sync_directories: HashMap<String, SyncDirectory>,
+        sync_directories: HashMap<RelativePath, SyncDirectory>,
     ) -> Arc<Self> {
         Arc::new(Self {
             db,
             state: state.clone(),
             ignore_handler: IgnoreHandler::new(state),
-            sync_directories: RwLock::new(sync_directories),
+            sync_dirs: RwLock::new(sync_directories),
         })
     }
 
     pub async fn init(&self) -> io::Result<()> {
         let mut filesystem_entries = HashMap::new();
 
-        for dir in self.sync_directories.read().await.values() {
-            let path = self.state.home_path.join(&dir.name);
+        for dir in self.sync_dirs.read().await.values() {
+            let path = self.state.home_path.join(&*dir.name);
 
             fs::create_dir_all(&path).await?;
 
@@ -136,10 +136,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .map(|f| (f.name.clone(), f))
             .collect();
 
-        let sync_dirs = { self.sync_directories.read().await.clone() };
+        let sync_dirs = { self.sync_dirs.read().await.clone() };
 
         for (name, entry) in &mut db_entries {
-            if !sync_dirs.contains_key(&entry.get_root_parent()) {
+            if !sync_dirs.contains_key(&entry.get_sync_dir()) {
                 self.db.delete_entry(name).await.unwrap();
                 continue;
             }
@@ -174,12 +174,12 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
     }
 
-    pub async fn get_sync_dir(&self, name: &str) -> Option<SyncDirectory> {
-        self.sync_directories.read().await.get(name).cloned()
+    pub async fn get_sync_dir(&self, name: &RelativePath) -> Option<SyncDirectory> {
+        self.sync_dirs.read().await.get(name).cloned()
     }
 
-    pub async fn add_sync_dir(&self, name: &str) -> io::Result<CanonicalPath> {
-        let path = self.state.home_path.join(name);
+    pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<CanonicalPath> {
+        let path = self.state.home_path.join(&*name);
         fs::create_dir_all(&path).await?;
 
         let dir_entries = self.build_dir(path.clone()).await?;
@@ -188,17 +188,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
             self.insert_entry(info).await;
         }
 
-        self.sync_directories.write().await.insert(
-            name.to_string(),
-            SyncDirectory {
-                name: name.to_string(),
-            },
-        );
+        self.sync_dirs
+            .write()
+            .await
+            .insert(name.clone(), SyncDirectory { name });
         Ok(path)
     }
 
-    pub async fn list_dirs(&self) -> HashMap<String, SyncDirectory> {
-        self.sync_directories.read().await.clone()
+    pub async fn list_dirs(&self) -> HashMap<RelativePath, SyncDirectory> {
+        self.sync_dirs.read().await.clone()
     }
 
     pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
@@ -245,10 +243,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
     ) -> io::Result<Vec<EntryInfo>> {
         let mut to_request = Vec::new();
 
-        let dirs = { self.sync_directories.read().await.clone() };
+        let dirs = { self.sync_dirs.read().await.clone() };
 
         for (name, peer_entry) in peer_entries {
-            if dirs.contains_key(&peer_entry.get_root_parent()) {
+            if dirs.contains_key(&peer_entry.get_sync_dir()) {
                 if let Some(mut local_entry) = self.get_entry(&name).await {
                     let cmp = self
                         .compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer.id)
@@ -402,7 +400,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     pub async fn get_handshake_data(&self) -> HandshakeData {
         let sync_dirs = self
-            .sync_directories
+            .sync_dirs
             .read()
             .await
             .values()

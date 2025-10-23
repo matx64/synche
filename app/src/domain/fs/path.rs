@@ -77,3 +77,9 @@ impl From<String> for RelativePath {
         Self(value)
     }
 }
+
+impl From<&str> for RelativePath {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
