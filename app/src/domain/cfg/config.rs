@@ -1,5 +1,5 @@
 use crate::{
-    domain::{CanonicalPath, SyncDirectory},
+    domain::{CanonicalPath, ConfigDirectory, ConfigPorts, SyncDirectory},
     utils::fs::{get_os_config_dir, get_os_synche_home_dir},
 };
 use serde::{Deserialize, Serialize};
@@ -12,14 +12,7 @@ pub struct Config {
     pub device_id: Uuid,
     pub ports: ConfigPorts,
     pub home_path: CanonicalPath,
-    pub sync_dirs: Vec<SyncDirectory>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ConfigPorts {
-    pub http: u16,
-    pub presence: u16,
-    pub transport: u16,
+    pub directory: Vec<ConfigDirectory>,
 }
 
 impl Config {
@@ -45,9 +38,7 @@ impl Config {
         Ok(Self {
             device_id: Uuid::new_v4(),
             home_path: get_os_synche_home_dir().await?,
-            sync_dirs: vec![SyncDirectory {
-                name: "Default Folder".to_string(),
-            }],
+            directory: vec![ConfigDirectory::new("Default Folder")],
             ports: ConfigPorts {
                 http: 42880,
                 presence: 42881,
@@ -57,9 +48,9 @@ impl Config {
     }
 
     pub fn get_sync_dirs(&self) -> HashMap<String, SyncDirectory> {
-        self.sync_dirs
+        self.directory
             .iter()
-            .map(|d| (d.name.clone(), d.to_owned()))
+            .map(|d| (d.name.to_string(), d.to_sync()))
             .collect()
     }
 }

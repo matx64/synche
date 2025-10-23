@@ -37,10 +37,10 @@ impl AppState {
         sync_dirs: HashMap<String, SyncDirectory>,
     ) -> io::Result<()> {
         let path = get_os_config_dir().await?.join("config.toml");
-        let sync_dirs = sync_dirs.values().cloned().collect();
+        let sync_dirs = sync_dirs.values().map(|d| d.to_config()).collect();
 
         let config = Config {
-            sync_dirs,
+            directory: sync_dirs,
             device_id: self.local_id,
             ports: self.ports.clone(),
             home_path: self.home_path.clone(),

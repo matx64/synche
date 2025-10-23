@@ -1,5 +1,5 @@
+mod cfg;
 mod chan;
-mod config;
 mod directory;
 mod entry;
 mod fs;
@@ -7,9 +7,10 @@ mod peer;
 mod state;
 mod transport;
 
+pub use cfg::Config;
+pub use cfg::ConfigDirectory;
+pub use cfg::ConfigPorts;
 pub use chan::Channel;
-pub use config::Config;
-pub use config::ConfigPorts;
 pub use directory::SyncDirectory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;

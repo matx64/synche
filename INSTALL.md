@@ -44,10 +44,10 @@ Make sure to add the same folders in the other devices config file as well and t
 device_id = "88bd9d3e-6c27-471f-a4d1-07446f0f3a1f"
 home_path = "/home/matx/dev/synche/Synche"
 
-[[sync_dirs]]
+[[directory]]
 name = "Default Folder"
 
-[[sync_dirs]]
+[[directory]]
 name = "A tiny Project"
 
 [ports]
@@ -60,13 +60,13 @@ Synced entries will reside in `Synche` folder.
 
 ## Practical Example
 
-Synche is running in my laptop and desktop computers with the same `sync_dirs` in `config.toml` file:
+Synche is running in my laptop and desktop computers with the same `directory` in `config.toml` file:
 
 ```toml
-[[sync_dirs]]
+[[directory]]
 name = "synche-git-repo"
 
-[[sync_dirs]]
+[[directory]]
 name = "project001"
 
 # Device specific settings
