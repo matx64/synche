@@ -1,8 +1,5 @@
 use crate::{
-    application::{
-        EntryManager, PeerManager, persistence::interface::PersistenceInterface,
-        watcher::interface::FileWatcherSyncDirectoryUpdate,
-    },
+    application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
     domain::{AppState, RelativePath, SyncDirectory, TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
@@ -15,7 +12,6 @@ pub struct HttpService<P: PersistenceInterface> {
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     sender_tx: Sender<TransportChannelData>,
-    dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
 }
 
 impl<P: PersistenceInterface> HttpService<P> {
@@ -24,14 +20,12 @@ impl<P: PersistenceInterface> HttpService<P> {
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
         sender_tx: Sender<TransportChannelData>,
-        dirs_updates_tx: Sender<FileWatcherSyncDirectoryUpdate>,
     ) -> Arc<Self> {
         Arc::new(Self {
             state,
             sender_tx,
             peer_manager,
             entry_manager,
-            dirs_updates_tx,
         })
     }
 
@@ -49,14 +43,9 @@ impl<P: PersistenceInterface> HttpService<P> {
             return Ok(false);
         }
 
-        let path = self.entry_manager.add_sync_dir(name.clone()).await?;
-
-        self.state
-            .update_config_file(self.entry_manager.list_dirs().await)
-            .await?;
-
-        self.update_watcher_and_resync(FileWatcherSyncDirectoryUpdate::Added(path))
-            .await?;
+        self.entry_manager.add_sync_dir(name.clone()).await?;
+        self.state.update_config_file().await?;
+        self.resync().await?;
 
         info!("📂 Sync dir added: {name:?}");
         Ok(true)
@@ -70,15 +59,7 @@ impl<P: PersistenceInterface> HttpService<P> {
         Ok(())
     }
 
-    async fn update_watcher_and_resync(
-        &self,
-        event: FileWatcherSyncDirectoryUpdate,
-    ) -> io::Result<()> {
-        self.dirs_updates_tx
-            .send(event)
-            .await
-            .map_err(|e| io::Error::other(e.to_string()))?;
-
+    async fn resync(&self) -> io::Result<()> {
         for (_, addr) in self.peer_manager.list() {
             self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(addr))

@@ -24,20 +24,20 @@ pub struct EntryManager<P: PersistenceInterface> {
     db: P,
     state: Arc<AppState>,
     ignore_handler: IgnoreHandler,
-    sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
+    sync_dirs: Arc<RwLock<HashMap<RelativePath, SyncDirectory>>>,
 }
 
 impl<P: PersistenceInterface> EntryManager<P> {
     pub fn new(
         db: P,
         state: Arc<AppState>,
-        sync_directories: HashMap<RelativePath, SyncDirectory>,
+        sync_dirs: Arc<RwLock<HashMap<RelativePath, SyncDirectory>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             db,
+            sync_dirs,
             state: state.clone(),
             ignore_handler: IgnoreHandler::new(state),
-            sync_dirs: RwLock::new(sync_directories),
         })
     }
 
@@ -178,7 +178,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         self.sync_dirs.read().await.get(name).cloned()
     }
 
-    pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<CanonicalPath> {
+    pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
         let path = self.state.home_path.join(&*name);
         fs::create_dir_all(&path).await?;
 
@@ -192,7 +192,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .write()
             .await
             .insert(name.clone(), SyncDirectory { name });
-        Ok(path)
+        Ok(())
     }
 
     pub async fn list_dirs(&self) -> HashMap<RelativePath, SyncDirectory> {

@@ -8,7 +8,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
-    domain::{AppState, Config},
+    domain::AppState,
     infra::{
         self,
         network::{mdns::MdnsAdapter, tcp::TcpAdapter},
@@ -35,25 +35,16 @@ pub struct Synchronizer<
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
     pub async fn new_default() -> Self {
-        let config = Config::init().await.unwrap();
-        let state = AppState::new(&config);
+        let state = AppState::new().await;
 
-        let notify = NotifyFileWatcher::new();
+        let notify = NotifyFileWatcher::new(state.clone());
         let mdns_adapter = MdnsAdapter::new(state.clone());
         let tcp_adapter = TcpAdapter::new(state.clone()).await;
         let sqlite_adapter = SqliteDb::new(get_os_config_dir().await.unwrap().join("db.db"))
             .await
             .unwrap();
 
-        Self::new(
-            config,
-            state,
-            notify,
-            mdns_adapter,
-            tcp_adapter,
-            sqlite_adapter,
-        )
-        .await
+        Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
     }
 }
 
@@ -61,16 +52,14 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     Synchronizer<W, T, P, D>
 {
     pub async fn new(
-        config: Config,
         state: Arc<AppState>,
         watch_adapter: W,
         presence_adapter: D,
         transport_adapter: T,
         persistence_adapter: P,
     ) -> Self {
-        let configured_dirs = config.get_sync_dirs();
-
-        let entry_manager = EntryManager::new(persistence_adapter, state.clone(), configured_dirs);
+        let entry_manager =
+            EntryManager::new(persistence_adapter, state.clone(), state.sync_dirs.clone());
         entry_manager.init().await.unwrap();
 
         let peer_manager = PeerManager::new();
@@ -82,7 +71,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             entry_manager.clone(),
         );
 
-        let (file_watcher, dirs_updates_tx) = FileWatcher::new(
+        let file_watcher = FileWatcher::new(
             watch_adapter,
             state.clone(),
             entry_manager.clone(),
@@ -96,13 +85,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             sender_tx.clone(),
         );
 
-        let http_service = HttpService::new(
-            state.clone(),
-            peer_manager,
-            entry_manager,
-            sender_tx,
-            dirs_updates_tx,
-        );
+        let http_service = HttpService::new(state.clone(), peer_manager, entry_manager, sender_tx);
 
         Self {
             state,

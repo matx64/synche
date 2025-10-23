@@ -1,20 +1,11 @@
-use crate::domain::{CanonicalPath, WatcherEvent};
+use crate::domain::{AppState, WatcherEvent};
+use std::sync::Arc;
 use tokio::io;
 
 pub trait FileWatcherInterface {
-    async fn watch(
-        &mut self,
-        base_dir_path: CanonicalPath,
-        sync_directories: Vec<CanonicalPath>,
-    ) -> io::Result<()>;
+    fn new(state: Arc<AppState>) -> Self;
+
+    async fn watch(&mut self) -> io::Result<()>;
 
     async fn next(&mut self) -> Option<WatcherEvent>;
-
-    fn add_sync_dir(&mut self, dir_path: CanonicalPath);
-    fn remove_sync_dir(&mut self, dir_name: String);
-}
-
-pub enum FileWatcherSyncDirectoryUpdate {
-    Added(CanonicalPath),
-    Removed(String),
 }
