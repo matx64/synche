@@ -1,5 +1,5 @@
 use crate::{
-    domain::{CanonicalPath, Config, ConfigPorts, RelativePath, SyncDirectory},
+    domain::{CanonicalPath, Config, ConfigPorts, Peer, RelativePath, SyncDirectory},
     utils::fs::get_os_config_dir,
 };
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
@@ -11,6 +11,7 @@ pub struct AppState {
     pub local_id: Uuid,
     pub hostname: String,
     pub home_path: CanonicalPath,
+    pub peers: RwLock<HashMap<Uuid, Peer>>,
     pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
 
     local_ip: RwLock<IpAddr>,
@@ -34,6 +35,7 @@ impl AppState {
             ports: config.ports.clone(),
             local_id: config.device_id,
             home_path: config.home_path.clone(),
+            peers: RwLock::new(HashMap::new()),
             sync_dirs: RwLock::new(sync_dirs),
             local_ip: RwLock::new(local_ip),
         })

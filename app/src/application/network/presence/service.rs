@@ -55,7 +55,8 @@ impl<P: PresenceInterface> PresenceService<P> {
     ) -> io::Result<()> {
         let inserted = self
             .peer_manager
-            .insert_or_update(peer_id, peer_ip, hostname);
+            .insert_or_update(peer_id, peer_ip, hostname)
+            .await;
 
         if inserted && self.state.local_id < peer_id {
             self.sender_tx
@@ -67,7 +68,7 @@ impl<P: PresenceInterface> PresenceService<P> {
     }
 
     async fn handle_peer_disconnect(&self, peer_id: Uuid) -> io::Result<()> {
-        self.peer_manager.remove_peer(peer_id);
+        self.peer_manager.remove_peer(peer_id).await;
         Ok(())
     }
 

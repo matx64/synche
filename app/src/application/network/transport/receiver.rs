@@ -111,7 +111,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             hs_data.hostname,
             Some(hs_data.sync_dirs),
         );
-        self.peer_manager.insert(peer.clone());
+        self.peer_manager.insert(peer.clone()).await;
 
         if is_syn {
             // Can't use send_tx because Response must be sent strictly BEFORE syncing
@@ -253,13 +253,13 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 return;
             }
 
-            if !self.peer_manager.exists(addr) {
+            if !self.peer_manager.exists(addr).await {
                 warn!("⚠️  Cancelled transport send op because peer disconnected during process.");
                 return;
             }
         }
 
         error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
-        self.peer_manager.remove_peer_by_addr(addr);
+        self.peer_manager.remove_peer_by_addr(addr).await;
     }
 }

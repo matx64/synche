@@ -61,7 +61,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         let entry_manager = EntryManager::new(persistence_adapter, state.clone());
         entry_manager.init().await.unwrap();
 
-        let peer_manager = PeerManager::new();
+        let peer_manager = PeerManager::new(state.clone());
 
         let (transport_service, sender_tx) = TransportService::new(
             transport_adapter,

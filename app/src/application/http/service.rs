@@ -60,7 +60,7 @@ impl<P: PersistenceInterface> HttpService<P> {
     }
 
     async fn resync(&self) -> io::Result<()> {
-        for (_, addr) in self.peer_manager.list() {
+        for (_, addr) in self.peer_manager.list().await {
             self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(addr))
                 .await

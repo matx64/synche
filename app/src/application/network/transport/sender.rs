@@ -116,7 +116,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     async fn send_metadata(&self, entry: EntryInfo) -> io::Result<()> {
-        for target in self.peer_manager.get_peers_to_send_metadata(&entry) {
+        for target in self.peer_manager.get_peers_to_send_metadata(&entry).await {
             self.try_send(
                 || {
                     self.adapter
@@ -176,13 +176,13 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
                 return;
             }
 
-            if !self.peer_manager.exists(addr) {
+            if !self.peer_manager.exists(addr).await {
                 warn!("⚠️  Cancelled transport send op because peer disconnected during process.");
                 return;
             }
         }
 
         error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
-        self.peer_manager.remove_peer_by_addr(addr);
+        self.peer_manager.remove_peer_by_addr(addr).await;
     }
 }
