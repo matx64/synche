@@ -58,8 +58,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         transport_adapter: T,
         persistence_adapter: P,
     ) -> Self {
-        let entry_manager =
-            EntryManager::new(persistence_adapter, state.clone(), state.sync_dirs.clone());
+        let entry_manager = EntryManager::new(persistence_adapter, state.clone());
         entry_manager.init().await.unwrap();
 
         let peer_manager = PeerManager::new();

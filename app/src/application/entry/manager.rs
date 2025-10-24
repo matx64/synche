@@ -12,10 +12,7 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::{
-    fs::{self},
-    sync::RwLock,
-};
+use tokio::fs::{self};
 use tracing::warn;
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -24,18 +21,12 @@ pub struct EntryManager<P: PersistenceInterface> {
     db: P,
     state: Arc<AppState>,
     ignore_handler: IgnoreHandler,
-    sync_dirs: Arc<RwLock<HashMap<RelativePath, SyncDirectory>>>,
 }
 
 impl<P: PersistenceInterface> EntryManager<P> {
-    pub fn new(
-        db: P,
-        state: Arc<AppState>,
-        sync_dirs: Arc<RwLock<HashMap<RelativePath, SyncDirectory>>>,
-    ) -> Arc<Self> {
+    pub fn new(db: P, state: Arc<AppState>) -> Arc<Self> {
         Arc::new(Self {
             db,
-            sync_dirs,
             state: state.clone(),
             ignore_handler: IgnoreHandler::new(state),
         })
@@ -44,7 +35,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub async fn init(&self) -> io::Result<()> {
         let mut filesystem_entries = HashMap::new();
 
-        for dir in self.sync_dirs.read().await.values() {
+        for dir in self.state.sync_dirs.read().await.values() {
             let path = self.state.home_path.join(&*dir.name);
 
             fs::create_dir_all(&path).await?;
@@ -136,7 +127,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .map(|f| (f.name.clone(), f))
             .collect();
 
-        let sync_dirs = { self.sync_dirs.read().await.clone() };
+        let sync_dirs = { self.state.sync_dirs.read().await.clone() };
 
         for (name, entry) in &mut db_entries {
             if !sync_dirs.contains_key(&entry.get_sync_dir()) {
@@ -175,7 +166,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn get_sync_dir(&self, name: &RelativePath) -> Option<SyncDirectory> {
-        self.sync_dirs.read().await.get(name).cloned()
+        self.state.sync_dirs.read().await.get(name).cloned()
     }
 
     pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
@@ -188,7 +179,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
             self.insert_entry(info).await;
         }
 
-        self.sync_dirs
+        self.state
+            .sync_dirs
             .write()
             .await
             .insert(name.clone(), SyncDirectory { name });
@@ -196,7 +188,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn list_dirs(&self) -> HashMap<RelativePath, SyncDirectory> {
-        self.sync_dirs.read().await.clone()
+        self.state.sync_dirs.read().await.clone()
     }
 
     pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
@@ -243,7 +235,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     ) -> io::Result<Vec<EntryInfo>> {
         let mut to_request = Vec::new();
 
-        let dirs = { self.sync_dirs.read().await.clone() };
+        let dirs = { self.state.sync_dirs.read().await.clone() };
 
         for (name, peer_entry) in peer_entries {
             if dirs.contains_key(&peer_entry.get_sync_dir()) {
@@ -400,6 +392,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     pub async fn get_handshake_data(&self) -> HandshakeData {
         let sync_dirs = self
+            .state
             .sync_dirs
             .read()
             .await

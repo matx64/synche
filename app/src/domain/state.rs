@@ -11,7 +11,7 @@ pub struct AppState {
     pub local_id: Uuid,
     pub hostname: String,
     pub home_path: CanonicalPath,
-    pub sync_dirs: Arc<RwLock<HashMap<RelativePath, SyncDirectory>>>,
+    pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
 
     local_ip: RwLock<IpAddr>,
 }
@@ -34,7 +34,7 @@ impl AppState {
             ports: config.ports.clone(),
             local_id: config.device_id,
             home_path: config.home_path.clone(),
-            sync_dirs: Arc::new(RwLock::new(sync_dirs)),
+            sync_dirs: RwLock::new(sync_dirs),
             local_ip: RwLock::new(local_ip),
         })
     }
