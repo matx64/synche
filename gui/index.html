@@ -13,8 +13,8 @@
     </header>
 
     <main>
-      <div id="devices-container">
-        <div class="header-div">
+      <div class="main-container" id="devices-container">
+        <div class="main-container-header">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="24"
@@ -35,7 +35,7 @@
           <u>Devices</u>
         </div>
 
-        <div id="devices-list">
+        <div clas="item-list" id="devices-list">
           <details class="list-item">
             <summary><strong>🖥️ {{ hostname }} (My Device)</strong></summary>
             <p><strong>Status: </strong> 🟢 Connected</p>
@@ -45,9 +45,9 @@
         </div>
       </div>
 
-      <div id="dirs-container">
-        <div id="dirs-header">
-          <div class="header-div">
+      <div class="main-container" id="dirs-container">
+        <div class="main-container-header" id="dirs-header">
+          <span>
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
@@ -69,7 +69,7 @@
               <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5" />
             </svg>
             <u>Directories</u>
-          </div>
+          </span>
           <button
             class="btn btn-success"
             onclick="document.getElementById('add-dir-dialog').showModal()"
@@ -98,7 +98,7 @@
           </dialog>
         </div>
 
-        <div id="dir-list">
+        <div class="item-list" id="dir-list">
           {% for dir in dirs %}
           <details class="list-item" id="dir-{{dir.name}}">
             <summary>
