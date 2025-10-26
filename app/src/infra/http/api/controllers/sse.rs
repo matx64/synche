@@ -1,3 +1,4 @@
+use crate::application::{HttpService, persistence::interface::PersistenceInterface};
 use async_stream::try_stream;
 use axum::{
     Router,
@@ -7,9 +8,7 @@ use axum::{
 };
 use futures_util::stream::Stream;
 use std::{convert::Infallible, sync::Arc};
-use tracing::error;
-
-use crate::application::{HttpService, persistence::interface::PersistenceInterface};
+use tracing::{error, info};
 
 struct ControllerState<P: PersistenceInterface> {
     http_service: Arc<HttpService<P>>,
@@ -31,6 +30,7 @@ async fn sse_handler<P: PersistenceInterface>(
             match serde_json::to_string(&event) {
                 Ok(data) => {
                     yield Event::default().data(data);
+                    info!("Sent SSE: {:?}", event);
                 }
                 Err(err) => {
                     error!("Error serializing event: {err}");

@@ -1,9 +1,3 @@
-// const es = new EventSource("/api/events");
-
-// es.onmessage = (event) => {
-//   console.log("New message from server:", event);
-// };
-
 const el_dir_form = document.getElementById("add-dir-form");
 const el_dir_list = document.getElementById("dir-list");
 

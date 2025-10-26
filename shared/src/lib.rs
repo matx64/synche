@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ServerEvent {
     PeerConnected {
         id: Uuid,
@@ -16,7 +16,7 @@ pub enum ServerEvent {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SyncDirectoryUpdateKind {
     Ok,
     Syncing,
