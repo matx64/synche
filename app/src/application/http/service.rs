@@ -1,6 +1,6 @@
 use crate::{
     application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
-    domain::{AppState, RelativePath, SyncDirectory, TransportChannelData},
+    domain::{AppState, Peer, RelativePath, SyncDirectory, TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
@@ -60,13 +60,17 @@ impl<P: PersistenceInterface> HttpService<P> {
     }
 
     async fn resync(&self) -> io::Result<()> {
-        for (_, addr) in self.peer_manager.list().await {
+        for peer in self.peer_manager.list().await {
             self.sender_tx
-                .send(TransportChannelData::HandshakeSyn(addr))
+                .send(TransportChannelData::HandshakeSyn(peer.addr))
                 .await
                 .map_err(|e| io::Error::other(e.to_string()))?;
         }
         Ok(())
+    }
+
+    pub async fn list_peers(&self) -> Vec<Peer> {
+        self.peer_manager.list().await
     }
 
     pub async fn get_local_info(&self) -> (IpAddr, Uuid, String) {

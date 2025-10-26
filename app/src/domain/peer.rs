@@ -1,8 +1,9 @@
 use crate::domain::{RelativePath, SyncDirectory};
+use serde::Serialize;
 use std::{collections::HashMap, net::IpAddr, time::SystemTime};
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Peer {
     pub id: Uuid,
     pub addr: IpAddr,

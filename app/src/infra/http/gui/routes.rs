@@ -28,7 +28,9 @@ async fn index<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
 ) -> Result<Html<String>, StatusCode> {
     let (local_ip, local_id, hostname) = state.http_service.get_local_info().await;
+
     let dirs = state.http_service.list_dirs().await;
+    let peers = state.http_service.list_peers().await;
 
     let tmpl = state
         .engine
@@ -37,10 +39,11 @@ async fn index<P: PersistenceInterface>(
 
     let rendered = tmpl
         .render(context! {
+            dirs => dirs,
+            peers => peers,
             hostname => hostname,
             local_ip => local_ip,
             local_id => local_id,
-            dirs => dirs
         })
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

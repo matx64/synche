@@ -44,14 +44,8 @@ impl PeerManager {
             .any(|peer| peer.addr == addr)
     }
 
-    pub async fn list(&self) -> Vec<(Uuid, IpAddr)> {
-        self.state
-            .peers
-            .read()
-            .await
-            .values()
-            .map(|p| (p.id, p.addr))
-            .collect()
+    pub async fn list(&self) -> Vec<Peer> {
+        self.state.peers.read().await.values().cloned().collect()
     }
 
     pub async fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
