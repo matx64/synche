@@ -1,7 +1,8 @@
 use crate::{
-    domain::{CanonicalPath, Config, ConfigPorts, Peer, RelativePath, SyncDirectory},
+    domain::{CanonicalPath, Channel, Config, ConfigPorts, Peer, RelativePath, SyncDirectory},
     utils::fs::get_os_config_dir,
 };
+use shared::ServerEvent;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::RwLock};
 use uuid::Uuid;
@@ -13,6 +14,7 @@ pub struct AppState {
     pub home_path: CanonicalPath,
     pub peers: RwLock<HashMap<Uuid, Peer>>,
     pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
+    pub sse_chan: Channel<ServerEvent>,
 
     local_ip: RwLock<IpAddr>,
 }
@@ -38,6 +40,7 @@ impl AppState {
             peers: RwLock::new(HashMap::new()),
             sync_dirs: RwLock::new(sync_dirs),
             local_ip: RwLock::new(local_ip),
+            sse_chan: Channel::new(10),
         })
     }
 

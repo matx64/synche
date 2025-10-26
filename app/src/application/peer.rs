@@ -1,4 +1,5 @@
 use crate::domain::{AppState, EntryInfo, Peer};
+use shared::ServerEvent;
 use std::{net::IpAddr, sync::Arc, time::SystemTime};
 use tracing::info;
 use uuid::Uuid;
@@ -17,6 +18,12 @@ impl PeerManager {
 
         if !peers.contains_key(&peer.id) {
             info!("🟢 Peer connected: {}", peer.id);
+            self.send_sse_event(ServerEvent::PeerConnected {
+                id: peer.id,
+                addr: peer.addr,
+                hostname: peer.hostname.clone(),
+            })
+            .await;
         }
 
         peers.insert(peer.id, peer);
@@ -30,6 +37,12 @@ impl PeerManager {
             false
         } else {
             info!("🟢 Peer connected: {id}");
+            self.send_sse_event(ServerEvent::PeerConnected {
+                id,
+                addr,
+                hostname: hostname.clone(),
+            })
+            .await;
             peers.insert(id, Peer::new(id, addr, hostname, None));
             true
         }
@@ -64,6 +77,7 @@ impl PeerManager {
     pub async fn remove_peer(&self, id: Uuid) {
         if self.state.peers.write().await.remove(&id).is_some() {
             info!("🔴 Peer disconnected: {id}");
+            self.send_sse_event(ServerEvent::PeerDisconnected(id)).await;
         }
     }
 
@@ -76,6 +90,14 @@ impl PeerManager {
         {
             peers.remove(&peer_id);
             info!("🔴 Peer disconnected: {peer_id}");
+            self.send_sse_event(ServerEvent::PeerDisconnected(peer_id))
+                .await;
+        }
+    }
+
+    async fn send_sse_event(&self, event: ServerEvent) {
+        if let Err(err) = self.state.sse_chan.tx.send(event).await {
+            tracing::error!("Send Peer SSE error: {err}");
         }
     }
 }

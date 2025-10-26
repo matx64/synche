@@ -2,6 +2,7 @@ use crate::{
     application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
     domain::{AppState, Peer, RelativePath, SyncDirectory, TransportChannelData},
 };
+use shared::ServerEvent;
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
 use tracing::info;
@@ -81,5 +82,7 @@ impl<P: PersistenceInterface> HttpService<P> {
         )
     }
 
-    pub fn _send_event() {}
+    pub async fn next_sse_event(&self) -> Option<ServerEvent> {
+        self.state.sse_chan.rx.lock().await.recv().await
+    }
 }

@@ -6,37 +6,28 @@ use axum::{
     routing::get,
 };
 use futures_util::stream::Stream;
-use shared::ServerEvent;
 use std::{convert::Infallible, sync::Arc};
-use tokio::sync::{
-    Mutex,
-    mpsc::{self, Receiver, Sender},
-};
 use tracing::error;
 
-struct ControllerState {
-    pub tx: Sender<ServerEvent>,
-    pub rx: Mutex<Receiver<ServerEvent>>,
+use crate::application::{HttpService, persistence::interface::PersistenceInterface};
+
+struct ControllerState<P: PersistenceInterface> {
+    http_service: Arc<HttpService<P>>,
 }
 
-pub fn router() -> Router {
-    let (tx, rx) = mpsc::channel::<ServerEvent>(16);
-
-    let state = Arc::new(ControllerState {
-        tx,
-        rx: Mutex::new(rx),
-    });
+pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Router {
+    let state = Arc::new(ControllerState { http_service });
 
     Router::new()
         .route("/events", get(sse_handler))
         .with_state(state)
 }
 
-async fn sse_handler(
-    State(state): State<Arc<ControllerState>>,
+async fn sse_handler<P: PersistenceInterface>(
+    State(state): State<Arc<ControllerState<P>>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(try_stream! {
-        while let Some(event) = state.rx.lock().await.recv().await {
+        while let Some(event) = state.http_service.next_sse_event().await {
             match serde_json::to_string(&event) {
                 Ok(data) => {
                     yield Event::default().data(data);
