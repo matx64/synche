@@ -187,6 +187,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(())
     }
 
+    pub async fn remove_sync_dir(&self, name: &RelativePath) -> bool {
+        if self.state.sync_dirs.write().await.remove(name).is_some() {
+            self.remove_dir(name).await;
+            true
+        } else {
+            false
+        }
+    }
+
     pub async fn list_dirs(&self) -> HashMap<RelativePath, SyncDirectory> {
         self.state.sync_dirs.read().await.clone()
     }
