@@ -120,6 +120,26 @@ main {
   }
 }
 
+#add-dir-dialog {
+  padding: 2rem;
+  border: 1px solid var(--success-color);
+  border-radius: var(--border-radius);
+
+  form {
+    margin-top: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+}
+
+input {
+  padding: 0.7rem;
+  border: 1px solid var(--text-color);
+  border-radius: var(--border-radius);
+}
+
 .btn {
   padding: 8px;
   border: none;
