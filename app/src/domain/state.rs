@@ -2,8 +2,8 @@ use crate::{
     domain::{CanonicalPath, Channel, Config, ConfigPorts, Peer, RelativePath, SyncDirectory},
     utils::fs::get_os_config_dir,
 };
-use shared::ServerEvent;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use synche::ServerEvent;
 use tokio::{fs, io, sync::RwLock};
 use uuid::Uuid;
 

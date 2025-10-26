@@ -2,8 +2,8 @@ use crate::{
     application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
     domain::{AppState, Peer, RelativePath, SyncDirectory, TransportChannelData},
 };
-use shared::ServerEvent;
 use std::{net::IpAddr, sync::Arc};
+use synche::ServerEvent;
 use tokio::{io, sync::mpsc::Sender};
 use tracing::info;
 use uuid::Uuid;

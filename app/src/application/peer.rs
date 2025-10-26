@@ -1,6 +1,6 @@
 use crate::domain::{AppState, EntryInfo, Peer};
-use shared::ServerEvent;
 use std::{net::IpAddr, sync::Arc, time::SystemTime};
+use synche::ServerEvent;
 use tracing::info;
 use uuid::Uuid;
 
