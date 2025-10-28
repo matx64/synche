@@ -7,5 +7,5 @@ pub trait FileWatcherInterface {
 
     async fn watch(&mut self) -> io::Result<()>;
 
-    async fn next(&mut self) -> Option<WatcherEvent>;
+    async fn next(&self) -> io::Result<Option<WatcherEvent>>;
 }

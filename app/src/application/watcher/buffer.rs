@@ -54,17 +54,22 @@ impl WatcherBuffer {
 
     pub async fn insert(&self, event: WatcherEvent) {
         let mut items = self.items.lock().await;
-        if let Some(item) = items.get_mut(&event.path.relative) {
-            item.last_event_at = SystemTime::now();
-            item.events.push(event);
-        } else {
-            items.insert(
-                event.path.relative.clone(),
-                BufferItem {
-                    events: vec![event],
-                    last_event_at: SystemTime::now(),
-                },
-            );
+
+        match items.get_mut(&event.path.relative) {
+            Some(item) => {
+                item.last_event_at = SystemTime::now();
+                item.events.push(event);
+            }
+
+            None => {
+                items.insert(
+                    event.path.relative.clone(),
+                    BufferItem {
+                        events: vec![event],
+                        last_event_at: SystemTime::now(),
+                    },
+                );
+            }
         }
     }
 }

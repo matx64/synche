@@ -13,15 +13,18 @@ use crate::{
 use std::sync::Arc;
 use tokio::{
     io,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        Mutex,
+        mpsc::{self, Receiver, Sender},
+    },
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
     _state: Arc<AppState>,
     buffer: WatcherBuffer,
-    watch_rx: Receiver<WatcherEvent>,
+    watch_rx: Mutex<Receiver<WatcherEvent>>,
     entry_manager: Arc<EntryManager<P>>,
     sender_tx: Sender<TransportChannelData>,
 }
@@ -36,11 +39,11 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         let (watch_tx, watch_rx) = mpsc::channel(1000);
 
         Self {
-            _state: state,
             adapter,
-            watch_rx,
             sender_tx,
             entry_manager,
+            _state: state,
+            watch_rx: Mutex::new(watch_rx),
             buffer: WatcherBuffer::new(watch_tx),
         }
     }
@@ -48,27 +51,42 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub async fn run(&mut self) -> io::Result<()> {
         self.adapter.watch().await?;
 
-        loop {
-            tokio::select! {
-                Some(event) = self.adapter.next() => {
-                    if !self.entry_manager.is_ignored(&event.path.canonical, &event.path.relative).await {
-                        self.buffer.insert(event).await;
-                    }
+        tokio::select! {
+            res = self.recv_adapter_events() => res,
+            res = self.recv_buffer_events() => res
+        }
+    }
+
+    async fn recv_adapter_events(&self) -> io::Result<()> {
+        while let Some(event) = self.adapter.next().await? {
+            if !self
+                .entry_manager
+                .is_ignored(&event.path.canonical, &event.path.relative)
+                .await
+            {
+                self.buffer.insert(event).await;
+            }
+        }
+        warn!("Watcher Adapter channel closed");
+        Ok(())
+    }
+
+    async fn recv_buffer_events(&self) -> io::Result<()> {
+        while let Some(event) = self.watch_rx.lock().await.recv().await {
+            info!("📁  {event:?}");
+
+            match event.kind {
+                WatcherEventKind::CreateOrModify => {
+                    self.handle_create_or_modify(event.path).await?;
                 }
 
-                Some(event) = self.watch_rx.recv() => {
-                    info!("📁  {event:?}");
-                    match event.kind {
-                        WatcherEventKind::CreateOrModify => {
-                            self.handle_create_or_modify(event.path).await?;
-                        }
-                        WatcherEventKind::Remove => {
-                            self.handle_remove(event.path).await?;
-                        }
-                    }
+                WatcherEventKind::Remove => {
+                    self.handle_remove(event.path).await?;
                 }
             }
         }
+        warn!("Watcher Buffer channel closed");
+        Ok(())
     }
 
     async fn handle_create_or_modify(&self, path: WatcherEventPath) -> io::Result<()> {

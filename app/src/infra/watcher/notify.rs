@@ -12,14 +12,16 @@ use notify::{
 use std::sync::Arc;
 use tokio::{
     io,
-    sync::mpsc::{self, Receiver},
+    sync::{
+        Mutex,
+        mpsc::{self, Receiver},
+    },
 };
-use tracing::error;
 
 pub struct NotifyFileWatcher {
     state: Arc<AppState>,
     watcher: RecommendedWatcher,
-    notify_rx: Receiver<Result<Event, Error>>,
+    notify_rx: Mutex<Receiver<Result<Event, Error>>>,
 }
 
 impl FileWatcherInterface for NotifyFileWatcher {
@@ -37,7 +39,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
         Self {
             state,
             watcher,
-            notify_rx,
+            notify_rx: Mutex::new(notify_rx),
         }
     }
 
@@ -47,8 +49,8 @@ impl FileWatcherInterface for NotifyFileWatcher {
             .map_err(|e| io::Error::other(e.to_string()))
     }
 
-    async fn next(&mut self) -> Option<WatcherEvent> {
-        while let Some(res) = self.notify_rx.recv().await {
+    async fn next(&self) -> io::Result<Option<WatcherEvent>> {
+        while let Some(res) = self.notify_rx.lock().await.recv().await {
             match res {
                 Ok(event) if event.kind.is_access() || event.kind.is_other() => {
                     continue;
@@ -62,7 +64,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
                         && !is_ds_store(&canonical)
                     {
                         if let Some(event) = self.handle_event(event, canonical, relative) {
-                            return Some(event);
+                            return Ok(Some(event));
                         } else {
                             continue;
                         }
@@ -71,12 +73,11 @@ impl FileWatcherInterface for NotifyFileWatcher {
                 }
 
                 Err(e) => {
-                    error!("Notify Watcher error: {}", e);
-                    return None;
+                    return Err(io::Error::other(e));
                 }
             }
         }
-        None
+        Ok(None)
     }
 }
 
