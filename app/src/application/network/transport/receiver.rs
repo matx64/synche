@@ -115,7 +115,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         if is_syn {
             // Can't use send_tx because Response must be sent strictly BEFORE syncing
-            let data = self.entry_manager.get_handshake_data().await;
+            let data = self.entry_manager.get_handshake_data().await?;
             self.try_send(
                 || {
                     self.adapter
@@ -184,7 +184,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        match self.entry_manager.get_entry(&requested_entry.name).await {
+        match self.entry_manager.get_entry(&requested_entry.name).await? {
             Some(local_entry)
                 if local_entry.is_file()
                     && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
@@ -208,7 +208,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        let entry = self.entry_manager.insert_entry(received_entry).await;
+        let entry = self.entry_manager.insert_entry(received_entry).await?;
 
         self.send_tx
             .send(TransportChannelData::Metadata(entry))
@@ -217,7 +217,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
-        let dir = self.entry_manager.insert_entry(dir).await;
+        let dir = self.entry_manager.insert_entry(dir).await?;
 
         let path = self.state.home_path.join(&*dir.name);
         fs::create_dir_all(path).await?;
@@ -229,7 +229,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
-        let _ = self.entry_manager.remove_entry(entry_name).await;
+        let _ = self.entry_manager.remove_entry(entry_name).await?;
 
         let path = self.state.home_path.join(entry_name);
 

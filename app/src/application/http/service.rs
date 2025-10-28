@@ -52,7 +52,7 @@ impl<P: PersistenceInterface> HttpService<P> {
     }
 
     pub async fn remove_sync_dir(&self, name: RelativePath) -> io::Result<()> {
-        if self.entry_manager.remove_sync_dir(&name).await {
+        if self.entry_manager.remove_sync_dir(&name).await? {
             self.state.update_config_file().await?;
             self.resync().await?;
         }

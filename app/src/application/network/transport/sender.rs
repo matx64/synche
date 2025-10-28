@@ -96,7 +96,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     async fn send_handshake(&self, target: IpAddr, is_syn: bool) -> io::Result<()> {
-        let data = self.entry_manager.get_handshake_data().await;
+        let data = self.entry_manager.get_handshake_data().await?;
 
         self.try_send(
             || {

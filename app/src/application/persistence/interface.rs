@@ -1,3 +1,5 @@
+use tokio::io;
+
 use crate::domain::EntryInfo;
 
 #[async_trait::async_trait]
@@ -20,5 +22,11 @@ impl std::fmt::Display for PersistenceError {
         match self {
             PersistenceError::Failure(s) => f.write_str(s),
         }
+    }
+}
+
+impl From<PersistenceError> for io::Error {
+    fn from(value: PersistenceError) -> Self {
+        Self::other(value.to_string())
     }
 }
