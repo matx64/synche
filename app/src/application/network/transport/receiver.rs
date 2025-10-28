@@ -43,8 +43,11 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        tokio::try_join!(self.recv(), self.recv_control(), self.recv_transfer())?;
-        Ok(())
+        tokio::select!(
+            res = self.recv() => res,
+            res = self.recv_control() => res,
+            res = self.recv_transfer() => res
+        )
     }
 
     async fn recv(&self) -> io::Result<()> {
@@ -74,6 +77,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         while let Some(event) = self.transfer_chan.rx.lock().await.recv().await {
             self.handle_transfer(event).await?;
         }
+        warn!("Transport RECV Transfer channel closed");
         Ok(())
     }
 
@@ -95,6 +99,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 _ => unreachable!(),
             }
         }
+        warn!("Transport RECV Control channel closed");
         Ok(())
     }
 

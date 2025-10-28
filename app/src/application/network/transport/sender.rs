@@ -43,8 +43,11 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        tokio::try_join!(self.send(), self.send_control(), self.send_files())?;
-        Ok(())
+        tokio::select!(
+            res = self.send() => res,
+            res = self.send_control() => res,
+            res = self.send_files() => res
+        )
     }
 
     async fn send(&self) -> io::Result<()> {
@@ -67,6 +70,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
                 }
             }
         }
+        warn!("Transport Send channel closed");
         Ok(())
     }
 
@@ -92,6 +96,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
                 _ => unreachable!(),
             }
         }
+        warn!("Transport Send Control channel closed");
         Ok(())
     }
 
@@ -161,6 +166,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
             )
             .await;
         }
+        warn!("Transport Transfer channel closed");
         Ok(())
     }
 

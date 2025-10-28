@@ -48,7 +48,9 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportService<T, P> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        tokio::try_join!(self.sender.run(), self.receiver.run())?;
-        Ok(())
+        tokio::select!(
+            res = self.sender.run() => res,
+            res = self.receiver.run() => res
+        )
     }
 }

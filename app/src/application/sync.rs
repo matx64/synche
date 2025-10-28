@@ -141,13 +141,12 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     }
 
     async fn _run(&mut self) -> io::Result<()> {
-        tokio::try_join!(
-            infra::http::server::run(self.state.ports.http, self.http_service.clone()),
-            self.transport_service.run(),
-            self.presence_service.run(),
-            self.file_watcher.run(),
-        )?;
-        Ok(())
+        tokio::select!(
+            res = infra::http::server::run(self.state.ports.http, self.http_service.clone()) => res,
+            res = self.transport_service.run() => res,
+            res = self.presence_service.run() => res,
+            res = self.file_watcher.run() => res,
+        )
     }
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
