@@ -37,22 +37,20 @@
 
         <div class="item-list" id="peer-list">
           <details class="list-item">
-            <summary><strong>🖥️ {{ hostname }} (My Device)</strong></summary>
-            <p>
-              <strong>Status: </strong>
-              <span class="peer-status">🟢 Connected</span>
-            </p>
+            <summary>
+              <strong>🖥️ {{ hostname }} (My Device)</strong
+              ><small class="peer-status">🟢 Connected </small>
+            </summary>
             <p><strong>IP:</strong> {{ local_ip }}</p>
             <p><strong>ID:</strong> {{ local_id }}</p>
           </details>
 
           {% for peer in peers %}
           <details class="list-item" id="peer-{{ peer.id }}">
-            <summary><strong>🖥️ {{ peer.hostname }}</strong></summary>
-            <p>
-              <strong>Status: </strong>
-              <span class="peer-status">🟢 Connected</span>
-            </p>
+            <summary>
+              <strong>🖥️ {{ peer.hostname }}</strong
+              ><small class="peer-status">🟢 Connected</small>
+            </summary>
             <p><strong>IP:</strong> {{ peer.addr }}</p>
             <p><strong>ID:</strong> {{ peer.id }}</p>
           </details>

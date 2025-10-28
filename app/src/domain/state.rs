@@ -24,8 +24,13 @@ impl AppState {
     pub async fn new() -> Arc<Self> {
         let config = Config::init().await.unwrap();
 
-        let hostname = hostname::get().unwrap().to_string_lossy().to_string();
         let local_ip = local_ip_address::local_ip().unwrap();
+
+        let hostname = hostname::get().unwrap().to_string_lossy().to_string();
+        let hostname = hostname
+            .strip_suffix(".local")
+            .unwrap_or(&hostname)
+            .to_string();
 
         let sync_dirs = config
             .directory

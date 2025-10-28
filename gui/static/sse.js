@@ -24,8 +24,7 @@ function render_peer_list_item_component({ id, addr, hostname }) {
   document.getElementById(`peer-${id}`)?.remove();
 
   const component = `<details class="list-item" id="peer-${id}">
-            <summary><strong>🖥️ ${hostname}</strong></summary>
-            <p><strong>Status: </strong> <span class="peer-status">🟢 Connected</span></p>
+            <summary><strong>🖥️ ${hostname}</strong><small class="peer-status">🟢 Connected</small></summary>
             <p><strong>IP:</strong> ${addr}</p>
             <p><strong>ID:</strong> ${id}</p>
           </details>`;
