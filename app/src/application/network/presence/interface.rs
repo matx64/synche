@@ -3,8 +3,8 @@ use tokio::io;
 use uuid::Uuid;
 
 pub trait PresenceInterface {
-    async fn advertise(&self);
-    async fn recv(&self) -> io::Result<PresenceEvent>;
+    async fn advertise(&self) -> io::Result<()>;
+    async fn next(&self) -> io::Result<Option<PresenceEvent>>;
     async fn shutdown(&self);
 }
 

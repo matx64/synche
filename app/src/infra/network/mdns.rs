@@ -35,7 +35,7 @@ impl MdnsAdapter {
 }
 
 impl PresenceInterface for MdnsAdapter {
-    async fn advertise(&self) {
+    async fn advertise(&self) -> io::Result<()> {
         let hostname = self.state.hostname.clone() + ".local.";
 
         let service_info = ServiceInfo::new(
@@ -46,26 +46,24 @@ impl PresenceInterface for MdnsAdapter {
             self.state.ports.presence,
             None::<HashMap<String, String>>,
         )
-        .unwrap();
+        .map_err(io::Error::other)?;
 
-        self.daemon
-            .register(service_info)
-            .expect("Failed to register mdns service");
+        self.daemon.register(service_info).map_err(io::Error::other)
     }
 
-    async fn recv(&self) -> io::Result<PresenceEvent> {
+    async fn next(&self) -> io::Result<Option<PresenceEvent>> {
         loop {
             match self.receiver.recv_async().await.map_err(io::Error::other)? {
                 ServiceEvent::ServiceData(info) => {
                     let hostname = info.host.clone();
                     if let Some((id, ip)) = self.handle_service_data(*info) {
-                        return Ok(PresenceEvent::Ping { id, ip, hostname });
+                        return Ok(Some(PresenceEvent::Ping { id, ip, hostname }));
                     }
                 }
 
                 ServiceEvent::ServiceRemoved(_, fullname) => {
                     if let Some(peer_id) = self.handle_service_removed(&fullname) {
-                        return Ok(PresenceEvent::Disconnect(peer_id));
+                        return Ok(Some(PresenceEvent::Disconnect(peer_id)));
                     }
                 }
 

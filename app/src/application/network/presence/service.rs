@@ -7,6 +7,7 @@ use crate::{
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
+use tracing::warn;
 use uuid::Uuid;
 
 pub struct PresenceService<P: PresenceInterface> {
@@ -32,10 +33,10 @@ impl<P: PresenceInterface> PresenceService<P> {
     }
 
     pub async fn run(&self) -> io::Result<()> {
-        self.adapter.advertise().await;
+        self.adapter.advertise().await?;
 
-        loop {
-            match self.adapter.recv().await? {
+        while let Some(event) = self.adapter.next().await? {
+            match event {
                 PresenceEvent::Ping { id, ip, hostname } => {
                     self.handle_peer_connect(id, ip, hostname).await?;
                 }
@@ -45,6 +46,8 @@ impl<P: PresenceInterface> PresenceService<P> {
                 }
             }
         }
+        warn!("Presence adapter channel closed");
+        Ok(())
     }
 
     async fn handle_peer_connect(
