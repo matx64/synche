@@ -111,6 +111,10 @@ impl TcpReceiver {
         let original_path = self.state.home_path.join(&*entry.name);
         let tmp_path = env::temp_dir().join(&*entry.name);
 
+        if let Some(parent) = tmp_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
         let mut tmp_file = File::create(&tmp_path).await?;
         tmp_file.write_all(&contents).await?;
         tmp_file.flush().await?;
