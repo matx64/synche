@@ -5,11 +5,7 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 use std::{env, sync::Arc};
-use tokio::{
-    fs::{self, File},
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use tokio::{fs::{self, File}, io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
 pub struct TcpReceiver {
     state: Arc<AppState>,
@@ -123,7 +119,16 @@ impl TcpReceiver {
             fs::create_dir_all(parent).await?;
         }
 
-        fs::rename(&tmp_path, &original_path).await?;
+        match fs::rename(&tmp_path, &original_path).await {
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                fs::copy(&tmp_path, &original_path).await?;
+                fs::remove_file(&tmp_path).await?;
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        }
         Ok(())
     }
 }
