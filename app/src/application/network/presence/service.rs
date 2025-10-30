@@ -1,7 +1,7 @@
 use crate::{
     application::{
-        PeerManager,
         network::presence::interface::{PresenceEvent, PresenceInterface},
+        PeerManager,
     },
     domain::{AppState, TransportChannelData},
 };
@@ -37,12 +37,12 @@ impl<P: PresenceInterface> PresenceService<P> {
 
         while let Some(event) = self.adapter.next().await? {
             match event {
-                PresenceEvent::Ping { id, ip, hostname } => {
-                    self.handle_peer_connect(id, ip, hostname).await?;
+                PresenceEvent::Ping { id, ip, hostname: _ } => {
+                    self.handle_ping(id, ip).await?;
                 }
 
                 PresenceEvent::Disconnect(peer_id) => {
-                    self.handle_peer_disconnect(peer_id).await?;
+                    self.handle_disconnect(peer_id).await?;
                 }
             }
         }
@@ -50,18 +50,14 @@ impl<P: PresenceInterface> PresenceService<P> {
         Ok(())
     }
 
-    async fn handle_peer_connect(
+    async fn handle_ping(
         &self,
         peer_id: Uuid,
         peer_ip: IpAddr,
-        hostname: String,
     ) -> io::Result<()> {
-        let inserted = self
-            .peer_manager
-            .insert_or_update(peer_id, peer_ip, hostname)
-            .await;
+        let updated = self.peer_manager.update_if_exists(&peer_id).await;
 
-        if inserted && self.state.local_id < peer_id {
+        if !updated && self.state.local_id < peer_id {
             self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(peer_ip))
                 .await
@@ -70,7 +66,7 @@ impl<P: PresenceInterface> PresenceService<P> {
         Ok(())
     }
 
-    async fn handle_peer_disconnect(&self, peer_id: Uuid) -> io::Result<()> {
+    async fn handle_disconnect(&self, peer_id: Uuid) -> io::Result<()> {
         self.peer_manager.remove_peer(peer_id).await;
         Ok(())
     }

@@ -22,28 +22,20 @@ impl PeerManager {
                 addr: peer.addr,
                 hostname: peer.hostname.clone(),
             })
-            .await;
+                .await;
         }
 
         peers.insert(peer.id, peer);
     }
 
-    pub async fn insert_or_update(&self, id: Uuid, addr: IpAddr, hostname: String) -> bool {
+    pub async fn update_if_exists(&self, id: &Uuid) -> bool {
         let mut peers = self.state.peers.write().await;
 
-        if let Some(peer) = peers.get_mut(&id) {
+        if let Some(peer) = peers.get_mut(id) {
             peer.last_seen = SystemTime::now();
-            false
-        } else {
-            info!("🟢 Peer connected: {id}");
-            self.send_sse_event(ServerEvent::PeerConnected {
-                id,
-                addr,
-                hostname: hostname.clone(),
-            })
-            .await;
-            peers.insert(id, Peer::new(id, addr, hostname, None));
             true
+        } else {
+            false
         }
     }
 

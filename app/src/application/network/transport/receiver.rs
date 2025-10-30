@@ -114,7 +114,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             event.metadata.source_id,
             event.metadata.source_ip,
             hs_data.hostname,
-            Some(hs_data.sync_dirs),
+            hs_data.sync_dirs,
         );
         self.peer_manager.insert(peer.clone()).await;
 

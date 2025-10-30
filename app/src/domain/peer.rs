@@ -13,14 +13,9 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(id: Uuid, addr: IpAddr, hostname: String, dirs: Option<Vec<SyncDirectory>>) -> Self {
-        let sync_dirs = dirs
-            .map(|dirs| {
-                dirs.into_iter()
-                    .map(|d| (d.name.clone(), d))
-                    .collect::<HashMap<RelativePath, SyncDirectory>>()
-            })
-            .unwrap_or_default();
+    pub fn new(id: Uuid, addr: IpAddr, hostname: String, sync_dirs: Vec<SyncDirectory>) -> Self {
+        let hostname = hostname.strip_suffix(".local").unwrap_or(&hostname).to_string();
+        let sync_dirs = sync_dirs.into_iter().map(|dir| (dir.name.clone(), dir)).collect();
 
         Self {
             id,
