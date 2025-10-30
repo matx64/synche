@@ -15,30 +15,40 @@
 <main>
     <section id="devices-container">
         <header>
-            <svg
-                    class="lucide lucide-pc-case-icon lucide-pc-case"
-                    fill="none"
-                    height="24"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                    width="24"
-                    xmlns="http://www.w3.org/2000/svg"
-            >
+            <span>
+                <svg
+                        class="lucide lucide-pc-case-icon lucide-pc-case"
+                        fill="none"
+                        height="24"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                        width="24"
+                        xmlns="http://www.w3.org/2000/svg"
+                >
                 <rect height="20" rx="2" width="14" x="5" y="2"/>
                 <path d="M15 14h.01"/>
                 <path d="M9 6h6"/>
                 <path d="M9 10h6"/>
             </svg>
-            Devices
+                <h2>Devices</h2>
+            </span>
         </header>
 
         <div class="item-list" id="peer-list">
             <details class="list-item">
                 <summary>
-                    <strong>🖥️ {{ hostname }} (My Device)</strong
+                    <strong>
+                        <svg class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal" fill="none" height="20"
+                             stroke="currentColor" stroke-linecap="round"
+                             stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
+                             xmlns="http://www.w3.org/2000/svg">
+                            <rect height="12" rx="2" ry="2" width="18" x="3" y="4"/>
+                            <line x1="2" x2="22" y1="20" y2="20"/>
+                        </svg>
+                        <span>{{ hostname }} (My Device)</span></strong
                     ><small class="peer-status">🟢 Connected </small>
                 </summary>
                 <p><strong>IP:</strong> {{ local_ip }}</p>
@@ -48,7 +58,15 @@
             {% for peer in peers %}
             <details class="list-item" id="peer-{{ peer.id }}">
                 <summary>
-                    <strong>🖥️ {{ peer.hostname }}</strong
+                    <strong>
+                        <svg class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal" fill="none" height="20"
+                             stroke="currentColor" stroke-linecap="round"
+                             stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
+                             xmlns="http://www.w3.org/2000/svg">
+                            <rect height="12" rx="2" ry="2" width="18" x="3" y="4"/>
+                            <line x1="2" x2="22" y1="20" y2="20"/>
+                        </svg>
+                        <span>{{ peer.hostname }}</span></strong
                     ><small class="peer-status">🟢 Connected</small>
                 </summary>
                 <p><strong>IP:</strong> {{ peer.addr }}</p>
@@ -59,7 +77,7 @@
     </section>
 
     <section id="dirs-container">
-        <header id="dirs-header">
+        <header>
           <span>
             <svg
                     class="lucide lucide-folder-sync-icon lucide-folder-sync"
@@ -81,43 +99,39 @@
               <path d="M22 22v-4h-4"/>
               <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5"/>
             </svg>
+              <h2>
             Directories
+              </h2>
           </span>
 
-            <button
-                    class="btn btn-success"
-                    onclick="document.getElementById('add-dir-dialog').showModal()"
-            >
-                + Add
+            <span>
+                <button
+                        class="btn btn-success"
+                        id="add-dir-btn"
+                        onclick="document.getElementById('add-dir-dialog').showModal()"
+                >
+                <svg class="lucide lucide-folder-plus-icon lucide-folder-plus" fill="none" height="18"
+                     stroke="currentColor" stroke-linecap="round"
+                     stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="18"
+                     xmlns="http://www.w3.org/2000/svg"><path d="M12 10v6"/><path d="M9 13h6"/><path
+                        d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span>Add</span>
             </button>
-
-            <dialog id="add-dir-dialog">
-                <h3>Add Sync Directory</h3>
-
-                <form id="add-dir-form">
-                    <input
-                            autocomplete="off"
-                            minlength="1"
-                            name="dir-name"
-                            placeholder="Directory Name"
-                            required
-                            type="text"
-                    />
-                    <div>
-                        <button class="btn btn-success" type="submit">Add</button>
-                        <button class="btn" onclick="this.closest('dialog').close()">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
-            </dialog>
+            </span>
         </header>
 
         <div class="item-list" id="dir-list">
             {% for dir in dirs %}
             <details class="list-item" id="dir-{{dir.name}}">
                 <summary>
-                    <strong>📂 {{dir.name}}</strong><small>Up to Date</small>
+                    <strong>
+                        <svg class="lucide lucide-folder-open-icon lucide-folder-open" fill="none" height="20"
+                             stroke="currentColor" stroke-linecap="round"
+                             stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
+                             xmlns="http://www.w3.org/2000/svg">
+                            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                        <span>{{dir.name}}</span>
+                    </strong><small>Up to Date</small>
                 </summary>
 
                 <div class="dir-actions">
@@ -126,6 +140,27 @@
             </details>
             {% endfor %}
         </div>
+
+        <dialog id="add-dir-dialog">
+            <h2>Add Sync Directory</h2>
+
+            <form id="add-dir-form">
+                <input
+                        autocomplete="off"
+                        minlength="1"
+                        name="dir-name"
+                        placeholder="Directory Name"
+                        required
+                        type="text"
+                />
+                <div>
+                    <button class="btn btn-success" type="submit">Add</button>
+                    <button class="btn" onclick="this.closest('dialog').close()">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </dialog>
     </section>
 </main>
 

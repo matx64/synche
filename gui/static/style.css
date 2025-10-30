@@ -75,11 +75,17 @@ main > section {
     header {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 1rem;
         height: 60px;
-        font-size: 1.2rem;
-        font-weight: bold;
         border-bottom: 2px solid var(--success-color);
+    }
+
+    header > span {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        height: 100%;
     }
 
     .item-list {
@@ -88,11 +94,6 @@ main > section {
         overflow-y: auto;
     }
 }
-
-#dirs-header {
-    justify-content: space-between;
-}
-
 
 .list-item {
     padding: 1rem;
@@ -109,6 +110,16 @@ main > section {
         justify-content: space-between;
         list-style: none;
         cursor: pointer;
+
+        strong {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+
+            svg {
+                color: var(--success-color);
+            }
+        }
     }
 
     summary::marker {
@@ -118,6 +129,12 @@ main > section {
     summary::-webkit-details-marker {
         display: none;
     }
+}
+
+#add-dir-btn {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
 }
 
 .dir-actions {
@@ -133,13 +150,13 @@ main > section {
     padding: 2rem;
     border: 1px solid var(--success-color);
     border-radius: var(--border-radius);
+    text-align: center;
 
     form {
-        margin-top: 2rem;
+        margin-top: 1.5rem;
         display: flex;
         flex-direction: column;
         gap: 1rem;
-        text-align: center;
     }
 }
 
