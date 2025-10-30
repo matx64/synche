@@ -4,6 +4,8 @@
     --text-color: #232323;
     --success-color: #05775d;
     --error-color: #770505;
+    --connected-color: #11cf0a;
+    --disconnected-color: #ca0a0a;
     --border-radius: 6px;
 }
 
@@ -58,7 +60,7 @@ main {
     overflow-y: hidden;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
     main {
         grid-template-columns: 1fr;
     }
@@ -110,15 +112,15 @@ main > section {
         justify-content: space-between;
         list-style: none;
         cursor: pointer;
+    }
 
-        strong {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+    summary > * {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
 
-            svg {
-                color: var(--success-color);
-            }
+        svg {
+            color: var(--success-color);
         }
     }
 
@@ -176,6 +178,14 @@ input {
 .btn-success {
     background-color: var(--success-color);
     color: white;
+}
+
+.connected {
+    color: var(--connected-color) !important;
+}
+
+.disconnected {
+    color: var(--disconnected-color) !important;
 }
 
 footer {
