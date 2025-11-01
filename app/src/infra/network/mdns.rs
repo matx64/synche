@@ -3,7 +3,7 @@ use crate::{
     domain::AppState,
 };
 use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use tokio::io;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -37,7 +37,6 @@ impl MdnsAdapter {
 impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) -> io::Result<()> {
         let hostname = self.state.hostname.clone() + ".local.";
-        let properties = HashMap::from([("instance_id".to_string(), self.state.instance_id.to_string())]);
 
         let service_info = ServiceInfo::new(
             &self.service_type,
@@ -45,7 +44,7 @@ impl PresenceInterface for MdnsAdapter {
             &hostname,
             self.state.local_ip().await,
             self.state.ports.presence,
-            properties,
+            None::<HashMap<String, String>>,
         )
             .map_err(io::Error::other)?;
 
@@ -88,25 +87,23 @@ impl PresenceInterface for MdnsAdapter {
 
 impl MdnsAdapter {
     fn handle_service_data(&self, info: ResolvedService) -> Option<PresenceEvent> {
-        let peer_id = self.get_peer_id(&info.fullname)?;
+        let id = self.get_peer_id(&info.fullname)?;
 
-        if peer_id == self.state.local_id {
+        if id == self.state.local_id {
             return None;
         }
 
-        for peer_ip in info.addresses {
-            if peer_ip.is_ipv6() {
+        for addr in info.addresses {
+            if addr.is_ipv6() {
                 continue;
             }
 
-            let peer_ip = peer_ip.to_ip_addr();
-            if peer_ip.is_loopback() {
+            let addr = addr.to_ip_addr();
+            if addr.is_loopback() {
                 continue;
             }
 
-            if let Some(instance_id) = info.txt_properties.get("instance_id") && let Ok(instance_id) = Uuid::parse_str(&instance_id.to_string()) {
-                return Some(PresenceEvent::Ping { id: peer_id, ip: peer_ip, instance_id });
-            }
+            return Some(PresenceEvent::Ping(id, addr));
         }
         None
     }

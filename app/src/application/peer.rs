@@ -1,5 +1,5 @@
 use crate::domain::{AppState, EntryInfo, Peer, ServerEvent};
-use std::{net::IpAddr, sync::Arc, time::SystemTime};
+use std::{net::IpAddr, sync::Arc};
 use tracing::info;
 use uuid::Uuid;
 
@@ -28,17 +28,6 @@ impl PeerManager {
         peers.insert(peer.id, peer);
     }
 
-    pub async fn update_if_exists(&self, id: &Uuid, instance_id: &Uuid) -> bool {
-        let mut peers = self.state.peers.write().await;
-
-        if let Some(peer) = peers.get_mut(id) && peer.instance_id == *instance_id {
-            peer.last_seen = SystemTime::now();
-            true
-        } else {
-            false
-        }
-    }
-
     pub async fn exists(&self, addr: IpAddr) -> bool {
         self.state
             .peers
@@ -46,6 +35,15 @@ impl PeerManager {
             .await
             .values()
             .any(|peer| peer.addr == addr)
+    }
+
+    pub async fn seen(&self, addr: &IpAddr, instance_id: &Uuid) -> bool {
+        self.state
+            .peers
+            .read()
+            .await
+            .values()
+            .any(|peer| peer.addr == *addr && peer.instance_id == *instance_id)
     }
 
     pub async fn list(&self) -> Vec<Peer> {

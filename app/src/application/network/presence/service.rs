@@ -37,12 +37,12 @@ impl<P: PresenceInterface> PresenceService<P> {
 
         while let Some(event) = self.adapter.next().await? {
             match event {
-                PresenceEvent::Ping { id, ip, instance_id } => {
-                    self.handle_ping(id, ip, instance_id).await?;
+                PresenceEvent::Ping(id, addr) => {
+                    self.handle_ping(id, addr).await?;
                 }
 
-                PresenceEvent::Disconnect(peer_id) => {
-                    self.handle_disconnect(peer_id).await?;
+                PresenceEvent::Disconnect(id) => {
+                    self.handle_disconnect(id).await?;
                 }
             }
         }
@@ -52,23 +52,21 @@ impl<P: PresenceInterface> PresenceService<P> {
 
     async fn handle_ping(
         &self,
-        peer_id: Uuid,
-        peer_ip: IpAddr,
-        instance_id: Uuid,
+        id: Uuid,
+        addr: IpAddr,
     ) -> io::Result<()> {
-        let updated = self.peer_manager.update_if_exists(&peer_id, &instance_id).await;
-
-        if !updated && self.state.local_id < peer_id {
+        if self.state.local_id < id {
             self.sender_tx
-                .send(TransportChannelData::HandshakeSyn(peer_ip))
+                .send(TransportChannelData::HandshakeSyn(addr))
                 .await
-                .map_err(io::Error::other)?;
+                .map_err(io::Error::other)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
-    async fn handle_disconnect(&self, peer_id: Uuid) -> io::Result<()> {
-        self.peer_manager.remove_peer(peer_id).await;
+    async fn handle_disconnect(&self, id: Uuid) -> io::Result<()> {
+        self.peer_manager.remove_peer(id).await;
         Ok(())
     }
 
