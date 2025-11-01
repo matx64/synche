@@ -18,9 +18,8 @@ pub struct MdnsAdapter {
 impl MdnsAdapter {
     pub fn new(state: Arc<AppState>) -> Self {
         let daemon = ServiceDaemon::new().expect("Failed to create mdns daemon");
-
+        
         daemon.disable_interface(IfKind::IPv6).unwrap();
-        daemon.use_service_data(true).unwrap();
 
         let service_type = "_synche._udp.local.".to_string();
         let receiver = daemon.browse(&service_type).expect("Failed to browse");
@@ -54,8 +53,8 @@ impl PresenceInterface for MdnsAdapter {
     async fn next(&self) -> io::Result<Option<PresenceEvent>> {
         loop {
             match self.receiver.recv_async().await.map_err(io::Error::other)? {
-                ServiceEvent::ServiceData(info) => {
-                    if let Some(event) = self.handle_service_data(*info) {
+                ServiceEvent::ServiceResolved(info) => {
+                    if let Some(event) = self.handle_service_resolved(*info) {
                         return Ok(Some(event));
                     }
                 }
@@ -86,7 +85,7 @@ impl PresenceInterface for MdnsAdapter {
 }
 
 impl MdnsAdapter {
-    fn handle_service_data(&self, info: ResolvedService) -> Option<PresenceEvent> {
+    fn handle_service_resolved(&self, info: ResolvedService) -> Option<PresenceEvent> {
         let id = self.get_peer_id(&info.fullname)?;
 
         if id == self.state.local_id {
