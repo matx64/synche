@@ -37,8 +37,8 @@ impl<P: PresenceInterface> PresenceService<P> {
 
         while let Some(event) = self.adapter.next().await? {
             match event {
-                PresenceEvent::Ping { id, ip, hostname: _ } => {
-                    self.handle_ping(id, ip).await?;
+                PresenceEvent::Ping { id, ip, instance_id } => {
+                    self.handle_ping(id, ip, instance_id).await?;
                 }
 
                 PresenceEvent::Disconnect(peer_id) => {
@@ -54,8 +54,9 @@ impl<P: PresenceInterface> PresenceService<P> {
         &self,
         peer_id: Uuid,
         peer_ip: IpAddr,
+        instance_id: Uuid,
     ) -> io::Result<()> {
-        let updated = self.peer_manager.update_if_exists(&peer_id).await;
+        let updated = self.peer_manager.update_if_exists(&peer_id, &instance_id).await;
 
         if !updated && self.state.local_id < peer_id {
             self.sender_tx

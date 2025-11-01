@@ -225,7 +225,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             hash,
             version: HashMap::from([(self.state.local_id, 0)]),
         })
-        .await
+            .await
     }
 
     pub async fn entry_modified(
@@ -431,6 +431,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(HandshakeData {
             sync_dirs,
             entries,
+            instance_id: self.state.instance_id,
             hostname: self.state.hostname.clone(),
         })
     }

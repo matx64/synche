@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub struct AppState {
     pub ports: ConfigPorts,
     pub local_id: Uuid,
+    pub instance_id: Uuid,
     pub hostname: String,
     pub home_path: CanonicalPath,
     pub peers: RwLock<HashMap<Uuid, Peer>>,
@@ -42,6 +43,7 @@ impl AppState {
             hostname,
             ports: config.ports.clone(),
             local_id: config.device_id,
+            instance_id: Uuid::new_v4(),
             home_path: config.home_path.clone(),
             peers: RwLock::new(HashMap::new()),
             sync_dirs: RwLock::new(sync_dirs),

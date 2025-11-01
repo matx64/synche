@@ -37,6 +37,7 @@ impl MdnsAdapter {
 impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) -> io::Result<()> {
         let hostname = self.state.hostname.clone() + ".local.";
+        let properties = HashMap::from([("instance_id".to_string(), self.state.instance_id.to_string())]);
 
         let service_info = ServiceInfo::new(
             &self.service_type,
@@ -44,9 +45,9 @@ impl PresenceInterface for MdnsAdapter {
             &hostname,
             self.state.local_ip().await,
             self.state.ports.presence,
-            None::<HashMap<String, String>>,
+            properties,
         )
-        .map_err(io::Error::other)?;
+            .map_err(io::Error::other)?;
 
         self.daemon.register(service_info).map_err(io::Error::other)
     }
@@ -55,15 +56,14 @@ impl PresenceInterface for MdnsAdapter {
         loop {
             match self.receiver.recv_async().await.map_err(io::Error::other)? {
                 ServiceEvent::ServiceData(info) => {
-                    let hostname = info.host.clone();
-                    if let Some((id, ip)) = self.handle_service_data(*info) {
-                        return Ok(Some(PresenceEvent::Ping { id, ip, hostname }));
+                    if let Some(event) = self.handle_service_data(*info) {
+                        return Ok(Some(event));
                     }
                 }
 
                 ServiceEvent::ServiceRemoved(_, fullname) => {
-                    if let Some(peer_id) = self.handle_service_removed(&fullname) {
-                        return Ok(Some(PresenceEvent::Disconnect(peer_id)));
+                    if let Some(event) = self.handle_service_removed(&fullname) {
+                        return Ok(Some(event));
                     }
                 }
 
@@ -87,7 +87,7 @@ impl PresenceInterface for MdnsAdapter {
 }
 
 impl MdnsAdapter {
-    fn handle_service_data(&self, info: ResolvedService) -> Option<(Uuid, IpAddr)> {
+    fn handle_service_data(&self, info: ResolvedService) -> Option<PresenceEvent> {
         let peer_id = self.get_peer_id(&info.fullname)?;
 
         if peer_id == self.state.local_id {
@@ -104,14 +104,16 @@ impl MdnsAdapter {
                 continue;
             }
 
-            return Some((peer_id, peer_ip));
+            if let Some(instance_id) = info.txt_properties.get("instance_id") && let Ok(instance_id) = Uuid::parse_str(&instance_id.to_string()) {
+                return Some(PresenceEvent::Ping { id: peer_id, ip: peer_ip, instance_id });
+            }
         }
         None
     }
 
-    fn handle_service_removed(&self, fullname: &str) -> Option<Uuid> {
+    fn handle_service_removed(&self, fullname: &str) -> Option<PresenceEvent> {
         match self.get_peer_id(fullname) {
-            Some(peer_id) => Some(peer_id),
+            Some(id) => Some(PresenceEvent::Disconnect(id)),
             None => {
                 warn!(fullname = fullname, "Invalid mDNS peer id");
                 None

@@ -24,6 +24,7 @@ pub enum TransportData {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HandshakeData {
     pub hostname: String,
+    pub instance_id: Uuid,
     pub sync_dirs: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
 }

@@ -28,10 +28,10 @@ impl PeerManager {
         peers.insert(peer.id, peer);
     }
 
-    pub async fn update_if_exists(&self, id: &Uuid) -> bool {
+    pub async fn update_if_exists(&self, id: &Uuid, instance_id: &Uuid) -> bool {
         let mut peers = self.state.peers.write().await;
 
-        if let Some(peer) = peers.get_mut(id) {
+        if let Some(peer) = peers.get_mut(id) && peer.instance_id == *instance_id {
             peer.last_seen = SystemTime::now();
             true
         } else {
