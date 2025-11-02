@@ -1,7 +1,7 @@
 use crate::{
     application::{
-        network::transport::interface::TransportInterface, persistence::interface::PersistenceInterface, EntryManager,
-        PeerManager,
+        EntryManager, PeerManager, network::transport::interface::TransportInterface,
+        persistence::interface::PersistenceInterface,
     },
     domain::{
         AppState, Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent,
@@ -110,10 +110,6 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if self.peer_manager.seen(&event.metadata.source_ip, &hs_data.instance_id).await {
-            return Ok(());
-        }
-
         let peer = Peer::new(
             event.metadata.source_id,
             event.metadata.source_ip,
@@ -134,7 +130,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 },
                 peer.addr,
             )
-                .await;
+            .await;
         }
 
         info!(peer = ?peer.id, "🔁  Syncing Peer...");
@@ -196,17 +192,17 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         match self.entry_manager.get_entry(&requested_entry.name).await? {
             Some(local_entry)
-            if local_entry.is_file()
-                && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
-                {
-                    self.send_tx
-                        .send(TransportChannelData::Transfer((
-                            event.metadata.source_ip,
-                            local_entry,
-                        )))
-                        .await
-                        .map_err(io::Error::other)
-                }
+                if local_entry.is_file()
+                    && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
+            {
+                self.send_tx
+                    .send(TransportChannelData::Transfer((
+                        event.metadata.source_ip,
+                        local_entry,
+                    )))
+                    .await
+                    .map_err(io::Error::other)
+            }
 
             _ => Ok(()),
         }
@@ -254,7 +250,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output=io::Result<()>>,
+        Fut: Future<Output = io::Result<()>>,
     {
         for _ in 0..3 {
             if let Err(err) = op().await {

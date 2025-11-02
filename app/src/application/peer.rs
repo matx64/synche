@@ -22,7 +22,7 @@ impl PeerManager {
                 addr: peer.addr,
                 hostname: peer.hostname.clone(),
             })
-                .await;
+            .await;
         }
 
         peers.insert(peer.id, peer);

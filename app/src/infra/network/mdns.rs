@@ -2,7 +2,7 @@ use crate::{
     application::network::presence::interface::{PresenceEvent, PresenceInterface},
     domain::AppState,
 };
-use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties};
 use std::{collections::HashMap, sync::Arc};
 use tokio::io;
 use tracing::{error, info, warn};
@@ -18,7 +18,7 @@ pub struct MdnsAdapter {
 impl MdnsAdapter {
     pub fn new(state: Arc<AppState>) -> Self {
         let daemon = ServiceDaemon::new().expect("Failed to create mdns daemon");
-        
+
         daemon.disable_interface(IfKind::IPv6).unwrap();
 
         let service_type = "_synche._udp.local.".to_string();
@@ -37,13 +37,16 @@ impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) -> io::Result<()> {
         let hostname = self.state.hostname.clone() + ".local.";
 
+        let mut properties = HashMap::new();
+        properties.insert("instance_id".to_string(), self.state.instance_id.to_string());
+
         let service_info = ServiceInfo::new(
             &self.service_type,
             &self.state.local_id.to_string(),
             &hostname,
             self.state.local_ip().await,
             self.state.ports.presence,
-            None::<HashMap<String, String>>,
+            Some(properties),
         )
             .map_err(io::Error::other)?;
 
@@ -87,11 +90,12 @@ impl PresenceInterface for MdnsAdapter {
 impl MdnsAdapter {
     fn handle_service_resolved(&self, info: ResolvedService) -> Option<PresenceEvent> {
         let id = self.get_peer_id(&info.fullname)?;
-
         if id == self.state.local_id {
             return None;
         }
 
+        let instance_id = self.get_peer_instance_id(info.get_properties())?;
+        
         for addr in info.addresses {
             if addr.is_ipv6() {
                 continue;
@@ -101,8 +105,8 @@ impl MdnsAdapter {
             if addr.is_loopback() {
                 continue;
             }
-
-            return Some(PresenceEvent::Ping(id, addr));
+            
+            return Some(PresenceEvent::Ping { id, addr, instance_id });
         }
         None
     }
@@ -122,5 +126,12 @@ impl MdnsAdapter {
             .split('.')
             .next()
             .and_then(|id| Uuid::parse_str(id).ok())
+    }
+
+    fn get_peer_instance_id(&self, props: &TxtProperties) -> Option<Uuid> {
+        let instance_bytes = props.get_property_val("instance_id")??;
+
+        let instance_str = std::str::from_utf8(instance_bytes).ok()?;
+        Uuid::parse_str(instance_str).ok()
     }
 }

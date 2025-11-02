@@ -1,7 +1,7 @@
 use crate::{
     application::{
-        network::presence::interface::{PresenceEvent, PresenceInterface},
         PeerManager,
+        network::presence::interface::{PresenceEvent, PresenceInterface},
     },
     domain::{AppState, TransportChannelData},
 };
@@ -37,8 +37,12 @@ impl<P: PresenceInterface> PresenceService<P> {
 
         while let Some(event) = self.adapter.next().await? {
             match event {
-                PresenceEvent::Ping(id, addr) => {
-                    self.handle_ping(id, addr).await?;
+                PresenceEvent::Ping {
+                    id,
+                    addr,
+                    instance_id,
+                } => {
+                    self.handle_ping(id, addr, instance_id).await?;
                 }
 
                 PresenceEvent::Disconnect(id) => {
@@ -50,19 +54,16 @@ impl<P: PresenceInterface> PresenceService<P> {
         Ok(())
     }
 
-    async fn handle_ping(
-        &self,
-        id: Uuid,
-        addr: IpAddr,
-    ) -> io::Result<()> {
-        if self.state.local_id < id {
+    async fn handle_ping(&self, id: Uuid, addr: IpAddr, instance_id: Uuid) -> io::Result<()> {
+        let seen = self.peer_manager.seen(&addr, &instance_id).await;
+
+        if !seen && self.state.local_id < id {
             self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(addr))
                 .await
-                .map_err(io::Error::other)
-        } else {
-            Ok(())
+                .map_err(io::Error::other)?;
         }
+        Ok(())
     }
 
     async fn handle_disconnect(&self, id: Uuid) -> io::Result<()> {
