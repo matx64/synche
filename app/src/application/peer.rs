@@ -13,10 +13,8 @@ impl PeerManager {
     }
 
     pub async fn insert(&self, peer: Peer) {
-        let mut peers = self.state.peers.write().await;
-
-        if !peers.contains_key(&peer.id) {
-            info!("🟢 Peer connected: {}", peer.id);
+        if !self.seen(&peer.id, &peer.instance_id).await {
+            info!("Peer connected: {}", peer.id);
             self.send_sse_event(ServerEvent::PeerConnected {
                 id: peer.id,
                 addr: peer.addr,
@@ -25,7 +23,14 @@ impl PeerManager {
             .await;
         }
 
-        peers.insert(peer.id, peer);
+        self.state.peers.write().await.insert(peer.id, peer);
+    }
+
+    pub async fn seen(&self, id: &Uuid, instance_id: &Uuid) -> bool {
+        match self.state.peers.read().await.get(id) {
+            Some(peer) if peer.instance_id == *instance_id => true,
+            _ => false,
+        }
     }
 
     pub async fn exists(&self, addr: IpAddr) -> bool {
@@ -35,15 +40,6 @@ impl PeerManager {
             .await
             .values()
             .any(|peer| peer.addr == addr)
-    }
-
-    pub async fn seen(&self, addr: &IpAddr, instance_id: &Uuid) -> bool {
-        self.state
-            .peers
-            .read()
-            .await
-            .values()
-            .any(|peer| peer.addr == *addr && peer.instance_id == *instance_id)
     }
 
     pub async fn list(&self) -> Vec<Peer> {
@@ -65,7 +61,7 @@ impl PeerManager {
 
     pub async fn remove_peer(&self, id: Uuid) {
         if self.state.peers.write().await.remove(&id).is_some() {
-            info!("🔴 Peer disconnected: {id}");
+            info!("Peer disconnected: {id}");
             self.send_sse_event(ServerEvent::PeerDisconnected(id)).await;
         }
     }
@@ -78,7 +74,7 @@ impl PeerManager {
             .find_map(|(id, peer)| (peer.addr == addr).then_some(*id))
         {
             peers.remove(&peer_id);
-            info!("🔴 Peer disconnected: {peer_id}");
+            info!("Peer disconnected: {peer_id}");
             self.send_sse_event(ServerEvent::PeerDisconnected(peer_id))
                 .await;
         }
