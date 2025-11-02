@@ -1,5 +1,6 @@
 :root {
     --bg-color: #fbfbfb;
+    --bg-color-secondary: aliceblue;
     --bg-color-highlight: white;
     --text-color: #232323;
     --success-color: #05775d;
@@ -12,10 +13,8 @@
 @media (prefers-color-scheme: dark) {
     :root {
         --bg-color: #232323;
-        --bg-color-highlight: #171717;
+        --bg-color-highlight: #191919;
         --text-color: #fbfbfb;
-        --success-color: #05775d;
-        --error-color: #770505;
     }
 }
 
@@ -37,6 +36,7 @@ html {
 body {
     margin: auto;
     padding: 1rem;
+    padding-bottom: 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 2rem;
@@ -46,7 +46,7 @@ body {
 
 body > header {
     text-align: center;
-    background-color: ivory;
+    background-color: var(--bg-color-secondary);
     padding: 1rem;
     border-radius: var(--border-radius);
 }
@@ -73,28 +73,28 @@ main > section {
     padding: 1rem;
     height: 100%;
     overflow-y: hidden;
+}
 
-    header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        height: 60px;
-        border-bottom: 2px solid var(--success-color);
-    }
+main > section > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    height: 60px;
+    border-bottom: 2px solid var(--success-color);
 
-    header > span {
+    span {
         display: flex;
         align-items: center;
         gap: 0.5rem;
         height: 100%;
     }
+}
 
-    .item-list {
-        display: grid;
-        gap: 1rem;
-        overflow-y: auto;
-    }
+.item-list {
+    display: grid;
+    gap: 1rem;
+    overflow-y: auto;
 }
 
 .list-item {
@@ -140,7 +140,7 @@ main > section {
     justify-content: center;
 
     .remove-dir-btn {
-        background-color: ivory;
+        background-color: lightcoral;
     }
 }
 
@@ -149,7 +149,12 @@ main > section {
     border: 1px solid var(--success-color);
     border-radius: var(--border-radius);
     background-color: var(--bg-color);
+    color: var(--text-color);
     text-align: center;
+
+    hgroup > h2 {
+        margin-bottom: 1.5rem;
+    }
 
     form {
         margin-top: 1.5rem;
@@ -161,8 +166,10 @@ main > section {
 
 input {
     padding: 0.7rem;
+    color: var(--text-color);
     border: 1px solid var(--text-color);
     border-radius: var(--border-radius);
+    background-color: var(--bg-color-highlight);
 }
 
 .btn {
@@ -192,5 +199,20 @@ input {
 }
 
 footer {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+
+    a {
+        text-decoration: none;
+        color: var(--success-color);
+    }
+}
+
+footer > * {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
 }
