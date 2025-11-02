@@ -2,8 +2,10 @@ use crate::{
     application::network::presence::interface::{PresenceEvent, PresenceInterface},
     domain::AppState,
 };
-use mdns_sd::{IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties};
-use std::{collections::HashMap, sync::Arc};
+use mdns_sd::{
+    IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties,
+};
+use std::sync::Arc;
 use tokio::io;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -36,9 +38,7 @@ impl MdnsAdapter {
 impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) -> io::Result<()> {
         let hostname = self.state.hostname.clone() + ".local.";
-
-        let mut properties = HashMap::new();
-        properties.insert("instance_id".to_string(), self.state.instance_id.to_string());
+        let properties = [("instance_id", self.state.instance_id)];
 
         let service_info = ServiceInfo::new(
             &self.service_type,
@@ -46,9 +46,10 @@ impl PresenceInterface for MdnsAdapter {
             &hostname,
             self.state.local_ip().await,
             self.state.ports.presence,
-            Some(properties),
+            &properties[..],
         )
-            .map_err(io::Error::other)?;
+        .map_err(io::Error::other)?
+        .enable_addr_auto();
 
         self.daemon.register(service_info).map_err(io::Error::other)
     }
@@ -74,16 +75,8 @@ impl PresenceInterface for MdnsAdapter {
     }
 
     async fn shutdown(&self) {
-        for _ in 0..3 {
-            match self.daemon.shutdown() {
-                Err(mdns_sd::Error::Again) => continue,
-                _ => {
-                    info!("mDNS daemon shutdown");
-                    return;
-                }
-            }
-        }
-        error!("Failed to shutdown mDNS daemon after 3 attempts");
+        self.unregister();
+        self.shutdown_daemon();
     }
 }
 
@@ -95,7 +88,7 @@ impl MdnsAdapter {
         }
 
         let instance_id = self.get_peer_instance_id(info.get_properties())?;
-        
+
         for addr in info.addresses {
             if addr.is_ipv6() {
                 continue;
@@ -105,8 +98,12 @@ impl MdnsAdapter {
             if addr.is_loopback() {
                 continue;
             }
-            
-            return Some(PresenceEvent::Ping { id, addr, instance_id });
+
+            return Some(PresenceEvent::Ping {
+                id,
+                addr,
+                instance_id,
+            });
         }
         None
     }
@@ -133,5 +130,44 @@ impl MdnsAdapter {
 
         let instance_str = std::str::from_utf8(instance_bytes).ok()?;
         Uuid::parse_str(instance_str).ok()
+    }
+
+    fn unregister(&self) {
+        for _ in 0..3 {
+            match self
+                .daemon
+                .unregister(&format!("{}.{}", self.state.local_id, self.service_type))
+            {
+                Err(mdns_sd::Error::Again) => continue,
+
+                Ok(recv) => {
+                    if let Ok(res) = recv.recv() {
+                        info!("mDNS UNREGISTER Status: {res:?}");
+                    }
+                    return;
+                }
+                _ => return,
+            }
+        }
+        error!("Failed to unregister mDNS daemon after 3 attempts");
+    }
+
+    fn shutdown_daemon(&self) {
+        for _ in 0..3 {
+            match self.daemon.shutdown() {
+                Err(mdns_sd::Error::Again) => continue,
+
+                Ok(recv) => {
+                    if let Ok(res) = recv.recv() {
+                        info!("mDNS SHUTDOWN Status: {res:?}");
+                    }
+                    return;
+                }
+                _ => {
+                    return;
+                }
+            }
+        }
+        error!("Failed to shutdown mDNS daemon after 3 attempts");
     }
 }
