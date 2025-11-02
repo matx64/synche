@@ -10,14 +10,4 @@ pub enum ServerEvent {
         hostname: String,
     },
     PeerDisconnected(Uuid),
-    SyncDirectoryUpdate {
-        name: String,
-        kind: SyncDirectoryUpdateKind,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum SyncDirectoryUpdateKind {
-    Ok,
-    Syncing,
 }

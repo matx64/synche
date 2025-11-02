@@ -133,15 +133,11 @@ main > section {
     }
 }
 
-#add-dir-btn {
+.dir-actions {
     display: flex;
     gap: 0.5rem;
     align-items: center;
-}
-
-.dir-actions {
-    margin-top: 1rem;
-    text-align: center;
+    justify-content: center;
 
     .remove-dir-btn {
         background-color: ivory;
@@ -181,6 +177,12 @@ input {
     color: white;
 }
 
+.icon-btn {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 .connected {
     color: var(--connected-color) !important;
 }
@@ -192,4 +194,3 @@ input {
 footer {
     text-align: center;
 }
-
