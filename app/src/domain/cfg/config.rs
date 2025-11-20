@@ -1,6 +1,6 @@
 use crate::{
     domain::{CanonicalPath, ConfigDirectory, ConfigPorts},
-    utils::fs::{config_dir, home_dir},
+    utils::fs::{config_dir, default_home_dir},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io};
@@ -23,7 +23,7 @@ impl Config {
 
             toml::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
         } else {
-            let data = Self::new_default().await?;
+            let data = Self::default();
 
             let contents =
                 toml::to_string_pretty(&data).map_err(|e| io::Error::other(e.to_string()))?;
@@ -32,17 +32,19 @@ impl Config {
             Ok(data)
         }
     }
+}
 
-    async fn new_default() -> io::Result<Self> {
-        Ok(Self {
+impl Default for Config {
+    fn default() -> Self {
+        Self {
             device_id: Uuid::new_v4(),
-            home_path: home_dir().to_owned(),
+            home_path: default_home_dir().unwrap(),
             directory: vec![ConfigDirectory::new("Default Folder")],
             ports: ConfigPorts {
                 http: 42880,
                 presence: 42881,
                 transport: 42882,
             },
-        })
+        }
     }
 }

@@ -10,7 +10,6 @@ use tokio::{
 };
 
 static CONFIG_DIR: OnceLock<CanonicalPath> = OnceLock::new();
-static HOME_DIR: OnceLock<CanonicalPath> = OnceLock::new();
 
 /// Returns the platform-appropriate configuration directory for Synche,
 /// creating it if necessary.
@@ -75,7 +74,7 @@ fn compute_config_dir() -> io::Result<PathBuf> {
     Ok(base.join("synche"))
 }
 
-/// Returns the platform-appropriate home directory for Synche,
+/// Returns the default platform-appropriate home directory for Synche,
 /// creating it if necessary.
 ///
 /// The directory is chosen using sane defaults per operating system:
@@ -84,19 +83,7 @@ fn compute_config_dir() -> io::Result<PathBuf> {
 ///
 /// If the directory does not exist it will be created (including any
 /// missing parent directories).
-pub fn home_dir() -> &'static CanonicalPath {
-    HOME_DIR.get_or_init(|| {
-        let dir = compute_home_dir().unwrap();
-
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir).unwrap();
-        }
-
-        CanonicalPath::new(&dir).unwrap()
-    })
-}
-
-fn compute_home_dir() -> io::Result<PathBuf> {
+pub fn default_home_dir() -> io::Result<CanonicalPath> {
     let home = dirs::home_dir().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
@@ -104,7 +91,13 @@ fn compute_home_dir() -> io::Result<PathBuf> {
         )
     })?;
 
-    Ok(home.join("Synche"))
+    let dir = home.join("Synche");
+
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)?;
+    }
+
+    CanonicalPath::new(&dir)
 }
 
 pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {

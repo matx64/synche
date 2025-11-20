@@ -2,7 +2,6 @@ use crate::{
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{AppState, EntryInfo, EntryKind, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
-    utils::fs::home_dir,
 };
 use sha2::{Digest, Sha256};
 use std::{env, sync::Arc};
@@ -13,12 +12,12 @@ use tokio::{
 };
 
 pub struct TcpReceiver {
-    _state: Arc<AppState>,
+    state: Arc<AppState>,
 }
 
 impl TcpReceiver {
-    pub fn new(_state: Arc<AppState>) -> Self {
-        Self { _state }
+    pub fn new(state: Arc<AppState>) -> Self {
+        Self { state }
     }
 
     pub async fn read_data(
@@ -109,7 +108,7 @@ impl TcpReceiver {
     }
 
     async fn save_entry(&self, entry: &EntryInfo, contents: Vec<u8>) -> TransportResult<()> {
-        let original_path = home_dir().join(&*entry.name);
+        let original_path = self.state.home_path().join(&*entry.name);
         let tmp_path = env::temp_dir().join(&*entry.name);
 
         if let Some(parent) = tmp_path.parent() {

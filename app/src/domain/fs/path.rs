@@ -5,8 +5,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::utils::fs::home_dir;
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CanonicalPath(PathBuf);
 
@@ -43,9 +41,9 @@ impl AsRef<Path> for CanonicalPath {
 pub struct RelativePath(String);
 
 impl RelativePath {
-    pub fn new(path: &CanonicalPath) -> Self {
+    pub fn new(path: &CanonicalPath, home_path: &CanonicalPath) -> Self {
         let relative = path
-            .strip_prefix(home_dir())
+            .strip_prefix(home_path)
             .unwrap_or_else(|_| {
                 panic!(
                     "Path isn`t from a sync directory: {}",

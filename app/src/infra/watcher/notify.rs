@@ -3,7 +3,7 @@ use crate::{
     domain::{
         AppState, CanonicalPath, RelativePath, WatcherEvent, WatcherEventKind, WatcherEventPath,
     },
-    utils::fs::{home_dir, is_ds_store},
+    utils::fs::is_ds_store,
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -45,7 +45,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
     async fn watch(&mut self) -> io::Result<()> {
         self.watcher
-            .watch(home_dir(), RecursiveMode::Recursive)
+            .watch(&self.state.home_path(), RecursiveMode::Recursive)
             .map_err(|e| io::Error::other(e.to_string()))
     }
 
@@ -59,7 +59,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
                 Ok(event) => {
                     if let Some(path) = event.paths.first().cloned()
                         && let canonical = CanonicalPath::from_canonical(path)
-                        && let relative = RelativePath::new(&canonical)
+                        && let relative = RelativePath::new(&canonical, self.state.home_path())
                         && self.is_valid_entry(&relative).await
                         && !is_ds_store(&canonical)
                     {

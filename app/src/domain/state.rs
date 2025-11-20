@@ -1,6 +1,8 @@
 use crate::{
-    domain::{Channel, Config, ConfigPorts, Peer, RelativePath, ServerEvent, SyncDirectory},
-    utils::fs::{config_dir, home_dir},
+    domain::{
+        CanonicalPath, Channel, Config, ConfigPorts, Peer, RelativePath, ServerEvent, SyncDirectory,
+    },
+    utils::fs::config_dir,
 };
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::RwLock};
@@ -11,6 +13,7 @@ pub struct AppState {
     local_id: Uuid,
     instance_id: Uuid,
     hostname: String,
+    home_path: CanonicalPath,
     local_ip: RwLock<IpAddr>,
     pub peers: RwLock<HashMap<Uuid, Peer>>,
     pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
@@ -37,6 +40,7 @@ impl AppState {
 
         Arc::new(Self {
             hostname,
+            home_path: config.home_path,
             ports: config.ports.clone(),
             local_id: config.device_id,
             instance_id: Uuid::new_v4(),
@@ -63,6 +67,10 @@ impl AppState {
         &self.hostname
     }
 
+    pub fn home_path(&self) -> &CanonicalPath {
+        &self.home_path
+    }
+
     pub async fn local_ip(&self) -> IpAddr {
         *self.local_ip.read().await
     }
@@ -82,7 +90,7 @@ impl AppState {
             directory,
             device_id: self.local_id,
             ports: self.ports.clone(),
-            home_path: home_dir().to_owned(),
+            home_path: self.home_path.clone(),
         };
 
         let contents =
