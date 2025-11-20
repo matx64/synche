@@ -37,15 +37,15 @@ impl MdnsAdapter {
 
 impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) -> io::Result<()> {
-        let hostname = self.state.hostname.clone() + ".local.";
-        let properties = [("instance_id", self.state.instance_id)];
+        let hostname = self.state.hostname().clone() + ".local.";
+        let properties = [("instance_id", self.state.instance_id())];
 
         let service_info = ServiceInfo::new(
             &self.service_type,
-            &self.state.local_id.to_string(),
+            &self.state.local_id().to_string(),
             &hostname,
             self.state.local_ip().await,
-            self.state.ports.presence,
+            self.state.ports().presence,
             &properties[..],
         )
         .map_err(io::Error::other)?
@@ -83,7 +83,7 @@ impl PresenceInterface for MdnsAdapter {
 impl MdnsAdapter {
     fn handle_service_resolved(&self, info: ResolvedService) -> Option<PresenceEvent> {
         let id = self.get_peer_id(&info.fullname)?;
-        if id == self.state.local_id {
+        if id == self.state.local_id() {
             return None;
         }
 
@@ -134,10 +134,11 @@ impl MdnsAdapter {
 
     fn unregister(&self) {
         for _ in 0..3 {
-            match self
-                .daemon
-                .unregister(&format!("{}.{}", self.state.local_id, self.service_type))
-            {
+            match self.daemon.unregister(&format!(
+                "{}.{}",
+                self.state.local_id(),
+                self.service_type
+            )) {
                 Err(mdns_sd::Error::Again) => continue,
 
                 Ok(recv) => {

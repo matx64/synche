@@ -140,7 +140,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
 
     async fn _run(&mut self) -> io::Result<()> {
         tokio::select!(
-            res = infra::http::server::run(self.state.ports.http, self.http_service.clone()) => res,
+            res = infra::http::server::run(self.state.ports().http, self.http_service.clone()) => res,
             res = self.transport_service.run() => res,
             res = self.presence_service.run() => res,
             res = self.file_watcher.run() => res,

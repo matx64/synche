@@ -95,7 +95,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                         name: relative,
                         kind: EntryKind::File,
                         hash: Some(compute_hash(&canonical).await?),
-                        version: HashMap::from([(self.state.local_id, 0)]),
+                        version: HashMap::from([(self.state.local_id(), 0)]),
                     },
                 );
             } else if canonical.is_dir() {
@@ -105,7 +105,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                         name: relative,
                         kind: EntryKind::Directory,
                         hash: None,
-                        version: HashMap::from([(self.state.local_id, 0)]),
+                        version: HashMap::from([(self.state.local_id(), 0)]),
                     },
                 );
 
@@ -140,7 +140,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
-                    *entry.version.entry(self.state.local_id).or_insert(0) += 1;
+                    *entry.version.entry(self.state.local_id()).or_insert(0) += 1;
 
                     self.db
                         .insert_or_replace_entry(&EntryInfo {
@@ -208,7 +208,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn insert_entry(&self, mut entry: EntryInfo) -> io::Result<EntryInfo> {
-        entry.version.entry(self.state.local_id).or_insert(0);
+        entry.version.entry(self.state.local_id()).or_insert(0);
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(entry)
     }
@@ -223,7 +223,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             name: name.to_owned(),
             kind,
             hash,
-            version: HashMap::from([(self.state.local_id, 0)]),
+            version: HashMap::from([(self.state.local_id(), 0)]),
         })
         .await
     }
@@ -234,7 +234,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         hash: Option<String>,
     ) -> io::Result<EntryInfo> {
         entry.hash = hash;
-        *entry.version.entry(self.state.local_id).or_insert(0) += 1;
+        *entry.version.entry(self.state.local_id()).or_insert(0) += 1;
 
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(entry)
@@ -319,7 +319,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             (false, false) => {}
         }
 
-        if self.state.local_id < peer_id {
+        if self.state.local_id() < peer_id {
             return Ok(VersionCmp::KeepSelf);
         }
 
@@ -339,7 +339,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
         let new_path = path.with_file_name(format!(
             "{}_CONFLICT_{}_{}.{}",
-            stem, now, self.state.local_id, ext
+            stem,
+            now,
+            self.state.local_id(),
+            ext
         ));
 
         fs::copy(path, new_path).await?;
@@ -404,7 +407,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub async fn delete_and_update_entry(&self, mut entry: EntryInfo) -> io::Result<EntryInfo> {
         self.db.delete_entry(&entry.name).await?;
 
-        *entry.version.entry(self.state.local_id).or_insert(0) += 1;
+        *entry.version.entry(self.state.local_id()).or_insert(0) += 1;
         entry.set_removed_hash();
 
         Ok(entry)
@@ -431,8 +434,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(HandshakeData {
             sync_dirs,
             entries,
-            instance_id: self.state.instance_id,
-            hostname: self.state.hostname.clone(),
+            instance_id: self.state.instance_id(),
+            hostname: self.state.hostname().clone(),
         })
     }
 

@@ -57,7 +57,7 @@ impl<P: PresenceInterface> PresenceService<P> {
     async fn handle_ping(&self, id: Uuid, addr: IpAddr, instance_id: Uuid) -> io::Result<()> {
         let seen = self.peer_manager.seen(&id, &instance_id).await;
 
-        if !seen && self.state.local_id < id {
+        if !seen && self.state.local_id() < id {
             self.sender_tx
                 .send(TransportChannelData::HandshakeSyn(addr))
                 .await

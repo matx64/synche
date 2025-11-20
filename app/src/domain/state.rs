@@ -7,15 +7,14 @@ use tokio::{fs, io, sync::RwLock};
 use uuid::Uuid;
 
 pub struct AppState {
-    pub ports: ConfigPorts,
-    pub local_id: Uuid,
-    pub instance_id: Uuid,
-    pub hostname: String,
+    ports: ConfigPorts,
+    local_id: Uuid,
+    instance_id: Uuid,
+    hostname: String,
+    local_ip: RwLock<IpAddr>,
     pub peers: RwLock<HashMap<Uuid, Peer>>,
     pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
     pub sse_chan: Channel<ServerEvent>,
-
-    local_ip: RwLock<IpAddr>,
 }
 
 impl AppState {
@@ -46,6 +45,22 @@ impl AppState {
             local_ip: RwLock::new(local_ip),
             sse_chan: Channel::new(10),
         })
+    }
+
+    pub fn ports(&self) -> &ConfigPorts {
+        &self.ports
+    }
+
+    pub fn local_id(&self) -> Uuid {
+        self.local_id
+    }
+
+    pub fn instance_id(&self) -> Uuid {
+        self.instance_id
+    }
+
+    pub fn hostname(&self) -> &String {
+        &self.hostname
     }
 
     pub async fn local_ip(&self) -> IpAddr {

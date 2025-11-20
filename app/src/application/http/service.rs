@@ -77,8 +77,8 @@ impl<P: PersistenceInterface> HttpService<P> {
     pub async fn get_local_info(&self) -> (IpAddr, Uuid, String) {
         (
             self.state.local_ip().await,
-            self.state.local_id,
-            self.state.hostname.clone(),
+            self.state.local_id(),
+            self.state.hostname().clone(),
         )
     }
 

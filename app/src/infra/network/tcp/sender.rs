@@ -44,14 +44,14 @@ impl TcpSender {
         hs_data: HandshakeData,
         kind: TcpStreamKind,
     ) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports.transport);
+        let socket = SocketAddr::new(target, self.state.ports().transport);
         let mut stream = TcpStream::connect(socket).await?;
 
         let contents = serde_json::to_vec(&hs_data)?;
 
         info!(kind = kind.to_string(), target = ?target, "[⬆️  SEND]");
 
-        stream.write_all(self.state.local_id.as_bytes()).await?;
+        stream.write_all(self.state.local_id().as_bytes()).await?;
         stream.write_all(&[kind as u8]).await?;
         stream
             .write_all(&(contents.len() as u32).to_be_bytes())
@@ -62,7 +62,7 @@ impl TcpSender {
     }
 
     async fn send_metadata(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports.transport);
+        let socket = SocketAddr::new(target, self.state.ports().transport);
         let mut stream = TcpStream::connect(socket).await?;
 
         let kind = TcpStreamKind::Metadata;
@@ -70,7 +70,7 @@ impl TcpSender {
 
         info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
 
-        stream.write_all(self.state.local_id.as_bytes()).await?;
+        stream.write_all(self.state.local_id().as_bytes()).await?;
         stream.write_all(&[kind as u8]).await?;
         stream
             .write_all(&u32::to_be_bytes(contents.len() as u32))
@@ -80,7 +80,7 @@ impl TcpSender {
     }
 
     async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports.transport);
+        let socket = SocketAddr::new(target, self.state.ports().transport);
         let mut stream = TcpStream::connect(socket).await?;
 
         let kind = TcpStreamKind::Request;
@@ -88,7 +88,7 @@ impl TcpSender {
 
         info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
 
-        stream.write_all(self.state.local_id.as_bytes()).await?;
+        stream.write_all(self.state.local_id().as_bytes()).await?;
         stream.write_all(&[kind as u8]).await?;
         stream
             .write_all(&u32::to_be_bytes(contents.len() as u32))
@@ -98,7 +98,7 @@ impl TcpSender {
     }
 
     async fn send_entry(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports.transport);
+        let socket = SocketAddr::new(target, self.state.ports().transport);
         let mut stream = TcpStream::connect(socket).await?;
 
         let Some(contents) = self.read_entry_contents(&entry).await? else {
@@ -112,7 +112,7 @@ impl TcpSender {
         info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
 
         // Write self peer id
-        stream.write_all(self.state.local_id.as_bytes()).await?;
+        stream.write_all(self.state.local_id().as_bytes()).await?;
 
         // Write sync kind
         stream.write_all(&[kind as u8]).await?;

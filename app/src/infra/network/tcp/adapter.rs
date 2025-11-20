@@ -15,7 +15,7 @@ pub struct TcpAdapter {
 
 impl TcpAdapter {
     pub async fn new(state: Arc<AppState>) -> Self {
-        let addr = format!("0.0.0.0:{}", state.ports.transport);
+        let addr = format!("0.0.0.0:{}", state.ports().transport);
         let listener = TcpListener::bind(addr).await.unwrap();
 
         let receiver = TcpReceiver::new(state.clone());
