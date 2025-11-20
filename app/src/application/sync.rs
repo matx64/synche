@@ -15,7 +15,7 @@ use crate::{
         persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
-    utils::fs::get_os_config_dir,
+    utils::fs::config_dir,
 };
 use std::sync::Arc;
 use tokio::io;
@@ -40,9 +40,7 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
         let notify = NotifyFileWatcher::new(state.clone());
         let mdns_adapter = MdnsAdapter::new(state.clone());
         let tcp_adapter = TcpAdapter::new(state.clone()).await;
-        let sqlite_adapter = SqliteDb::new(get_os_config_dir().unwrap().join("data.db"))
-            .await
-            .unwrap();
+        let sqlite_adapter = SqliteDb::new(config_dir().join("data.db")).await.unwrap();
 
         Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
     }

@@ -7,6 +7,7 @@ use crate::{
         AppState, Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent,
         VersionCmp,
     },
+    utils::fs::home_dir,
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -15,7 +16,7 @@ use tracing::{error, info, warn};
 
 pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     adapter: Arc<T>,
-    state: Arc<AppState>,
+    _state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_tx: Sender<TransportChannelData>,
@@ -26,14 +27,14 @@ pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
 impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     pub fn new(
         adapter: Arc<T>,
-        state: Arc<AppState>,
+        _state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
         send_tx: Sender<TransportChannelData>,
     ) -> Self {
         Self {
             adapter,
-            state,
+            _state,
             peer_manager,
             entry_manager,
             send_tx,
@@ -225,7 +226,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
         let dir = self.entry_manager.insert_entry(dir).await?;
 
-        let path = self.state.home_path.join(&*dir.name);
+        let path = home_dir().join(&*dir.name);
         fs::create_dir_all(path).await?;
 
         self.send_tx
@@ -237,7 +238,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
         let _ = self.entry_manager.remove_entry(entry_name).await?;
 
-        let path = self.state.home_path.join(entry_name);
+        let path = home_dir().join(entry_name);
 
         if path.is_dir() {
             fs::remove_dir_all(path).await?;

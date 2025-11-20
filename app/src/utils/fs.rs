@@ -5,11 +5,12 @@ use std::{
     sync::OnceLock,
 };
 use tokio::{
-    fs::{self, File},
+    fs::File,
     io::{self, AsyncReadExt},
 };
 
-static CONFIG_DIR: OnceLock<io::Result<CanonicalPath>> = OnceLock::new();
+static CONFIG_DIR: OnceLock<CanonicalPath> = OnceLock::new();
+static HOME_DIR: OnceLock<CanonicalPath> = OnceLock::new();
 
 /// Returns the platform-appropriate configuration directory for Synche,
 /// creating it if necessary.
@@ -22,26 +23,25 @@ static CONFIG_DIR: OnceLock<io::Result<CanonicalPath>> = OnceLock::new();
 ///
 /// If the directory does not exist it will be created (including any
 /// missing parent directories).
-pub fn get_os_config_dir() -> io::Result<&'static CanonicalPath> {
-    CONFIG_DIR
-        .get_or_init(|| {
-            let base_dir = compute_base_dir()?;
+pub fn config_dir() -> &'static CanonicalPath {
+    CONFIG_DIR.get_or_init(|| {
+        let dir = compute_config_dir().unwrap();
 
-            if !base_dir.exists() {
-                std::fs::create_dir_all(&base_dir)?;
-            }
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).unwrap();
+        }
 
-            CanonicalPath::new(&base_dir)
-        })
-        .as_ref()
-        .map_err(|e| io::Error::new(e.kind(), e.to_string()))
+        CanonicalPath::new(&dir).unwrap()
+    })
 }
 
-fn compute_base_dir() -> io::Result<PathBuf> {
+fn compute_config_dir() -> io::Result<PathBuf> {
+    let base: PathBuf;
+
     #[cfg(target_os = "linux")]
     {
         use std::env;
-        let config_home = env::var_os("XDG_CONFIG_HOME")
+        base = env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| dirs::home_dir().map(|home| home.join(".config")))
             .ok_or_else(|| {
@@ -50,8 +50,6 @@ fn compute_base_dir() -> io::Result<PathBuf> {
                     "Could not determine config directory",
                 )
             })?;
-
-        return Ok(config_home.join("synche"));
     }
 
     #[cfg(target_os = "macos")]
@@ -62,33 +60,51 @@ fn compute_base_dir() -> io::Result<PathBuf> {
                 "Could not determine home directory",
             )
         })?;
-        return Ok(home
-            .join("Library")
-            .join("Application Support")
-            .join("synche"));
+
+        base = home.join("Library").join("Application Support");
     }
 
     #[cfg(target_os = "windows")]
     {
         use std::env;
-        let appdata = env::var_os("APPDATA")
+        base = env::var_os("APPDATA")
             .map(PathBuf::from)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "APPDATA not set"))?;
-        return Ok(appdata.join("synche"));
     }
 
-    #[allow(unreachable_code)]
-    Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"))
+    Ok(base.join("synche"))
 }
 
-pub async fn get_os_synche_home_dir() -> io::Result<CanonicalPath> {
-    let path = Path::new("./Synche");
+/// Returns the platform-appropriate home directory for Synche,
+/// creating it if necessary.
+///
+/// The directory is chosen using sane defaults per operating system:
+/// - On Unix-like systems this is typically: `$HOME/Synche`
+/// - On Windows this is typically: `C:\Users\<User>\Synche`
+///
+/// If the directory does not exist it will be created (including any
+/// missing parent directories).
+pub fn home_dir() -> &'static CanonicalPath {
+    HOME_DIR.get_or_init(|| {
+        let dir = compute_home_dir().unwrap();
 
-    if !path.exists() {
-        fs::create_dir_all(path).await?;
-    }
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).unwrap();
+        }
 
-    CanonicalPath::new(path)
+        CanonicalPath::new(&dir).unwrap()
+    })
+}
+
+fn compute_home_dir() -> io::Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "Could not determine home directory",
+        )
+    })?;
+
+    Ok(home.join("Synche"))
 }
 
 pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {

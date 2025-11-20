@@ -1,6 +1,6 @@
 use crate::{
     domain::{CanonicalPath, ConfigDirectory, ConfigPorts},
-    utils::fs::{get_os_config_dir, get_os_synche_home_dir},
+    utils::fs::{config_dir, home_dir},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io};
@@ -16,7 +16,7 @@ pub struct Config {
 
 impl Config {
     pub async fn init() -> io::Result<Self> {
-        let path = get_os_config_dir()?.join("config.toml");
+        let path = config_dir().join("config.toml");
 
         if path.exists() {
             let contents = fs::read_to_string(path).await?;
@@ -36,7 +36,7 @@ impl Config {
     async fn new_default() -> io::Result<Self> {
         Ok(Self {
             device_id: Uuid::new_v4(),
-            home_path: get_os_synche_home_dir().await?,
+            home_path: home_dir().to_owned(),
             directory: vec![ConfigDirectory::new("Default Folder")],
             ports: ConfigPorts {
                 http: 42880,

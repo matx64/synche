@@ -4,7 +4,7 @@ use crate::{
         AppState, CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath,
         SyncDirectory, VersionCmp,
     },
-    utils::fs::{compute_hash, is_ds_store},
+    utils::fs::{compute_hash, home_dir, is_ds_store},
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -30,7 +30,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Arc::new(Self {
             db,
             state: state.clone(),
-            ignore_handler: IgnoreHandler::new(state),
+            ignore_handler: IgnoreHandler::default(),
         })
     }
 
@@ -38,7 +38,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let mut filesystem_entries = HashMap::new();
 
         for dir in self.state.sync_dirs.read().await.values() {
-            let path = self.state.home_path.join(&*dir.name);
+            let path = home_dir().join(&*dir.name);
 
             fs::create_dir_all(&path).await?;
 
@@ -82,7 +82,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .filter_map(Result::ok)
         {
             let canonical = CanonicalPath::new(entry.path())?;
-            let relative = RelativePath::new(&canonical, &self.state.home_path);
+            let relative = RelativePath::new(&canonical);
 
             if self.is_ignored(&canonical, &relative).await {
                 continue;
@@ -173,7 +173,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
-        let path = self.state.home_path.join(&*name);
+        let path = home_dir().join(&*name);
         fs::create_dir_all(&path).await?;
 
         let dir_entries = self.build_dir(path.clone()).await?;
@@ -225,7 +225,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             hash,
             version: HashMap::from([(self.state.local_id, 0)]),
         })
-            .await
+        .await
     }
 
     pub async fn entry_modified(
@@ -323,7 +323,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             return Ok(VersionCmp::KeepSelf);
         }
 
-        let path = self.state.home_path.join(&*local_entry.name);
+        let path = home_dir().join(&*local_entry.name);
 
         if !path.exists() || path.is_dir() {
             return Ok(VersionCmp::KeepOther);

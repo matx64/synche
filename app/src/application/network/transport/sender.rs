@@ -4,6 +4,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
     },
     domain::{AppState, Channel, EntryInfo, TransportChannelData, TransportData},
+    utils::fs::home_dir,
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -15,7 +16,7 @@ use tracing::{error, warn};
 
 pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
     adapter: Arc<T>,
-    state: Arc<AppState>,
+    _state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_rx: Mutex<Receiver<TransportChannelData>>,
@@ -26,13 +27,13 @@ pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
 impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     pub fn new(
         adapter: Arc<T>,
-        state: Arc<AppState>,
+        _state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
         send_rx: Mutex<Receiver<TransportChannelData>>,
     ) -> Self {
         Self {
-            state,
+            _state,
             adapter,
             peer_manager,
             entry_manager,
@@ -150,7 +151,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
 
     async fn send_files(&self) -> io::Result<()> {
         while let Some((target, entry)) = self.transfer_chan.rx.lock().await.recv().await {
-            let path = self.state.home_path.join(&*entry.name);
+            let path = home_dir().join(&*entry.name);
 
             if !path.exists() || !path.is_file() {
                 continue;

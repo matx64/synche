@@ -1,8 +1,6 @@
 use crate::{
-    domain::{
-        CanonicalPath, Channel, Config, ConfigPorts, Peer, RelativePath, ServerEvent, SyncDirectory,
-    },
-    utils::fs::get_os_config_dir,
+    domain::{Channel, Config, ConfigPorts, Peer, RelativePath, ServerEvent, SyncDirectory},
+    utils::fs::{config_dir, home_dir},
 };
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::RwLock};
@@ -13,7 +11,6 @@ pub struct AppState {
     pub local_id: Uuid,
     pub instance_id: Uuid,
     pub hostname: String,
-    pub home_path: CanonicalPath,
     pub peers: RwLock<HashMap<Uuid, Peer>>,
     pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
     pub sse_chan: Channel<ServerEvent>,
@@ -44,7 +41,6 @@ impl AppState {
             ports: config.ports.clone(),
             local_id: config.device_id,
             instance_id: Uuid::new_v4(),
-            home_path: config.home_path.clone(),
             peers: RwLock::new(HashMap::new()),
             sync_dirs: RwLock::new(sync_dirs),
             local_ip: RwLock::new(local_ip),
@@ -57,7 +53,7 @@ impl AppState {
     }
 
     pub async fn update_config_file(&self) -> io::Result<()> {
-        let path = get_os_config_dir()?.join("config.toml");
+        let path = config_dir().join("config.toml");
         let directory = {
             self.sync_dirs
                 .read()
@@ -71,7 +67,7 @@ impl AppState {
             directory,
             device_id: self.local_id,
             ports: self.ports.clone(),
-            home_path: self.home_path.clone(),
+            home_path: home_dir().to_owned(),
         };
 
         let contents =

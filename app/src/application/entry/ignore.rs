@@ -1,22 +1,15 @@
-use crate::domain::{AppState, CanonicalPath, RelativePath};
+use crate::domain::{CanonicalPath, RelativePath};
 use ignore::gitignore::Gitignore;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+#[derive(Default)]
 pub struct IgnoreHandler {
-    state: Arc<AppState>,
     gis: RwLock<HashMap<String, Gitignore>>,
 }
 
 impl IgnoreHandler {
-    pub fn new(state: Arc<AppState>) -> Self {
-        Self {
-            state,
-            gis: RwLock::new(HashMap::new()),
-        }
-    }
-
     pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
         let (gi, err) = Gitignore::new(gitignore_path);
 
@@ -28,9 +21,7 @@ impl IgnoreHandler {
             return;
         };
 
-        if let Some(relative) =
-            RelativePath::new(gitignore_path, &self.state.home_path).strip_suffix("/.gitignore")
-        {
+        if let Some(relative) = RelativePath::new(gitignore_path).strip_suffix("/.gitignore") {
             self.gis.write().await.insert(relative.to_string(), gi);
             info!("⭕  Inserted or Updated .gitignore: {relative}");
         }
