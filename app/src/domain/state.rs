@@ -57,7 +57,7 @@ impl AppState {
     }
 
     pub async fn update_config_file(&self) -> io::Result<()> {
-        let path = get_os_config_dir().await?.join("config.toml");
+        let path = get_os_config_dir()?.join("config.toml");
         let directory = {
             self.sync_dirs
                 .read()

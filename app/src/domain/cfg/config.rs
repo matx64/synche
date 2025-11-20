@@ -16,7 +16,7 @@ pub struct Config {
 
 impl Config {
     pub async fn init() -> io::Result<Self> {
-        let path = get_os_config_dir().await?.join("config.toml");
+        let path = get_os_config_dir()?.join("config.toml");
 
         if path.exists() {
             let contents = fs::read_to_string(path).await?;
