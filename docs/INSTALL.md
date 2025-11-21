@@ -1,85 +1,45 @@
-# Installation Guide
+# Synche Installation
 
-This document explains how to build and run **Synche** from source. As the project is still in alpha, there's no pre-built binaries.
+This guide covers the installation of **Synche** from a prebuilt binary.
 
-> ⚠️ **ALWAYS use a Release [(latest)](https://github.com/matx64/synche/releases/latest) and its INSTALL.md file, `main` branch is currently being used for development.**
+## 1. Installation
 
-## Prerequisites
+1.  Download the latest release from the [**GitHub Releases page**](https://github.com/matx64/synche/releases/latest).
+2.  Extract the archive to a permanent location (e.g., `~/synche`, `/Applications/synche`, `C:\Tools\Synche`).
 
-- [Rust](https://www.rust-lang.org/tools/install) (version 1.80+ recommended)
-- Git
+    > [!IMPORTANT]
+    > The `synche` executable requires the `gui/` directory to be present in the same location to serve the web client. Do not move the executable by itself.
 
-By default, Synche uses ports 42880 (http), 42881 (presence/mDNS) and 42882 (TCP), so make sure these ports are allowed by your OS Firewall. It shouldn't be an issue, but it is **recommended** to guarantee mDNS service is allowed for **MacOS** by executing these commands:
+3.  **(Optional)** To make the executable available system-wide, add it to your `PATH`.
+    -   **Linux/macOS**: Create a symbolic link.
+        ```sh
+        # Adjust the path to where you extracted Synche
+        sudo ln -s ~/synche /usr/local/bin/synche
+        ```
+    -   **Windows**: Add the Synche directory to your `Path` environment variable.
 
-```sh
-# allow mDNS in MacOS
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /usr/libexec/mdnsd
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblock /usr/libexec/mdnsd
-```
+## 2. Running Synche
 
-## Build
-
-Download the [latest release](https://github.com/matx64/synche/releases/latest) and extract its contents.
-
-```sh
-cd release-folder
-cargo build --release
-```
-
-The compiled binary (executable) will be located at: `target/release/synche`.
-
-## Run
-
-Execution command:
+Start the application from your terminal:
 
 ```sh
-./target/release/synche
+synche
 ```
 
-You can now configure which folders you want to sync across devices using the `.synche/config.toml` file (same location as the executable).
+-   The Web GUI is available at **`http://localhost:42880`**.
+-   Synche home directory is created by default at: `~/Synche` (Unix) or `C:\Users\<User>\Synche` (Windows).
+-   Stop the process with `Ctrl+C`.
 
-Make sure to add the same folders in the other devices config file as well and to restart Synche on every config change. Pattern to follow:
+### Firewall
 
-```toml
-device_id = "88bd9d3e-6c27-471f-a4d1-07446f0f3a1f"
-home_path = "/home/matx/dev/synche/Synche"
+Ensure your firewall allows traffic on the default ports: `42880` (HTTP), `42881` (Presence/mDNS), and `42882` (Transport/TCP).
 
-[[directory]]
-name = "Default Folder"
+## 3. Configuration
 
-[[directory]]
-name = "A tiny Project"
+On the first run, a `config.toml` file is created in the standard OS configuration directory:
 
-[ports]
-http = 42880
-presence = 42881
-transport = 42882
-```
+-   **Linux**: `$XDG_CONFIG_HOME/synche` or `$HOME/.config/synche`
+-   **macOS**: `$HOME/Library/Application Support/synche`
+-   **Windows**: `%APPDATA%\synche`
 
-Synced entries will reside in `Synche` folder.
-
-## Practical Example
-
-Synche is running in my laptop and desktop computers with the same `directory` in `config.toml` file:
-
-```toml
-[[directory]]
-name = "synche-git-repo"
-
-[[directory]]
-name = "project001"
-
-# Device specific settings
-# device_id = ...
-# home_path = ...
-
-# [ports]
-# ...
-
-```
-
-I modify the `Synche/synche-git-repo/INSTALL.md` file in the laptop. This change must be propagated to the desktop automatically.
-
-## Feedback
-
-Your feedback is very important at this stage. If you encounter issues or unexpected behavior, please [open an issue](https://github.com/matx64/synche/issues).
+You can edit this file to configure the `home_path`, directories, ports, and other settings. Restart the application for changes to take effect.
