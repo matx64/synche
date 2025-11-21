@@ -7,8 +7,8 @@ This guide covers the installation of **Synche** from a prebuilt binary.
 1.  Download the latest release from the [**GitHub Releases page**](https://github.com/matx64/synche/releases/latest).
 2.  Extract the archive to a permanent location (e.g., `~/synche`, `/Applications/synche`, `C:\Tools\Synche`).
 
-    > [!IMPORTANT]
-    > The `synche` executable requires the `gui/` directory to be present in the same location to serve the web client. Do not move the executable by itself.
+> [!IMPORTANT]
+> The `synche` executable requires the `gui/` directory to be present in the same location to serve the web client. Do not move the executable by itself.
 
 3.  **(Optional)** To make the executable available system-wide, add it to your `PATH`.
     -   **Linux/macOS**: Create a symbolic link.

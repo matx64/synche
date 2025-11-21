@@ -27,7 +27,7 @@ Synche was primarily built for developers to keep source code synchronized acros
 ## Getting Started
 
 > [!NOTE]
-> Synche is currently in alpha. It is functional but may still contain bugs. Please avoid using it with critical data and always keep backups.
+> Synche is currently in alpha. It is functional but may still contain bugs. Please avoid using it with critical data.
 
 You can either download a prebuilt binary or build it from source:
 
@@ -51,8 +51,6 @@ You can either download a prebuilt binary or build it from source:
 ## Contributing & Feedback
 
 This project is in active development, and contributions are welcome. If you find a bug, have a feature request, or want to contribute, please [**open an issue**](https://github.com/matx64/synche/issues) or submit a pull request.
-
----
 
 ## License
 
