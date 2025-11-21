@@ -2,46 +2,60 @@
 
 ---
 
-**Synche** is an open source peer-to-peer **continuous file synchronization tool** for devices on the same local network. It watches and syncronizes files just like Dropbox/Syncthing without the need for cloud services or external servers.
+**Synche** is an open-source, peer-to-peer file synchronization tool that operates entirely on your local network. It automatically syncs files between your devices, similar to Dropbox or Syncthing, but without requiring any cloud services or external servers.
 
 ## Features
 
-- **Local-only operation** (no internet/cloud dependency)
-- **Automatic device discovery** on local network
-- **.gitignore** support
-- **Continuous file monitoring**
-- **P2P file synchronization**
-- **Minimal Configuration**
-- **Web GUI**
+-   **Local-Only:** No internet or cloud dependency.
+-   **Automatic Discovery:** Devices running Synche on the same network find each other automatically using mDNS.
+-   **.gitignore Support:** Respects your `.gitignore` files, perfect for syncing source code.
+-   **Real-Time Sync:** Uses a file watcher to detect changes and synchronize them instantly.
+-   **Peer-to-Peer:** Files are transferred directly between your devices.
+-   **Web Interface:** A simple, browser-based GUI for managing the app.
 
-## Use Cases
+## Why Synche?
 
-Synche was primarily _**created for developers**_ to sync source code automatically between computers without the need to commit + push to a remote repo, that's why .gitignore support was a requirement. However, it can also be used for offline backup, share media and IoT.
+Synche was primarily built for developers to keep source code synchronized across multiple computers without the friction of frequent `git commit + push`. However, it can also be used for offline backups, share media and IoT.
 
 ## How it works
 
-1. Devices on the same network discover each other via mDNS Service Discovery.
-2. Each device chooses the root folders to synchronize and watches for file/folder changes.
-3. Changes are propagated to connected peers in real-time using TCP.
-4. Version vectors are tracked and **conflicts are resolved by the user** by creating a conflict file to ensure data safety.
+1.  **Discovery:** Devices on the same local network discover each other using mDNS.
+2.  **Watching:** Synche monitors your specified folders for any file or directory changes.
+3.  **Synchronization:** When a change is detected, its metadata is announced to all peers. The data is then transferred directly over TCP to any peer that needs the update.
+4.  **Conflict Resolution:** To prevent data loss, Synche uses version vectors to track file history. If a file is modified on multiple devices simultaneously, a conflict file is created, allowing you to resolve the conflict manually.
 
-## Try it out!
+## Getting Started
 
-Synche is currently in alpha. It is functional but may contain bugs, so avoid using it with critical files. You can try it out by following the **Installation Guide** from the [Latest Release](https://github.com/matx64/synche/releases/latest).
+> [!NOTE]
+> Synche is currently in alpha. It is functional but may still contain bugs. Please avoid using it with critical data and always keep backups.
+
+You can either download a prebuilt binary or build it from source:
+
+-   **[Latest Release](https://github.com/matx64/synche/releases)** (Recommended for most users)
+-   **[Build Guide](docs/BUILD.md)** (For developers who want to build from source)
+
+> [!TIP]
+> Check out the **[Practical Example](docs/EXAMPLE.md)** to learn how to synchronize your first folder between two devices.
 
 ## Roadmap
 
-- [x] Local network device discovery (mDNS)
-- [x] File watcher and Sync over TCP
-- [x] Version vectors, Conflict resolution and Integrity checks
-- [x] Sqlite Persistence
-- [x] Support .gitignore
-- [x] Web GUI
-- [ ] File blocks implementation
-- [ ] Optimizations
+-   [x] Local network device discovery (mDNS)
+-   [x] File watcher and P2P sync over TCP
+-   [x] Version vectors for conflict resolution and integrity checks
+-   [x] SQLite persistence for metadata
+-   [x] `.gitignore` support
+-   [x] Web GUI
+-   [ ] Transfer file blocks instead of the whole file
+-   [ ] Performance and resource optimization
+
+## Contributing & Feedback
+
+This project is in active development, and contributions are welcome. If you find a bug, have a feature request, or want to contribute, please [**open an issue**](https://github.com/matx64/synche/issues) or submit a pull request.
+
+---
 
 ## License
 
 Copyright © 2025-present, [Synche Contributors](https://github.com/matx64/synche/graphs/contributors).
 
-This project is [MIT](https://github.com/matx64/synche/blob/main/LICENSE) licensed.
+This project is licensed under the [MIT License](https://github.com/matx64/synche/blob/main/LICENSE).
