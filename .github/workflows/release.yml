@@ -1,0 +1,115 @@
+# This GitHub Action workflow is triggered on pushes to tags that match the v* pattern.
+# It builds the application for Windows, Linux, and macOS, then creates a GitHub release
+# and uploads the compiled binaries as artifacts.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }} (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_name: synche-${{ github.ref_name }}-linux-x86_64.tar.gz
+            asset_name: synche-linux-x86_64.tar.gz
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive_name: synche-${{ github.ref_name }}-macos-x86_64.zip
+            asset_name: synche-macos-x86_64.zip
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_name: synche-${{ github.ref_name }}-macos-aarch64.zip
+            asset_name: synche-macos-aarch64.zip
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_name: synche-${{ github.ref_name }}-windows-x86_64.zip
+            asset_name: synche-windows-x86_64.zip
+            binary_name: synche.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: MSRV check
+        run: cargo check
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare package for release
+        run: |
+          set -e
+          RELEASE_DIR="synche-${{ github.ref_name }}-${{ matrix.target }}"
+
+          mkdir -p "$RELEASE_DIR"
+
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary_name || 'synche' }}" "$RELEASE_DIR/"
+          cp -r gui "$RELEASE_DIR/"
+
+          [ -f LICENSE ] && cp LICENSE "$RELEASE_DIR/"
+          [ -f docs/INSTALL.md ] && cp docs/INSTALL.md "$RELEASE_DIR/"
+
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            tar -czf "${{ matrix.archive_name }}" -C "$RELEASE_DIR" .
+          else
+            zip -r "${{ matrix.archive_name }}" "$RELEASE_DIR"
+          fi
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.archive_name }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/*
+          draft: true
+          body: |
+            New release for ${{ github.ref_name }}!
+
+            **Installation instructions:**
+            1. Download the appropriate binary for your system.
+            2. Unzip the file.
+            3. Read the included `INSTALL.md` file and execute `synche`.
