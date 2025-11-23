@@ -28,29 +28,16 @@ Synche was primarily built for developers to keep source code synchronized acros
 
 > [!NOTE]
 > Synche is currently in alpha. It is functional but may still contain bugs. Please avoid using it with critical data.
+> Check out the **[Practical Example](docs/EXAMPLE.md)** to learn how to synchronize your first folder between two devices.
 
 You can either download a prebuilt binary or build it from source:
 
--   **[Latest Release](https://github.com/matx64/synche/releases)** (Recommended for most users)
+-   **[Latest Release](https://github.com/matx64/synche/releases/latest)** (Recommended for most users)
 -   **[Build Guide](docs/BUILD.md)** (For developers who want to build from source)
-
-> [!TIP]
-> Check out the **[Practical Example](docs/EXAMPLE.md)** to learn how to synchronize your first folder between two devices.
-
-## Roadmap
-
--   [x] Local network device discovery (mDNS)
--   [x] File watcher and P2P sync over TCP
--   [x] Version vectors for conflict resolution and integrity checks
--   [x] SQLite persistence for metadata
--   [x] `.gitignore` support
--   [x] Web GUI
--   [ ] Transfer file blocks instead of the whole file
--   [ ] Performance and resource optimization
 
 ## Contributing & Feedback
 
-This project is in active development, and contributions are welcome. If you find a bug, have a feature request, or want to contribute, please [**open an issue**](https://github.com/matx64/synche/issues) or submit a pull request.
+This project is in active development, and contributions are welcome. Check out the **[Contributing Guide](docs/CONTRIBUTING.md)** for more details.
 
 ## License
 
