@@ -49,6 +49,11 @@ jobs:
       - name: MSRV check
         run: cargo check
 
+      - name: Compute lockfile hash
+        id: lockfile
+        run: echo "hash=$(git hash-object Cargo.lock)" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Cache dependencies
         uses: actions/cache@v4
         with:
@@ -58,7 +63,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ steps.lockfile.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
