@@ -76,8 +76,10 @@ jobs:
           [ -f LICENSE ] && cp LICENSE "$RELEASE_DIR/"
           [ -f docs/INSTALL.md ] && cp docs/INSTALL.md "$RELEASE_DIR/"
 
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            tar -czf "${{ matrix.archive_name }}" -C "$RELEASE_DIR" .
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            tar -a -c -f "${{ matrix.archive_name }}" "$RELEASE_DIR"
+          elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            tar -czf "${{ matrix.archive_name }}" "$RELEASE_DIR"
           else
             zip -r "${{ matrix.archive_name }}" "$RELEASE_DIR"
           fi
