@@ -28,7 +28,8 @@ Synche was primarily built for developers to keep source code synchronized acros
 
 > [!NOTE]
 > Synche is currently in alpha. It is functional but may still contain bugs. Please avoid using it with critical data.
-> Check out the **[Practical Example](docs/EXAMPLE.md)** to learn how to synchronize your first folder between two devices.
+>
+> Also, check out the **[Practical Example](docs/EXAMPLE.md)** to learn how to synchronize your first folder between two devices.
 
 You can either download a prebuilt binary or build it from source:
 
