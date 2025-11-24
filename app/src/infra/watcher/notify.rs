@@ -1,6 +1,9 @@
 use crate::{
     application::watcher::interface::FileWatcherInterface,
-    domain::{AppState, CanonicalPath, HomeWatcherEvent, RelativePath, WatcherEventPath},
+    domain::{
+        AppState, CanonicalPath, ConfigWatcherEvent, HomeWatcherEvent, RelativePath,
+        WatcherEventPath,
+    },
     utils::fs::{config_file, is_ds_store},
 };
 use notify::{
@@ -92,6 +95,38 @@ impl FileWatcherInterface for NotifyFileWatcher {
                 Err(e) => {
                     return Err(io::Error::other(e));
                 }
+            }
+        }
+        Ok(None)
+    }
+
+    async fn next_config_event(&self) -> io::Result<Option<ConfigWatcherEvent>> {
+        while let Some(res) = self.config_rx.lock().await.recv().await {
+            match res {
+                Ok(event) if event.kind.is_access() || event.kind.is_other() => {
+                    continue;
+                }
+
+                // Ok(event) => {
+                //     if let Some(path) = event.paths.first().cloned()
+                //         && let canonical = CanonicalPath::from_canonical(path)
+                //         && let relative = RelativePath::new(&canonical, self.state.home_path())
+                //         && self.is_valid_entry(&relative).await
+                //         && !is_ds_store(&canonical)
+                //     {
+                //         if let Some(event) = self.handle_event(event, canonical, relative) {
+                //             return Ok(Some(event));
+                //         } else {
+                //             continue;
+                //         }
+                //     }
+                //     continue;
+                // }
+                Err(e) => {
+                    return Err(io::Error::other(e));
+                }
+
+                _ => todo!(),
             }
         }
         Ok(None)

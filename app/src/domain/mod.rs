@@ -18,6 +18,7 @@ pub use entry::EntryKind;
 pub use entry::VersionCmp;
 pub use entry::VersionVector;
 pub use fs::CanonicalPath;
+pub use fs::ConfigWatcherEvent;
 pub use fs::HomeWatcherEvent;
 pub use fs::RelativePath;
 pub use fs::WatcherEventPath;

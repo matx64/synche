@@ -1,76 +1,124 @@
-use crate::domain::{HomeWatcherEvent, RelativePath};
+use crate::domain::{Channel, ConfigWatcherEvent, HomeWatcherEvent, RelativePath};
 use std::{
     collections::HashMap,
-    sync::Arc,
     time::{Duration, SystemTime},
 };
-use tokio::sync::{Mutex, mpsc::Sender};
+use tokio::{io, sync::RwLock};
+
+const DEBOUNCE_DURATION: Duration = Duration::from_secs(1);
 
 pub struct WatcherBuffer {
-    items: Arc<Mutex<HashMap<RelativePath, BufferItem>>>,
+    home_chan: Channel<HomeWatcherEvent>,
+    config_chan: Channel<ConfigWatcherEvent>,
+    home_events: RwLock<HashMap<RelativePath, DebounceState<HomeWatcherEvent>>>,
+    config_events: RwLock<HashMap<RelativePath, DebounceState<ConfigWatcherEvent>>>,
 }
 
-struct BufferItem {
-    events: Vec<HomeWatcherEvent>,
+struct DebounceState<E> {
+    last_event: E,
     last_event_at: SystemTime,
 }
 
+impl Default for WatcherBuffer {
+    fn default() -> Self {
+        Self {
+            home_chan: Channel::new(100),
+            config_chan: Channel::new(100),
+            home_events: Default::default(),
+            config_events: Default::default(),
+        }
+    }
+}
+
 impl WatcherBuffer {
-    pub fn new(watch_tx: Sender<HomeWatcherEvent>) -> Self {
-        let debounce = Duration::from_secs(1);
+    pub async fn run(&self) -> io::Result<()> {
+        loop {
+            let mut home_ready = Vec::new();
+            let mut config_ready = Vec::new();
 
-        let items: Arc<Mutex<HashMap<RelativePath, BufferItem>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-        let items_clone = items.clone();
+            let now = SystemTime::now();
 
-        tokio::spawn(async move {
-            loop {
-                {
-                    let mut items = items_clone.lock().await;
+            {
+                let home_events = self.home_events.read().await;
 
-                    let now = SystemTime::now();
-                    let mut ready = Vec::new();
-
-                    for (entry_name, item) in items.iter() {
-                        if now.duration_since(item.last_event_at).unwrap_or_default() >= debounce {
-                            ready.push(entry_name.clone());
-                        }
-                    }
-
-                    for entry_name in ready {
-                        if let Some(removed) = items.remove(&entry_name)
-                            && let Some(last_event) = removed.events.last().cloned()
-                        {
-                            watch_tx.send(last_event).await.unwrap();
-                        }
+                for (path, event) in home_events.iter() {
+                    if let Ok(elapsed) = now.duration_since(event.last_event_at)
+                        && elapsed >= DEBOUNCE_DURATION
+                    {
+                        home_ready.push(path.clone());
                     }
                 }
-                tokio::time::sleep(debounce).await;
             }
-        });
 
-        Self { items }
+            {
+                let config_events = self.config_events.read().await;
+
+                for (path, event) in config_events.iter() {
+                    if let Ok(elapsed) = now.duration_since(event.last_event_at)
+                        && elapsed >= DEBOUNCE_DURATION
+                    {
+                        config_ready.push(path.clone());
+                    }
+                }
+            }
+
+            {
+                let mut home_events = self.home_events.write().await;
+
+                for path in home_ready {
+                    if let Some(removed) = home_events.remove(&path) {
+                        self.home_chan
+                            .tx
+                            .send(removed.last_event)
+                            .await
+                            .map_err(io::Error::other)?;
+                    }
+                }
+            }
+
+            {
+                let mut config_events = self.config_events.write().await;
+
+                for path in config_ready {
+                    if let Some(removed) = config_events.remove(&path) {
+                        self.config_chan
+                            .tx
+                            .send(removed.last_event)
+                            .await
+                            .map_err(io::Error::other)?;
+                    }
+                }
+            }
+
+            tokio::time::sleep(DEBOUNCE_DURATION).await;
+        }
     }
 
-    pub async fn insert(&self, event: HomeWatcherEvent) {
-        let mut items = self.items.lock().await;
-        let path = event.path();
+    pub async fn next_home_event(&self) -> Option<HomeWatcherEvent> {
+        self.home_chan.rx.lock().await.recv().await
+    }
 
-        match items.get_mut(&path.relative) {
-            Some(item) => {
-                item.last_event_at = SystemTime::now();
-                item.events.push(event);
-            }
+    pub async fn next_config_event(&self) -> Option<ConfigWatcherEvent> {
+        self.config_chan.rx.lock().await.recv().await
+    }
 
-            None => {
-                items.insert(
-                    path.relative.clone(),
-                    BufferItem {
-                        events: vec![event],
-                        last_event_at: SystemTime::now(),
-                    },
-                );
-            }
-        }
+    pub async fn insert_home_event(&self, event: HomeWatcherEvent) {
+        self.home_events.write().await.insert(
+            event.path().relative.clone(),
+            DebounceState {
+                last_event: event,
+                last_event_at: SystemTime::now(),
+            },
+        );
+    }
+
+    pub async fn insert_config_event(&self, event: ConfigWatcherEvent) {
+        self.config_events.write().await.insert(
+            event.path().relative.clone(),
+            DebounceState {
+                last_event: event,
+                last_event_at: SystemTime::now(),
+            },
+        );
     }
 }

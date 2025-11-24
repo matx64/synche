@@ -10,20 +10,13 @@ use crate::{
     utils::fs::compute_hash,
 };
 use std::sync::Arc;
-use tokio::{
-    io,
-    sync::{
-        Mutex,
-        mpsc::{self, Receiver, Sender},
-    },
-};
+use tokio::{io, sync::mpsc::Sender};
 use tracing::{error, info, warn};
 
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
-    _state: Arc<AppState>,
     buffer: WatcherBuffer,
-    watch_rx: Mutex<Receiver<HomeWatcherEvent>>,
+    _state: Arc<AppState>,
     entry_manager: Arc<EntryManager<P>>,
     sender_tx: Sender<TransportChannelData>,
 }
@@ -31,19 +24,16 @@ pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
 impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub fn new(
         adapter: T,
-        state: Arc<AppState>,
+        _state: Arc<AppState>,
         entry_manager: Arc<EntryManager<P>>,
         sender_tx: Sender<TransportChannelData>,
     ) -> Self {
-        let (watch_tx, watch_rx) = mpsc::channel(1000);
-
         Self {
+            _state,
             adapter,
             sender_tx,
             entry_manager,
-            _state: state,
-            watch_rx: Mutex::new(watch_rx),
-            buffer: WatcherBuffer::new(watch_tx),
+            buffer: WatcherBuffer::default(),
         }
     }
 
@@ -52,12 +42,13 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         self.adapter.watch_config().await?;
 
         tokio::select! {
-            res = self.recv_home_events() => res,
+            res = self.buffer.run() => res,
+            res = self.recv_adapter_home_events() => res,
             res = self.recv_buffer_events() => res
         }
     }
 
-    async fn recv_home_events(&self) -> io::Result<()> {
+    async fn recv_adapter_home_events(&self) -> io::Result<()> {
         while let Some(event) = self.adapter.next_home_event().await? {
             let path = event.path();
             if !self
@@ -65,15 +56,15 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                 .is_ignored(&path.canonical, &path.relative)
                 .await
             {
-                self.buffer.insert(event).await;
+                self.buffer.insert_home_event(event).await;
             }
         }
-        warn!("Watcher Adapter channel closed");
+        warn!("Watcher Adapter home channel closed");
         Ok(())
     }
 
     async fn recv_buffer_events(&self) -> io::Result<()> {
-        while let Some(event) = self.watch_rx.lock().await.recv().await {
+        while let Some(event) = self.buffer.next_home_event().await {
             info!("📁  {event:?}");
             match event {
                 HomeWatcherEvent::CreateOrModify(path) => {
