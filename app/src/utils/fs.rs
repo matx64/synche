@@ -74,6 +74,10 @@ fn compute_config_dir() -> io::Result<PathBuf> {
     Ok(base.join("synche"))
 }
 
+pub fn config_file() -> CanonicalPath {
+    config_dir().join("config.toml")
+}
+
 /// Returns the default platform-appropriate home directory for Synche,
 /// creating it if necessary.
 ///

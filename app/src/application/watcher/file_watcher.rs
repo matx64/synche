@@ -5,8 +5,7 @@ use crate::{
         watcher::{buffer::WatcherBuffer, interface::FileWatcherInterface},
     },
     domain::{
-        AppState, EntryInfo, EntryKind, TransportChannelData, WatcherEvent, WatcherEventKind,
-        WatcherEventPath,
+        AppState, EntryInfo, EntryKind, HomeWatcherEvent, TransportChannelData, WatcherEventPath,
     },
     utils::fs::compute_hash,
 };
@@ -24,7 +23,7 @@ pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
     _state: Arc<AppState>,
     buffer: WatcherBuffer,
-    watch_rx: Mutex<Receiver<WatcherEvent>>,
+    watch_rx: Mutex<Receiver<HomeWatcherEvent>>,
     entry_manager: Arc<EntryManager<P>>,
     sender_tx: Sender<TransportChannelData>,
 }
@@ -49,19 +48,21 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     pub async fn run(&mut self) -> io::Result<()> {
-        self.adapter.watch().await?;
+        self.adapter.watch_home().await?;
+        self.adapter.watch_config().await?;
 
         tokio::select! {
-            res = self.recv_adapter_events() => res,
+            res = self.recv_home_events() => res,
             res = self.recv_buffer_events() => res
         }
     }
 
-    async fn recv_adapter_events(&self) -> io::Result<()> {
-        while let Some(event) = self.adapter.next().await? {
+    async fn recv_home_events(&self) -> io::Result<()> {
+        while let Some(event) = self.adapter.next_home_event().await? {
+            let path = event.path();
             if !self
                 .entry_manager
-                .is_ignored(&event.path.canonical, &event.path.relative)
+                .is_ignored(&path.canonical, &path.relative)
                 .await
             {
                 self.buffer.insert(event).await;
@@ -74,14 +75,12 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     async fn recv_buffer_events(&self) -> io::Result<()> {
         while let Some(event) = self.watch_rx.lock().await.recv().await {
             info!("📁  {event:?}");
-
-            match event.kind {
-                WatcherEventKind::CreateOrModify => {
-                    self.handle_create_or_modify(event.path).await?;
+            match event {
+                HomeWatcherEvent::CreateOrModify(path) => {
+                    self.handle_create_or_modify(path).await?;
                 }
-
-                WatcherEventKind::Remove => {
-                    self.handle_remove(event.path).await?;
+                HomeWatcherEvent::Remove(path) => {
+                    self.handle_remove(path).await?;
                 }
             }
         }

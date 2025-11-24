@@ -1,9 +1,7 @@
 use crate::{
     application::watcher::interface::FileWatcherInterface,
-    domain::{
-        AppState, CanonicalPath, RelativePath, WatcherEvent, WatcherEventKind, WatcherEventPath,
-    },
-    utils::fs::is_ds_store,
+    domain::{AppState, CanonicalPath, HomeWatcherEvent, RelativePath, WatcherEventPath},
+    utils::fs::{config_file, is_ds_store},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -20,17 +18,28 @@ use tokio::{
 
 pub struct NotifyFileWatcher {
     state: Arc<AppState>,
-    watcher: RecommendedWatcher,
-    notify_rx: Mutex<Receiver<Result<Event, Error>>>,
+    home_watcher: RecommendedWatcher,
+    config_watcher: RecommendedWatcher,
+    home_rx: Mutex<Receiver<Result<Event, Error>>>,
+    config_rx: Mutex<Receiver<Result<Event, Error>>>,
 }
 
 impl FileWatcherInterface for NotifyFileWatcher {
     fn new(state: Arc<AppState>) -> Self {
-        let (notify_tx, notify_rx) = mpsc::channel(100);
+        let (home_tx, home_rx) = mpsc::channel(100);
+        let (config_tx, config_rx) = mpsc::channel(100);
 
-        let watcher = RecommendedWatcher::new(
+        let home_watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
-                notify_tx.blocking_send(res).unwrap();
+                home_tx.blocking_send(res).unwrap();
+            },
+            Config::default(),
+        )
+        .unwrap();
+
+        let config_watcher = RecommendedWatcher::new(
+            move |res: notify::Result<Event>| {
+                config_tx.blocking_send(res).unwrap();
             },
             Config::default(),
         )
@@ -38,19 +47,27 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
         Self {
             state,
-            watcher,
-            notify_rx: Mutex::new(notify_rx),
+            home_watcher,
+            config_watcher,
+            home_rx: Mutex::new(home_rx),
+            config_rx: Mutex::new(config_rx),
         }
     }
 
-    async fn watch(&mut self) -> io::Result<()> {
-        self.watcher
+    async fn watch_home(&mut self) -> io::Result<()> {
+        self.home_watcher
             .watch(&self.state.home_path(), RecursiveMode::Recursive)
             .map_err(|e| io::Error::other(e.to_string()))
     }
 
-    async fn next(&self) -> io::Result<Option<WatcherEvent>> {
-        while let Some(res) = self.notify_rx.lock().await.recv().await {
+    async fn watch_config(&mut self) -> io::Result<()> {
+        self.config_watcher
+            .watch(&config_file(), RecursiveMode::NonRecursive)
+            .map_err(|e| io::Error::other(e.to_string()))
+    }
+
+    async fn next_home_event(&self) -> io::Result<Option<HomeWatcherEvent>> {
+        while let Some(res) = self.home_rx.lock().await.recv().await {
             match res {
                 Ok(event) if event.kind.is_access() || event.kind.is_other() => {
                     continue;
@@ -87,7 +104,7 @@ impl NotifyFileWatcher {
         event: Event,
         canonical: CanonicalPath,
         relative: RelativePath,
-    ) -> Option<WatcherEvent> {
+    ) -> Option<HomeWatcherEvent> {
         match event.kind {
             EventKind::Create(_)
             | EventKind::Modify(ModifyKind::Data(_))
@@ -96,13 +113,10 @@ impl NotifyFileWatcher {
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
                 if canonical.exists() && (canonical.is_file() || canonical.is_dir()) =>
             {
-                Some(WatcherEvent::new(
-                    WatcherEventKind::CreateOrModify,
-                    WatcherEventPath {
-                        canonical,
-                        relative,
-                    },
-                ))
+                Some(HomeWatcherEvent::CreateOrModify(WatcherEventPath {
+                    relative,
+                    canonical,
+                }))
             }
 
             EventKind::Remove(_)
@@ -110,13 +124,10 @@ impl NotifyFileWatcher {
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
                 if !canonical.exists() =>
             {
-                Some(WatcherEvent::new(
-                    WatcherEventKind::Remove,
-                    WatcherEventPath {
-                        canonical,
-                        relative,
-                    },
-                ))
+                Some(HomeWatcherEvent::Remove(WatcherEventPath {
+                    canonical,
+                    relative,
+                }))
             }
 
             _ => None,

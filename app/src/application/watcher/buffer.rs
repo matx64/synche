@@ -1,4 +1,4 @@
-use crate::domain::{RelativePath, WatcherEvent};
+use crate::domain::{HomeWatcherEvent, RelativePath};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -11,12 +11,12 @@ pub struct WatcherBuffer {
 }
 
 struct BufferItem {
-    events: Vec<WatcherEvent>,
+    events: Vec<HomeWatcherEvent>,
     last_event_at: SystemTime,
 }
 
 impl WatcherBuffer {
-    pub fn new(watch_tx: Sender<WatcherEvent>) -> Self {
+    pub fn new(watch_tx: Sender<HomeWatcherEvent>) -> Self {
         let debounce = Duration::from_secs(1);
 
         let items: Arc<Mutex<HashMap<RelativePath, BufferItem>>> =
@@ -52,10 +52,11 @@ impl WatcherBuffer {
         Self { items }
     }
 
-    pub async fn insert(&self, event: WatcherEvent) {
+    pub async fn insert(&self, event: HomeWatcherEvent) {
         let mut items = self.items.lock().await;
+        let path = event.path();
 
-        match items.get_mut(&event.path.relative) {
+        match items.get_mut(&path.relative) {
             Some(item) => {
                 item.last_event_at = SystemTime::now();
                 item.events.push(event);
@@ -63,7 +64,7 @@ impl WatcherBuffer {
 
             None => {
                 items.insert(
-                    event.path.relative.clone(),
+                    path.relative.clone(),
                     BufferItem {
                         events: vec![event],
                         last_event_at: SystemTime::now(),
