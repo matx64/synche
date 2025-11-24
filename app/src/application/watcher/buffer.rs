@@ -11,7 +11,7 @@ pub struct WatcherBuffer {
     home_chan: Channel<HomeWatcherEvent>,
     config_chan: Channel<ConfigWatcherEvent>,
     home_events: RwLock<HashMap<RelativePath, DebounceState<HomeWatcherEvent>>>,
-    config_events: RwLock<HashMap<RelativePath, DebounceState<ConfigWatcherEvent>>>,
+    config_events: RwLock<Option<DebounceState<ConfigWatcherEvent>>>,
 }
 
 struct DebounceState<E> {
@@ -34,8 +34,6 @@ impl WatcherBuffer {
     pub async fn run(&self) -> io::Result<()> {
         loop {
             let mut home_ready = Vec::new();
-            let mut config_ready = Vec::new();
-
             let now = SystemTime::now();
 
             {
@@ -46,18 +44,6 @@ impl WatcherBuffer {
                         && elapsed >= DEBOUNCE_DURATION
                     {
                         home_ready.push(path.clone());
-                    }
-                }
-            }
-
-            {
-                let config_events = self.config_events.read().await;
-
-                for (path, event) in config_events.iter() {
-                    if let Ok(elapsed) = now.duration_since(event.last_event_at)
-                        && elapsed >= DEBOUNCE_DURATION
-                    {
-                        config_ready.push(path.clone());
                     }
                 }
             }
@@ -77,16 +63,18 @@ impl WatcherBuffer {
             }
 
             {
-                let mut config_events = self.config_events.write().await;
+                let mut config_guard = self.config_events.write().await;
 
-                for path in config_ready {
-                    if let Some(removed) = config_events.remove(&path) {
-                        self.config_chan
-                            .tx
-                            .send(removed.last_event)
-                            .await
-                            .map_err(io::Error::other)?;
-                    }
+                if let Some(state) = config_guard.as_mut()
+                    && let Ok(elapsed) = now.duration_since(state.last_event_at)
+                    && elapsed >= DEBOUNCE_DURATION
+                {
+                    self.config_chan
+                        .tx
+                        .send(state.last_event.clone())
+                        .await
+                        .map_err(io::Error::other)?;
+                    *config_guard = None;
                 }
             }
 
@@ -113,12 +101,10 @@ impl WatcherBuffer {
     }
 
     pub async fn insert_config_event(&self, event: ConfigWatcherEvent) {
-        self.config_events.write().await.insert(
-            event.path().relative.clone(),
-            DebounceState {
-                last_event: event,
-                last_event_at: SystemTime::now(),
-            },
-        );
+        let mut guard = self.config_events.write().await;
+        *guard = Some(DebounceState {
+            last_event: event,
+            last_event_at: SystemTime::now(),
+        });
     }
 }

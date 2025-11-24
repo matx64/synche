@@ -5,7 +5,8 @@ use crate::{
         watcher::{buffer::WatcherBuffer, interface::FileWatcherInterface},
     },
     domain::{
-        AppState, EntryInfo, EntryKind, HomeWatcherEvent, TransportChannelData, WatcherEventPath,
+        AppState, ConfigWatcherEvent, EntryInfo, EntryKind, HomeWatcherEvent, TransportChannelData,
+        WatcherEventPath,
     },
     utils::fs::compute_hash,
 };
@@ -43,8 +44,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         tokio::select! {
             res = self.buffer.run() => res,
+            res = self.recv_buffer_events() => res,
             res = self.recv_adapter_home_events() => res,
-            res = self.recv_buffer_events() => res
+            res = self.recv_adapter_config_events() => res,
         }
     }
 
@@ -60,6 +62,17 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
             }
         }
         warn!("Watcher Adapter home channel closed");
+        Ok(())
+    }
+
+    async fn recv_adapter_config_events(&self) -> io::Result<()> {
+        while let Some(event) = self.adapter.next_config_event().await? {
+            if matches!(event, ConfigWatcherEvent::Remove) {
+                return Err(io::Error::other("config.toml removed or moved"));
+            }
+            self.buffer.insert_config_event(event).await;
+        }
+        warn!("Watcher Adapter config channel closed");
         Ok(())
     }
 

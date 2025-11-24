@@ -10,7 +10,7 @@ use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
     event::{ModifyKind, RenameMode},
 };
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tokio::{
     io,
     sync::{
@@ -25,6 +25,7 @@ pub struct NotifyFileWatcher {
     config_watcher: RecommendedWatcher,
     home_rx: Mutex<Receiver<Result<Event, Error>>>,
     config_rx: Mutex<Receiver<Result<Event, Error>>>,
+    config_path: PathBuf,
 }
 
 impl FileWatcherInterface for NotifyFileWatcher {
@@ -54,6 +55,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
             config_watcher,
             home_rx: Mutex::new(home_rx),
             config_rx: Mutex::new(config_rx),
+            config_path: config_file().as_ref().to_owned(),
         }
     }
 
@@ -83,7 +85,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
                         && self.is_valid_entry(&relative).await
                         && !is_ds_store(&canonical)
                     {
-                        if let Some(event) = self.handle_event(event, canonical, relative) {
+                        if let Some(event) = self.handle_home_event(event, canonical, relative) {
                             return Ok(Some(event));
                         } else {
                             continue;
@@ -101,40 +103,16 @@ impl FileWatcherInterface for NotifyFileWatcher {
     }
 
     async fn next_config_event(&self) -> io::Result<Option<ConfigWatcherEvent>> {
-        while let Some(res) = self.config_rx.lock().await.recv().await {
-            match res {
-                Ok(event) if event.kind.is_access() || event.kind.is_other() => {
-                    continue;
-                }
-
-                // Ok(event) => {
-                //     if let Some(path) = event.paths.first().cloned()
-                //         && let canonical = CanonicalPath::from_canonical(path)
-                //         && let relative = RelativePath::new(&canonical, self.state.home_path())
-                //         && self.is_valid_entry(&relative).await
-                //         && !is_ds_store(&canonical)
-                //     {
-                //         if let Some(event) = self.handle_event(event, canonical, relative) {
-                //             return Ok(Some(event));
-                //         } else {
-                //             continue;
-                //         }
-                //     }
-                //     continue;
-                // }
-                Err(e) => {
-                    return Err(io::Error::other(e));
-                }
-
-                _ => todo!(),
-            }
+        match self.config_rx.lock().await.recv().await {
+            Some(Ok(event)) => Ok(self.handle_config_event(event)),
+            Some(Err(e)) => Err(io::Error::other(e)),
+            None => Ok(None),
         }
-        Ok(None)
     }
 }
 
 impl NotifyFileWatcher {
-    fn handle_event(
+    fn handle_home_event(
         &self,
         event: Event,
         canonical: CanonicalPath,
@@ -163,6 +141,30 @@ impl NotifyFileWatcher {
                     canonical,
                     relative,
                 }))
+            }
+
+            _ => None,
+        }
+    }
+
+    fn handle_config_event(&self, event: Event) -> Option<ConfigWatcherEvent> {
+        match event.kind {
+            EventKind::Create(_)
+            | EventKind::Modify(ModifyKind::Data(_))
+            | EventKind::Modify(ModifyKind::Any)
+            | EventKind::Modify(ModifyKind::Name(RenameMode::To))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
+                if self.config_path.exists() && self.config_path.is_file() =>
+            {
+                Some(ConfigWatcherEvent::Modify)
+            }
+
+            EventKind::Remove(_)
+            | EventKind::Modify(ModifyKind::Name(RenameMode::From))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
+                if !self.config_path.exists() =>
+            {
+                Some(ConfigWatcherEvent::Remove)
             }
 
             _ => None,
