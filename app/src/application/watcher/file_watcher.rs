@@ -44,8 +44,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         tokio::select! {
             res = self.buffer.run() => res,
-            res = self.recv_buffer_events() => res,
+            res = self.recv_home_buffer_events() => res,
             res = self.recv_adapter_home_events() => res,
+            res = self.recv_config_buffer_events() => res,
             res = self.recv_adapter_config_events() => res,
         }
     }
@@ -67,18 +68,15 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
     async fn recv_adapter_config_events(&self) -> io::Result<()> {
         while let Some(event) = self.adapter.next_config_event().await? {
-            if matches!(event, ConfigWatcherEvent::Remove) {
-                return Err(io::Error::other("config.toml removed or moved"));
-            }
             self.buffer.insert_config_event(event).await;
         }
         warn!("Watcher Adapter config channel closed");
         Ok(())
     }
 
-    async fn recv_buffer_events(&self) -> io::Result<()> {
+    async fn recv_home_buffer_events(&self) -> io::Result<()> {
         while let Some(event) = self.buffer.next_home_event().await {
-            info!("📁  {event:?}");
+            info!("{event:?}");
             match event {
                 HomeWatcherEvent::CreateOrModify(path) => {
                     self.handle_create_or_modify(path).await?;
@@ -88,7 +86,21 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                 }
             }
         }
-        warn!("Watcher Buffer channel closed");
+        warn!("Watcher Buffer home channel closed");
+        Ok(())
+    }
+
+    async fn recv_config_buffer_events(&self) -> io::Result<()> {
+        while let Some(event) = self.buffer.next_config_event().await {
+            info!("{event:?}");
+            match event {
+                ConfigWatcherEvent::Modify => todo!(),
+                ConfigWatcherEvent::Remove => {
+                    return Err(io::Error::other("config.toml removed or moved"));
+                }
+            }
+        }
+        warn!("Watcher Buffer config channel closed");
         Ok(())
     }
 

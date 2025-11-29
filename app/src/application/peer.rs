@@ -27,10 +27,7 @@ impl PeerManager {
     }
 
     pub async fn seen(&self, id: &Uuid, instance_id: &Uuid) -> bool {
-        match self.state.peers.read().await.get(id) {
-            Some(peer) if peer.instance_id == *instance_id => true,
-            _ => false,
-        }
+        matches!(self.state.peers.read().await.get(id), Some(peer) if peer.instance_id == *instance_id)
     }
 
     pub async fn exists(&self, addr: IpAddr) -> bool {

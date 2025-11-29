@@ -61,7 +61,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
     async fn watch_home(&mut self) -> io::Result<()> {
         self.home_watcher
-            .watch(&self.state.home_path(), RecursiveMode::Recursive)
+            .watch(self.state.home_path(), RecursiveMode::Recursive)
             .map_err(|e| io::Error::other(e.to_string()))
     }
 
@@ -72,7 +72,8 @@ impl FileWatcherInterface for NotifyFileWatcher {
     }
 
     async fn next_home_event(&self) -> io::Result<Option<HomeWatcherEvent>> {
-        while let Some(res) = self.home_rx.lock().await.recv().await {
+        let mut lock = self.home_rx.lock().await;
+        while let Some(res) = lock.recv().await {
             match res {
                 Ok(event) if event.kind.is_access() || event.kind.is_other() => {
                     continue;
@@ -84,14 +85,10 @@ impl FileWatcherInterface for NotifyFileWatcher {
                         && let relative = RelativePath::new(&canonical, self.state.home_path())
                         && self.is_valid_entry(&relative).await
                         && !is_ds_store(&canonical)
+                        && let Some(event) = self.handle_home_event(event, canonical, relative)
                     {
-                        if let Some(event) = self.handle_home_event(event, canonical, relative) {
-                            return Ok(Some(event));
-                        } else {
-                            continue;
-                        }
+                        return Ok(Some(event));
                     }
-                    continue;
                 }
 
                 Err(e) => {
@@ -103,11 +100,20 @@ impl FileWatcherInterface for NotifyFileWatcher {
     }
 
     async fn next_config_event(&self) -> io::Result<Option<ConfigWatcherEvent>> {
-        match self.config_rx.lock().await.recv().await {
-            Some(Ok(event)) => Ok(self.handle_config_event(event)),
-            Some(Err(e)) => Err(io::Error::other(e)),
-            None => Ok(None),
+        let mut lock = self.config_rx.lock().await;
+        while let Some(res) = lock.recv().await {
+            match res {
+                Ok(event) => {
+                    if let Some(event) = self.handle_config_event(event) {
+                        return Ok(Some(event));
+                    }
+                }
+                Err(e) => {
+                    return Err(io::Error::other(e));
+                }
+            }
         }
+        Ok(None)
     }
 }
 
