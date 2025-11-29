@@ -1,6 +1,6 @@
 use crate::{
     domain::{CanonicalPath, ConfigDirectory, ConfigPorts},
-    utils::fs::{config_dir, default_home_dir},
+    utils::fs::{config_file, default_home_dir},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io};
@@ -16,7 +16,7 @@ pub struct Config {
 
 impl Config {
     pub async fn init() -> io::Result<Self> {
-        let path = config_dir().join("config.toml");
+        let path = config_file();
 
         if path.exists() {
             let contents = fs::read_to_string(path).await?;

@@ -2,7 +2,7 @@ use crate::{
     domain::{
         CanonicalPath, Channel, Config, ConfigPorts, Peer, RelativePath, ServerEvent, SyncDirectory,
     },
-    utils::fs::config_dir,
+    utils::fs::config_file,
 };
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::RwLock};
@@ -76,7 +76,7 @@ impl AppState {
     }
 
     pub async fn update_config_file(&self) -> io::Result<()> {
-        let path = config_dir().join("config.toml");
+        let path = config_file();
         let directory = {
             self.sync_dirs
                 .read()
@@ -97,5 +97,14 @@ impl AppState {
             toml::to_string_pretty(&config).map_err(|e| io::Error::other(e.to_string()))?;
 
         fs::write(path, contents).await
+    }
+
+    pub async fn config_file_modified(&self) -> io::Result<()> {
+        let new_cfg: Config = {
+            let contents = fs::read_to_string(config_file()).await?;
+            toml::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
+        }?;
+
+        todo!()
     }
 }
