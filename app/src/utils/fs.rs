@@ -9,77 +9,13 @@ use tokio::{
     io::{self, AsyncReadExt},
 };
 
-static CONFIG_DIR: OnceLock<CanonicalPath> = OnceLock::new();
-
-/// Returns the platform-appropriate configuration directory for Synche,
-/// creating it if necessary.
-///
-/// The directory is chosen using sane defaults per operating system:
-/// - **Linux**: `$XDG_CONFIG_HOME/synche` if `XDG_CONFIG_HOME` is set,
-///   otherwise `$HOME/.config/synche`
-/// - **macOS**: `$HOME/Library/Application Support/synche`
-/// - **Windows**: `%APPDATA%\synche`
-///
-/// If the directory does not exist it will be created (including any
-/// missing parent directories).
-pub fn config_dir() -> &'static CanonicalPath {
-    CONFIG_DIR.get_or_init(|| {
-        let dir = compute_config_dir().unwrap();
-
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir).unwrap();
-        }
-
-        CanonicalPath::new(&dir).unwrap()
-    })
-}
-
-fn compute_config_dir() -> io::Result<PathBuf> {
-    let base: PathBuf;
-
-    #[cfg(target_os = "linux")]
-    {
-        use std::env;
-        base = env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| dirs::home_dir().map(|home| home.join(".config")))
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "Could not determine config directory",
-                )
-            })?;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let home = dirs::home_dir().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "Could not determine home directory",
-            )
-        })?;
-
-        base = home.join("Library").join("Application Support");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::env;
-        base = env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "APPDATA not set"))?;
-    }
-
-    Ok(base.join("synche"))
-}
-
-pub fn config_file() -> CanonicalPath {
-    config_dir().join("config.toml")
-}
+static OS_DATA_DIR: OnceLock<CanonicalPath> = OnceLock::new();
+static OS_CONFIG_DIR: OnceLock<CanonicalPath> = OnceLock::new();
 
 /// Returns the default platform-appropriate home directory for Synche,
 /// creating it if necessary.
+///
+/// **Synche Home Directory** is the location for all synchronized data.
 ///
 /// The directory is chosen using sane defaults per operating system:
 /// - On Unix-like systems this is typically: `$HOME/Synche`
@@ -102,6 +38,107 @@ pub fn default_home_dir() -> io::Result<CanonicalPath> {
     }
 
     CanonicalPath::new(&dir)
+}
+
+/// Returns the platform-appropriate data directory for Synche,
+/// creating it if necessary.
+///
+/// The directory is chosen using sane defaults per operating system:
+/// - **Linux**: `$XDG_DATA_HOME/synche` if `XDG_DATA_HOME` is set,
+///   otherwise `$HOME/.local/share/synche`
+/// - **macOS**: `$HOME/Library/Application Support/synche`
+/// - **Windows**: `%APPDATA%\synche`
+///
+/// If the directory does not exist it will be created (including any
+/// missing parent directories).
+pub fn data_dir() -> &'static CanonicalPath {
+    OS_DATA_DIR.get_or_init(|| {
+        let dir = compute_os_dir(true).unwrap();
+
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).unwrap();
+        }
+
+        CanonicalPath::new(&dir).unwrap()
+    })
+}
+
+/// Returns the platform-appropriate configuration directory for Synche,
+/// creating it if necessary.
+///
+/// The directory is chosen using sane defaults per operating system:
+/// - **Linux**: `$XDG_CONFIG_HOME/synche` if `XDG_CONFIG_HOME` is set,
+///   otherwise `$HOME/.config/synche`
+/// - **macOS**: `$HOME/Library/Application Support/synche`
+/// - **Windows**: `%APPDATA%\synche`
+///
+/// If the directory does not exist it will be created (including any
+/// missing parent directories).
+pub fn config_dir() -> &'static CanonicalPath {
+    OS_CONFIG_DIR.get_or_init(|| {
+        let dir = compute_os_dir(false).unwrap();
+
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).unwrap();
+        }
+
+        CanonicalPath::new(&dir).unwrap()
+    })
+}
+
+fn compute_os_dir(is_data: bool) -> io::Result<PathBuf> {
+    let base: PathBuf;
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::env;
+
+        let k = if is_data {
+            "XDG_DATA_HOME"
+        } else {
+            "XDG_CONFIG_HOME"
+        };
+
+        base = env::var_os(k)
+            .map(std::path::PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|home| home.join(".local").join("share")))
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not determine data directory",
+                )
+            })?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let home = dirs::home_dir().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Could not determine home directory",
+            )
+        })?;
+
+        base = home.join("Library").join("Application Support");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::env;
+        base = env::var_os("APPDATA")
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "APPDATA not set"))?;
+    }
+
+    Ok(base.join("synche"))
+}
+
+pub fn device_id_file() -> CanonicalPath {
+    data_dir().join("device_id")
+}
+
+pub fn config_file() -> CanonicalPath {
+    config_dir().join("config.toml")
 }
 
 pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
