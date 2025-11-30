@@ -100,12 +100,18 @@ fn compute_os_dir(is_data: bool) -> io::Result<PathBuf> {
         };
 
         base = env::var_os(k)
-            .map(std::path::PathBuf::from)
-            .or_else(|| dirs::home_dir().map(|home| home.join(".local").join("share")))
+            .map(PathBuf::from)
+            .or_else(|| {
+                if is_data {
+                    dirs::home_dir().map(|home| home.join(".local").join("share"))
+                } else {
+                    dirs::home_dir().map(|home| home.join(".config"))
+                }
+            })
             .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    "Could not determine data directory",
+                    "Could not determine OS directory",
                 )
             })?;
     }
@@ -126,7 +132,7 @@ fn compute_os_dir(is_data: bool) -> io::Result<PathBuf> {
     {
         use std::env;
         base = env::var_os("APPDATA")
-            .map(std::path::PathBuf::from)
+            .map(PathBuf::from)
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "APPDATA not set"))?;
     }
 

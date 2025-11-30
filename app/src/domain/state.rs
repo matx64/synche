@@ -1,15 +1,19 @@
 use crate::{
     domain::{
-        CanonicalPath, Channel, Config, ConfigPorts, Peer, RelativePath, ServerEvent, SyncDirectory,
+        AppPorts, CanonicalPath, Channel, Config, Peer, RelativePath, ServerEvent, SyncDirectory,
     },
-    utils::fs::config_file,
+    utils::fs::{config_file, device_id_file},
 };
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::RwLock};
 use uuid::Uuid;
 
+const HTTP_PORT: u16 = 42880;
+const PRESENCE_PORT: u16 = 42881;
+const TRANSPORT_PORT: u16 = 42882;
+
 pub struct AppState {
-    ports: ConfigPorts,
+    ports: AppPorts,
     local_id: Uuid,
     instance_id: Uuid,
     hostname: String,
@@ -25,6 +29,7 @@ impl AppState {
         let config = Config::init().await.unwrap();
 
         let local_ip = local_ip_address::local_ip().unwrap();
+        let (local_id, instance_id) = Self::init_ids().await.unwrap();
 
         let hostname = hostname::get().unwrap().to_string_lossy().to_string();
         let hostname = hostname
@@ -38,20 +43,26 @@ impl AppState {
             .map(|d| (d.name.clone(), d.to_sync()))
             .collect();
 
+        let ports = AppPorts {
+            http: HTTP_PORT,
+            presence: PRESENCE_PORT,
+            transport: TRANSPORT_PORT,
+        };
+
         Arc::new(Self {
+            ports,
             hostname,
-            home_path: config.home_path,
-            ports: config.ports.clone(),
-            local_id: config.device_id,
-            instance_id: Uuid::new_v4(),
-            peers: RwLock::new(HashMap::new()),
-            sync_dirs: RwLock::new(sync_dirs),
-            local_ip: RwLock::new(local_ip),
+            local_id,
+            instance_id,
+            peers: Default::default(),
             sse_chan: Channel::new(10),
+            home_path: config.home_path,
+            local_ip: RwLock::new(local_ip),
+            sync_dirs: RwLock::new(sync_dirs),
         })
     }
 
-    pub fn ports(&self) -> &ConfigPorts {
+    pub fn ports(&self) -> &AppPorts {
         &self.ports
     }
 
@@ -75,6 +86,21 @@ impl AppState {
         *self.local_ip.read().await
     }
 
+    pub async fn init_ids() -> io::Result<(Uuid, Uuid)> {
+        let file = device_id_file();
+
+        let local_id = if !file.exists() {
+            let id = Uuid::new_v4();
+            fs::write(file, id.to_string()).await?;
+            id
+        } else {
+            let id = fs::read_to_string(file).await?;
+            Uuid::parse_str(&id).map_err(io::Error::other)?
+        };
+
+        Ok((local_id, Uuid::new_v4()))
+    }
+
     pub async fn update_config_file(&self) -> io::Result<()> {
         let path = config_file();
         let directory = {
@@ -88,8 +114,6 @@ impl AppState {
 
         let config = Config {
             directory,
-            device_id: self.local_id,
-            ports: self.ports.clone(),
             home_path: self.home_path.clone(),
         };
 
@@ -99,8 +123,8 @@ impl AppState {
         fs::write(path, contents).await
     }
 
-    pub async fn config_file_modified(&self) -> io::Result<()> {
-        let new_cfg: Config = {
+    pub async fn _config_file_modified(&self) -> io::Result<()> {
+        let _new_cfg: Config = {
             let contents = fs::read_to_string(config_file()).await?;
             toml::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
         }?;

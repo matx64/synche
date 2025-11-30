@@ -1,15 +1,12 @@
 use crate::{
-    domain::{CanonicalPath, ConfigDirectory, ConfigPorts},
+    domain::{CanonicalPath, ConfigDirectory},
     utils::fs::{config_file, default_home_dir},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io};
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    pub device_id: Uuid,
-    pub ports: ConfigPorts,
     pub home_path: CanonicalPath,
     pub directory: Vec<ConfigDirectory>,
 }
@@ -20,16 +17,20 @@ impl Config {
 
         if path.exists() {
             let contents = fs::read_to_string(path).await?;
+            let cfg: Self = toml::from_str(&contents).map_err(io::Error::other)?;
 
-            toml::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
+            if !cfg.home_path.exists() {
+                fs::create_dir_all(&cfg.home_path).await?;
+            }
+
+            Ok(cfg)
         } else {
-            let data = Self::default();
+            let cfg = Self::default();
 
-            let contents =
-                toml::to_string_pretty(&data).map_err(|e| io::Error::other(e.to_string()))?;
+            let contents = toml::to_string_pretty(&cfg).map_err(io::Error::other)?;
 
             fs::write(path, contents).await?;
-            Ok(data)
+            Ok(cfg)
         }
     }
 }
@@ -37,14 +38,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            device_id: Uuid::new_v4(),
             home_path: default_home_dir().unwrap(),
             directory: vec![ConfigDirectory::new("Default Folder")],
-            ports: ConfigPorts {
-                http: 42880,
-                presence: 42881,
-                transport: 42882,
-            },
         }
     }
 }
