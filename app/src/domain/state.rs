@@ -5,7 +5,7 @@ use crate::{
     },
     utils::fs::{config_file, device_id_file},
 };
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc};
 use tokio::{fs, io, sync::RwLock};
 use uuid::Uuid;
 
@@ -144,6 +144,40 @@ impl AppState {
             home_path: self.home_path.clone(),
         })
         .await
+    }
+
+    pub async fn set_home_path_in_config(&self, new_path: String) -> io::Result<()> {
+        let new_home_path = self.validate_home_path(&new_path).await?;
+
+        let directory: Vec<ConfigDirectory> = {
+            self.sync_dirs
+                .read()
+                .await
+                .values()
+                .map(|d| d.to_config())
+                .collect()
+        };
+
+        self.write_config(&Config {
+            directory,
+            home_path: new_home_path,
+        })
+        .await
+    }
+
+    pub async fn validate_home_path(&self, path_str: &str) -> io::Result<CanonicalPath> {
+        let path_buf = PathBuf::from(path_str);
+
+        if !path_buf.exists() {
+            fs::create_dir_all(&path_buf).await?;
+        } else if !path_buf.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Path exists but is not a directory",
+            ));
+        }
+
+        CanonicalPath::new(&path_buf)
     }
 
     async fn write_config(&self, config: &Config) -> io::Result<()> {

@@ -17,7 +17,7 @@ use tracing::{error, info, trace, warn};
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
     buffer: WatcherBuffer,
-    _state: Arc<AppState>,
+    state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     sender_tx: Sender<TransportChannelData>,
@@ -26,13 +26,13 @@ pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
 impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub fn new(
         adapter: T,
-        _state: Arc<AppState>,
+        state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
         sender_tx: Sender<TransportChannelData>,
     ) -> Self {
         Self {
-            _state,
+            state,
             adapter,
             sender_tx,
             peer_manager,
@@ -207,12 +207,24 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     async fn handle_config_modify(&self) -> io::Result<()> {
         let new_config = Config::init().await?;
 
-        if new_config.home_path != *self._state.home_path() {
-            return Err(io::Error::other(format!(
-                "HOME_PATH_CHANGED:{}:{}",
-                self._state.home_path().display(),
-                new_config.home_path.display()
-            )));
+        if new_config.home_path != *self.state.home_path() {
+            let path_str = new_config.home_path.display().to_string();
+            match self.state.validate_home_path(&path_str).await {
+                Ok(_) => {
+                    return Err(io::Error::other(format!(
+                        "HOME_PATH_CHANGED:{}:{}",
+                        self.state.home_path().display(),
+                        new_config.home_path.display()
+                    )));
+                }
+                Err(e) => {
+                    warn!(
+                        "Invalid home_path '{}' in config.toml, ignoring change: {}",
+                        path_str, e
+                    );
+                    return Ok(());
+                }
+            }
         }
 
         let current_dirs: HashSet<RelativePath> = self

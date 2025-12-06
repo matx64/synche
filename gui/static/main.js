@@ -3,6 +3,7 @@ const el_dir_list = document.getElementById("dir-list");
 const el_remove_dialog = document.getElementById("remove-dir-dialog");
 const el_remove_dir_name = document.getElementById("remove-dir-name");
 const el_confirm_remove_btn = document.getElementById("confirm-remove-btn");
+const el_home_path_form = document.getElementById("home-path-form");
 
 el_dir_form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -51,6 +52,19 @@ async function delete_dir(dir_name) {
     }
   };
 }
+
+el_home_path_form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const data = new FormData(el_home_path_form);
+  const home_path = data.get("home-path");
+
+  el_home_path_form.closest("dialog").close();
+
+  await fetch(`/api/set-home-path?path=${encodeURIComponent(home_path)}`, {
+    method: "POST",
+  });
+});
 
 function dir_list_item_component(name) {
   return `<details class="list-item" id="dir-${name}">

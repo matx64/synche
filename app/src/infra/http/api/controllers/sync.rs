@@ -22,6 +22,7 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
     Router::new()
         .route("/add-sync-dir", post(add_sync_dir))
         .route("/remove-sync-dir", post(remove_sync_dir))
+        .route("/set-home-path", post(set_home_path))
         .with_state(state)
 }
 
@@ -57,6 +58,27 @@ async fn remove_sync_dir<P: PersistenceInterface>(
         Err(err) => {
             error!("Remove sync dir error: {err}");
             StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct SetHomePathParams {
+    pub path: String,
+}
+
+async fn set_home_path<P: PersistenceInterface>(
+    State(state): State<Arc<ControllerState<P>>>,
+    Query(params): Query<SetHomePathParams>,
+) -> StatusCode {
+    match state.http_service.set_home_path(params.path).await {
+        Ok(_) => StatusCode::OK,
+        Err(err) => {
+            error!("Set home path error: {err}");
+            match err.kind() {
+                std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            }
         }
     }
 }

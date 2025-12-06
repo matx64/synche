@@ -28,6 +28,7 @@ async fn index<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
 ) -> Result<Html<String>, StatusCode> {
     let (local_ip, local_id, hostname) = state.http_service.get_local_info().await;
+    let home_path = state.http_service.get_home_path();
 
     let dirs = state.http_service.list_dirs().await;
     let peers = state.http_service.list_peers().await;
@@ -44,6 +45,7 @@ async fn index<P: PersistenceInterface>(
             hostname => hostname,
             local_ip => local_ip,
             local_id => local_id,
+            home_path => home_path,
         })
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

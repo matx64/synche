@@ -60,6 +60,14 @@ impl<P: PersistenceInterface> HttpService<P> {
         )
     }
 
+    pub fn get_home_path(&self) -> String {
+        self.state.home_path().display().to_string()
+    }
+
+    pub async fn set_home_path(&self, new_path: String) -> io::Result<()> {
+        self.state.set_home_path_in_config(new_path).await
+    }
+
     pub async fn next_sse_event(&self) -> Option<ServerEvent> {
         self.state.sse_chan.rx.lock().await.recv().await
     }

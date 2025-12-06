@@ -44,11 +44,16 @@ body {
     font-family: monospace;
 }
 
-body > header {
+body>header {
     text-align: center;
     background-color: var(--bg-color-secondary);
     padding: 1rem;
     border-radius: var(--border-radius);
+
+    #settings-container {
+        display: flex;
+        justify-content: end;
+    }
 }
 
 main {
@@ -58,6 +63,7 @@ main {
     gap: 2rem;
     justify-content: center;
     overflow-y: hidden;
+    position: relative;
 }
 
 @media (max-width: 1000px) {
@@ -66,7 +72,7 @@ main {
     }
 }
 
-main > section {
+main>section {
     display: flex;
     flex-direction: column;
     gap: 2rem;
@@ -75,7 +81,7 @@ main > section {
     overflow-y: hidden;
 }
 
-main > section > header {
+main>section>header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -114,7 +120,7 @@ main > section > header {
         cursor: pointer;
     }
 
-    summary > * {
+    summary>* {
         display: flex;
         align-items: center;
         gap: 0.5rem;
@@ -145,15 +151,17 @@ main > section > header {
 }
 
 #add-dir-dialog,
-#remove-dir-dialog {
+#remove-dir-dialog,
+#home-path-dialog {
     padding: 2rem;
     border: 1px solid var(--success-color);
     border-radius: var(--border-radius);
     background-color: var(--bg-color);
     color: var(--text-color);
     text-align: center;
+    max-width: 500px;
 
-    hgroup > h2 {
+    hgroup>h2 {
         margin-bottom: 1.5rem;
     }
 
@@ -164,7 +172,7 @@ main > section > header {
         gap: 1rem;
     }
 
-    > div {
+    >div {
         margin-top: 1.5rem;
         display: flex;
         gap: 0.5rem;
@@ -223,7 +231,7 @@ footer {
     }
 }
 
-footer > * {
+footer>* {
     display: flex;
     align-items: center;
     justify-content: center;
