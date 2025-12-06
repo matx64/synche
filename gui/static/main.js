@@ -25,8 +25,9 @@ el_dir_form.addEventListener("submit", async (e) => {
 });
 
 el_dir_list.addEventListener("click", async (e) => {
-  if (e.target.matches(".remove-dir-btn")) {
-    const dir_id = e.target.closest("details")?.id ?? null;
+  const removeBtn = e.target.closest(".remove-dir-btn");
+  if (removeBtn) {
+    const dir_id = removeBtn.closest("details")?.id ?? null;
     const prefix = "dir-";
 
     if (dir_id && dir_id.startsWith(prefix)) {
