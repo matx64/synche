@@ -1,6 +1,7 @@
 use crate::{
     domain::{
-        AppPorts, CanonicalPath, Channel, Config, Peer, RelativePath, ServerEvent, SyncDirectory,
+        AppPorts, CanonicalPath, Channel, Config, ConfigDirectory, Peer, RelativePath, ServerEvent,
+        SyncDirectory,
     },
     utils::fs::{config_file, device_id_file},
 };
@@ -101,34 +102,52 @@ impl AppState {
         Ok((local_id, Uuid::new_v4()))
     }
 
-    pub async fn update_config_file(&self) -> io::Result<()> {
-        let path = config_file();
-        let directory = {
-            self.sync_dirs
-                .read()
-                .await
-                .values()
-                .map(|d| d.to_config())
+    pub async fn add_dir_to_config(&self, name: &RelativePath) -> io::Result<bool> {
+        let mut directory: Vec<ConfigDirectory> = {
+            let dirs = self.sync_dirs.read().await;
+
+            if dirs.contains_key(name) {
+                return Ok(false);
+            }
+
+            dirs.values().map(|d| d.to_config()).collect()
+        };
+
+        directory.push(ConfigDirectory {
+            name: name.to_owned(),
+        });
+
+        self.write_config(&Config {
+            directory,
+            home_path: self.home_path.clone(),
+        })
+        .await
+        .map(|_| true)
+    }
+
+    pub async fn remove_dir_from_config(&self, name: &RelativePath) -> io::Result<()> {
+        let directory: Vec<ConfigDirectory> = {
+            let dirs = self.sync_dirs.read().await;
+
+            if !dirs.contains_key(name) {
+                return Ok(());
+            }
+
+            dirs.iter()
+                .filter(|(path, _)| *path != name)
+                .map(|(_, d)| d.to_config())
                 .collect()
         };
 
-        let config = Config {
+        self.write_config(&Config {
             directory,
             home_path: self.home_path.clone(),
-        };
-
-        let contents =
-            toml::to_string_pretty(&config).map_err(|e| io::Error::other(e.to_string()))?;
-
-        fs::write(path, contents).await
+        })
+        .await
     }
 
-    pub async fn _config_file_modified(&self) -> io::Result<()> {
-        let _new_cfg: Config = {
-            let contents = fs::read_to_string(config_file()).await?;
-            toml::from_str(&contents).map_err(|e| io::Error::other(e.to_string()))
-        }?;
-
-        todo!()
+    async fn write_config(&self, config: &Config) -> io::Result<()> {
+        let contents = toml::to_string_pretty(config).map_err(io::Error::other)?;
+        fs::write(config_file(), contents).await
     }
 }

@@ -1,23 +1,24 @@
 use crate::{
     application::{
-        EntryManager,
+        EntryManager, PeerManager,
         persistence::interface::PersistenceInterface,
         watcher::{buffer::WatcherBuffer, interface::FileWatcherInterface},
     },
     domain::{
-        AppState, ConfigWatcherEvent, EntryInfo, EntryKind, HomeWatcherEvent, TransportChannelData,
-        WatcherEventPath,
+        AppState, Config, ConfigWatcherEvent, EntryInfo, EntryKind, HomeWatcherEvent, RelativePath,
+        TransportChannelData, WatcherEventPath,
     },
     utils::fs::compute_hash,
 };
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
     buffer: WatcherBuffer,
     _state: Arc<AppState>,
+    peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     sender_tx: Sender<TransportChannelData>,
 }
@@ -26,6 +27,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     pub fn new(
         adapter: T,
         _state: Arc<AppState>,
+        peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
         sender_tx: Sender<TransportChannelData>,
     ) -> Self {
@@ -33,6 +35,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
             _state,
             adapter,
             sender_tx,
+            peer_manager,
             entry_manager,
             buffer: WatcherBuffer::default(),
         }
@@ -94,7 +97,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         while let Some(event) = self.buffer.next_config_event().await {
             info!("{event:?}");
             match event {
-                ConfigWatcherEvent::Modify => todo!(),
+                ConfigWatcherEvent::Modify => {
+                    self.handle_config_modify().await?;
+                }
                 ConfigWatcherEvent::Remove => {
                     return Err(io::Error::other("config.toml removed or moved"));
                 }
@@ -197,5 +202,77 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         {
             error!("Failed to buffer metadata {}", err);
         }
+    }
+
+    async fn handle_config_modify(&self) -> io::Result<()> {
+        let new_config = Config::init().await?;
+
+        let current_dirs: HashSet<RelativePath> = self
+            .entry_manager
+            .list_dirs()
+            .await
+            .keys()
+            .cloned()
+            .collect();
+
+        let new_dirs: HashSet<RelativePath> = new_config
+            .directory
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+
+        if new_dirs == current_dirs {
+            info!("Config modified but sync directories unchanged");
+            return Ok(());
+        }
+
+        let added: Vec<RelativePath> = new_dirs.difference(&current_dirs).cloned().collect();
+        let removed: Vec<RelativePath> = current_dirs.difference(&new_dirs).cloned().collect();
+
+        for dir in removed {
+            trace!("Config change: removing sync dir {dir:?}");
+            if let Err(e) = self.remove_sync_dir(&dir).await {
+                error!("Failed to remove sync dir {dir:?}: {e}");
+            }
+        }
+
+        for dir in added {
+            trace!("Config change: adding sync dir {dir:?}");
+            if let Err(e) = self.add_sync_dir(dir.clone()).await {
+                error!("Failed to add sync dir {dir:?}: {e}");
+            }
+        }
+
+        self.resync_all_peers().await?;
+
+        Ok(())
+    }
+
+    async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
+        self.entry_manager.add_sync_dir(name.clone()).await?;
+        info!("Sync dir added: {name:?}");
+        Ok(())
+    }
+
+    async fn remove_sync_dir(&self, name: &RelativePath) -> io::Result<()> {
+        if self.entry_manager.remove_sync_dir(name).await? {
+            info!("Sync dir removed: {name:?}");
+        }
+        Ok(())
+    }
+
+    async fn resync_all_peers(&self) -> io::Result<()> {
+        let peers = self.peer_manager.list().await;
+        let peer_count = peers.len();
+
+        for peer in peers {
+            self.sender_tx
+                .send(TransportChannelData::HandshakeSyn(peer.addr))
+                .await
+                .map_err(|e| io::Error::other(e.to_string()))?;
+        }
+
+        info!("Resync triggered with {} peer(s)", peer_count);
+        Ok(())
     }
 }

@@ -1,9 +1,9 @@
 use crate::{
     application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
-    domain::{AppState, Peer, RelativePath, ServerEvent, SyncDirectory, TransportChannelData},
+    domain::{AppState, Peer, RelativePath, ServerEvent, SyncDirectory},
 };
 use std::{net::IpAddr, sync::Arc};
-use tokio::{io, sync::mpsc::Sender};
+use tokio::io;
 use tracing::info;
 use uuid::Uuid;
 
@@ -11,7 +11,6 @@ pub struct HttpService<P: PersistenceInterface> {
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
-    sender_tx: Sender<TransportChannelData>,
 }
 
 impl<P: PersistenceInterface> HttpService<P> {
@@ -19,11 +18,9 @@ impl<P: PersistenceInterface> HttpService<P> {
         state: Arc<AppState>,
         peer_manager: Arc<PeerManager>,
         entry_manager: Arc<EntryManager<P>>,
-        sender_tx: Sender<TransportChannelData>,
     ) -> Arc<Self> {
         Arc::new(Self {
             state,
-            sender_tx,
             peer_manager,
             entry_manager,
         })
@@ -39,35 +36,16 @@ impl<P: PersistenceInterface> HttpService<P> {
     }
 
     pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<bool> {
-        if self.entry_manager.get_sync_dir(&name).await.is_some() {
-            return Ok(false);
+        if self.state.add_dir_to_config(&name).await? {
+            info!("Sync dir add requested: {name:?}");
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        self.entry_manager.add_sync_dir(name.clone()).await?;
-        self.state.update_config_file().await?;
-        self.resync().await?;
-
-        info!("📂 Sync dir added: {name:?}");
-        Ok(true)
     }
 
     pub async fn remove_sync_dir(&self, name: RelativePath) -> io::Result<()> {
-        if self.entry_manager.remove_sync_dir(&name).await? {
-            info!("📂 Sync dir removed: {name:?}");
-            self.state.update_config_file().await?;
-            self.resync().await?;
-        }
-        Ok(())
-    }
-
-    async fn resync(&self) -> io::Result<()> {
-        for peer in self.peer_manager.list().await {
-            self.sender_tx
-                .send(TransportChannelData::HandshakeSyn(peer.addr))
-                .await
-                .map_err(|e| io::Error::other(e.to_string()))?;
-        }
-        Ok(())
+        self.state.remove_dir_from_config(&name).await
     }
 
     pub async fn list_peers(&self) -> Vec<Peer> {

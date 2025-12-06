@@ -71,6 +71,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         let file_watcher = FileWatcher::new(
             watch_adapter,
             state.clone(),
+            peer_manager.clone(),
             entry_manager.clone(),
             sender_tx.clone(),
         );
@@ -79,10 +80,10 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             presence_adapter,
             state.clone(),
             peer_manager.clone(),
-            sender_tx.clone(),
+            sender_tx,
         );
 
-        let http_service = HttpService::new(state.clone(), peer_manager, entry_manager, sender_tx);
+        let http_service = HttpService::new(state.clone(), peer_manager, entry_manager);
 
         Self {
             state,
