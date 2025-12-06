@@ -207,6 +207,14 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     async fn handle_config_modify(&self) -> io::Result<()> {
         let new_config = Config::init().await?;
 
+        if new_config.home_path != *self._state.home_path() {
+            return Err(io::Error::other(format!(
+                "HOME_PATH_CHANGED:{}:{}",
+                self._state.home_path().display(),
+                new_config.home_path.display()
+            )));
+        }
+
         let current_dirs: HashSet<RelativePath> = self
             .entry_manager
             .list_dirs()

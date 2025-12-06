@@ -44,6 +44,38 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
 
         Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
     }
+
+    pub async fn run_default_with_restart() -> io::Result<()> {
+        loop {
+            let mut synchronizer = Self::new_default().await;
+
+            match synchronizer.run().await {
+                Ok(()) => {
+                    // Normal shutdown
+                    break;
+                }
+                Err(e) if e.to_string().starts_with("HOME_PATH_CHANGED:") => {
+                    let error_msg = e.to_string();
+                    let parts: Vec<&str> = error_msg.split(':').collect();
+                    if parts.len() >= 3 {
+                        let old_path = parts[1];
+                        let new_path = parts[2];
+                        tracing::info!(
+                            "home_path changed from {} to {}. Restarting synchronizer...",
+                            old_path,
+                            new_path
+                        );
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D: PresenceInterface>
@@ -106,7 +138,15 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             let mut sighup = signal(SignalKind::hangup()).expect("bind SIGHUP");
 
             tokio::select! {
-                res = self._run() => res?,
+                res = self._run() => {
+                    if let Err(e) = res {
+                        if e.to_string().starts_with("HOME_PATH_CHANGED:") {
+                            self.shutdown().await?;
+                            return Err(e);
+                        }
+                        return Err(e);
+                    }
+                }
 
                 _ = ctrl_c => {
                     tracing::info!("🛑 SIGINT"); self.shutdown().await?;
@@ -129,7 +169,15 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             let ctrl_c = signal::ctrl_c();
 
             tokio::select! {
-                res = self._run() => res?,
+                res = self._run() => {
+                    if let Err(e) = res {
+                        if e.to_string().starts_with("HOME_PATH_CHANGED:") {
+                            self.shutdown().await?;
+                            return Err(e);
+                        }
+                        return Err(e);
+                    }
+                }
 
                 _ = ctrl_c => {
                     tracing::info!("🛑 SIGINT"); self.shutdown().await?;

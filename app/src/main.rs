@@ -7,9 +7,7 @@ mod utils;
 async fn main() -> tokio::io::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut synchronizer = application::Synchronizer::new_default().await;
-
-    synchronizer.run().await
+    application::Synchronizer::run_default_with_restart().await
 }
 
 #[cfg(test)]
