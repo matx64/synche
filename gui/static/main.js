@@ -1,5 +1,8 @@
 const el_dir_form = document.getElementById("add-dir-form");
 const el_dir_list = document.getElementById("dir-list");
+const el_remove_dialog = document.getElementById("remove-dir-dialog");
+const el_remove_dir_name = document.getElementById("remove-dir-name");
+const el_confirm_remove_btn = document.getElementById("confirm-remove-btn");
 
 el_dir_form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -33,17 +36,19 @@ el_dir_list.addEventListener("click", async (e) => {
 });
 
 async function delete_dir(dir_name) {
-  const confirmed = confirm(`Stop syncing "${dir_name}" directory?`);
+  el_remove_dir_name.textContent = dir_name;
+  el_remove_dialog.showModal();
 
-  if (confirmed) {
+  el_confirm_remove_btn.onclick = async () => {
     const res = await fetch(`/api/remove-sync-dir?name=${dir_name}`, {
       method: "POST",
     });
 
     if (res.status == 200) {
       document.getElementById(`dir-${dir_name}`).remove();
+      el_remove_dialog.close();
     }
-  }
+  };
 }
 
 function dir_list_item_component(name) {

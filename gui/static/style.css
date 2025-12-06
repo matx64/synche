@@ -144,7 +144,8 @@ main > section > header {
     }
 }
 
-#add-dir-dialog {
+#add-dir-dialog,
+#remove-dir-dialog {
     padding: 2rem;
     border: 1px solid var(--success-color);
     border-radius: var(--border-radius);
@@ -161,6 +162,13 @@ main > section > header {
         display: flex;
         flex-direction: column;
         gap: 1rem;
+    }
+
+    > div {
+        margin-top: 1.5rem;
+        display: flex;
+        gap: 0.5rem;
+        justify-content: center;
     }
 }
 
@@ -181,6 +189,11 @@ input {
 
 .btn-success {
     background-color: var(--success-color);
+    color: white;
+}
+
+.btn-danger {
+    background-color: var(--error-color);
     color: white;
 }
 

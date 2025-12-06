@@ -285,6 +285,33 @@
                         </div>
                     </form>
                 </dialog>
+
+                <dialog id="remove-dir-dialog">
+                    <hgroup>
+                        <h2>Stop Syncing Directory</h2>
+                        <p>
+                            Are you sure you want to stop syncing
+                            <strong><span id="remove-dir-name"></span></strong>?
+                        </p>
+
+                        <small>
+                            This will remove the directory from sync. Local
+                            files will not be deleted.
+                        </small>
+                    </hgroup>
+
+                    <div>
+                        <button class="btn btn-danger" id="confirm-remove-btn">
+                            Confirm
+                        </button>
+                        <button
+                            class="btn"
+                            onclick="this.closest('dialog').close()"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </dialog>
             </section>
         </main>
 
