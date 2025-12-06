@@ -3,27 +3,39 @@ const el_peer_list = document.getElementById("peer-list");
 const es = new EventSource("/api/events");
 
 es.onmessage = (event) => {
-    const data = JSON.parse(event.data);
+  const data = JSON.parse(event.data);
 
-    console.log("SSE:", data);
+  console.log("SSE:", data);
 
-    const [kind, payload] = Object.entries(data)[0];
-
-    switch (kind) {
-        case "PeerConnected":
-            render_peer_list_item_component(payload);
-            break;
-
-        case "PeerDisconnected":
-            disconnect_peer(payload);
-            break;
+  if (typeof data === "string") {
+    if (data === "ServerRestart") {
+      reload();
     }
+    return;
+  }
+
+  const [kind, payload] = Object.entries(data)[0];
+
+  switch (kind) {
+    case "PeerConnected":
+      render_peer_list_item_component(payload);
+      break;
+
+    case "PeerDisconnected":
+      disconnect_peer(payload);
+      break;
+  }
 };
 
-function render_peer_list_item_component({id, addr, hostname}) {
-    document.getElementById(`peer-${id}`)?.remove();
+es.onerror = (error) => {
+  console.error("SSE connection error:", error);
+  reload();
+};
 
-    const component = `<details class="list-item" id="peer-${id}">
+function render_peer_list_item_component({ id, addr, hostname }) {
+  document.getElementById(`peer-${id}`)?.remove();
+
+  const component = `<details class="list-item" id="peer-${id}">
             <summary><strong><svg class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal" fill="none" height="20" stroke="currentColor" stroke-linecap="round"
                                  stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
                                  xmlns="http://www.w3.org/2000/svg">
@@ -44,16 +56,24 @@ function render_peer_list_item_component({id, addr, hostname}) {
             <p><strong>ID:</strong> ${id}</p>
           </details>`;
 
-    el_peer_list.insertAdjacentHTML("beforeend", component);
+  el_peer_list.insertAdjacentHTML("beforeend", component);
 }
 
 function disconnect_peer(id) {
-    const el = document.getElementById(`peer-${id}`);
-    if (!el) return;
+  const el = document.getElementById(`peer-${id}`);
+  if (!el) return;
 
-    const status = el.querySelector(".peer-status");
-    if (status) {
-        status.innerHTML = `<span>Disconnected</span>
+  const status = el.querySelector(".peer-status");
+  if (status) {
+    status.innerHTML = `<span>Disconnected</span>
                     <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-alert-icon lucide-cloud-alert disconnected"><path d="M12 12v4"/><path d="M12 20h.01"/><path d="M17 18h.5a1 1 0 0 0 0-9h-1.79A7 7 0 1 0 7 17.708"/></svg>`;
-    }
+  }
+}
+
+function reload() {
+  console.log("Server is restarting or connection error. Reloading page...");
+  es.close();
+  setTimeout(() => {
+    window.location.reload();
+  }, 1000);
 }

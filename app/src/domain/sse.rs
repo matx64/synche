@@ -10,4 +10,5 @@ pub enum ServerEvent {
         hostname: String,
     },
     PeerDisconnected(Uuid),
+    ServerRestart,
 }

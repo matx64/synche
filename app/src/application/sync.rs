@@ -8,7 +8,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
-    domain::AppState,
+    domain::{AppState, ServerEvent},
     infra::{
         self,
         network::{mdns::MdnsAdapter, tcp::TcpAdapter},
@@ -19,6 +19,7 @@ use crate::{
 };
 use std::sync::Arc;
 use tokio::io;
+
 
 pub struct Synchronizer<
     W: FileWatcherInterface,
@@ -133,6 +134,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 self,
                 unix::{SignalKind, signal},
             };
+
             let ctrl_c = signal::ctrl_c();
             let mut sigterm = signal(SignalKind::terminate()).expect("bind SIGTERM");
             let mut sighup = signal(SignalKind::hangup()).expect("bind SIGHUP");
@@ -141,6 +143,10 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 res = self._run() => {
                     if let Err(e) = res {
                         if e.to_string().starts_with("HOME_PATH_CHANGED:") {
+                            let _ = self.state.sse_chan.tx.send(ServerEvent::ServerRestart).await;
+
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
                             self.shutdown().await?;
                             return Err(e);
                         }
@@ -172,6 +178,10 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 res = self._run() => {
                     if let Err(e) = res {
                         if e.to_string().starts_with("HOME_PATH_CHANGED:") {
+                            let _ = self.state.sse_chan.tx.send(ServerEvent::ServerRestart).await;
+
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
                             self.shutdown().await?;
                             return Err(e);
                         }
