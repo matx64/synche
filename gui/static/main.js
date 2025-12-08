@@ -1,3 +1,5 @@
+import { addDirToList, removeDirFromList } from './components.js';
+
 const el_dir_form = document.getElementById("add-dir-form");
 const el_dir_list = document.getElementById("dir-list");
 const el_remove_dialog = document.getElementById("remove-dir-dialog");
@@ -18,10 +20,7 @@ el_dir_form.addEventListener("submit", async (e) => {
   });
 
   if (res.status == 201) {
-    el_dir_list.insertAdjacentHTML(
-      "beforeend",
-      dir_list_item_component(dir_name),
-    );
+    addDirToList(dir_name, el_dir_list);
   }
 });
 
@@ -47,7 +46,7 @@ async function delete_dir(dir_name) {
     });
 
     if (res.status == 200) {
-      document.getElementById(`dir-${dir_name}`).remove();
+      removeDirFromList(dir_name);
       el_remove_dialog.close();
     }
   };
@@ -65,43 +64,3 @@ el_home_path_form.addEventListener("submit", async (e) => {
     method: "POST",
   });
 });
-
-function dir_list_item_component(name) {
-  return `<details class="list-item" id="dir-${name}">
-            <summary>
-              <strong>
-                        <svg class="lucide lucide-folder-open-icon lucide-folder-open" fill="none" height="20"
-                             stroke="currentColor" stroke-linecap="round"
-                             stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
-                             xmlns="http://www.w3.org/2000/svg">
-                            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                        <span>${name}</span>
-                    </strong>
-            </summary>
-
-            <div class="dir-actions">
-            <button class="btn icon-btn remove-dir-btn">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="lucide lucide-folder-x-icon lucide-folder-x"
-                >
-                    <path
-                        d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-                    />
-                    <path d="m9.5 10.5 5 5" />
-                    <path d="m14.5 10.5-5 5" />
-                </svg>
-                <span>Stop Syncing</span>
-            </button>
-            </div>
-          </details>`;
-}
