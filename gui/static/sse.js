@@ -1,7 +1,6 @@
 import {
   addPeerToList,
-  updatePeerStatus,
-  peerDisconnectedStatus,
+  setPeerAsDisconnected,
   addDirToList,
   removeDirFromList
 } from './components.js';
@@ -27,11 +26,11 @@ es.onmessage = (event) => {
 
   switch (kind) {
     case "PeerConnected":
-      addPeerToList(peer, el_peer_list);
+      addPeerToList(payload, el_peer_list);
       break;
 
     case "PeerDisconnected":
-      updatePeerStatus(id, peerDisconnectedStatus());
+      setPeerAsDisconnected(payload);
       break;
 
     case "SyncDirectoryAdded":

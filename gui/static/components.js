@@ -80,10 +80,10 @@ export function addPeerToList(peer, listElement) {
   listElement.insertAdjacentHTML("beforeend", peerListItem(peer));
 }
 
-export function updatePeerStatus(peerId, statusHtml) {
-  const el = document.getElementById(`peer-${peerId}`);
+export function setPeerAsDisconnected(peer) {
+  const el = document.getElementById(`peer-${peer.id}`);
   const status = el?.querySelector(".peer-status");
   if (status) {
-    status.innerHTML = statusHtml;
+    status.innerHTML = peerDisconnectedStatus();
   }
 }

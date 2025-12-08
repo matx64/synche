@@ -88,7 +88,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                     self.handle_entry_remove(path).await?;
                 }
                 HomeWatcherEvent::SyncDirectoryRemove(path) => {
-                    self.remove_sync_dir(&path.relative).await?;
+                    if self.remove_sync_dir(&path.relative).await? {
+                        self.resync_all_peers().await?;
+                    }
                 }
             }
         }
@@ -281,7 +283,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         Ok(())
     }
 
-    async fn remove_sync_dir(&self, name: &RelativePath) -> io::Result<()> {
+    async fn remove_sync_dir(&self, name: &RelativePath) -> io::Result<bool> {
         if self.entry_manager.remove_sync_dir(name).await? {
             info!("Sync dir removed: {name:?}");
             let _ = self
@@ -290,8 +292,10 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
                 .tx
                 .send(ServerEvent::SyncDirectoryRemoved(name.to_owned()))
                 .await;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     async fn resync_all_peers(&self) -> io::Result<()> {
