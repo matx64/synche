@@ -168,10 +168,6 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(())
     }
 
-    pub async fn get_sync_dir(&self, name: &RelativePath) -> Option<SyncDirectory> {
-        self.state.sync_dirs.read().await.get(name).cloned()
-    }
-
     pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
         let path = self.state.home_path().join(&*name);
         fs::create_dir_all(&path).await?;

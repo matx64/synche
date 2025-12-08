@@ -6,7 +6,7 @@ use crate::{
     },
     domain::{
         AppState, Config, ConfigWatcherEvent, EntryInfo, EntryKind, HomeWatcherEvent, RelativePath,
-        TransportChannelData, WatcherEventPath,
+        ServerEvent, TransportChannelData, WatcherEventPath,
     },
     utils::fs::compute_hash,
 };
@@ -81,11 +81,14 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         while let Some(event) = self.buffer.next_home_event().await {
             info!("{event:?}");
             match event {
-                HomeWatcherEvent::CreateOrModify(path) => {
-                    self.handle_create_or_modify(path).await?;
+                HomeWatcherEvent::EntryCreateOrModify(path) => {
+                    self.handle_entry_create_or_modify(path).await?;
                 }
-                HomeWatcherEvent::Remove(path) => {
-                    self.handle_remove(path).await?;
+                HomeWatcherEvent::EntryRemove(path) => {
+                    self.handle_entry_remove(path).await?;
+                }
+                HomeWatcherEvent::SyncDirectoryRemove(path) => {
+                    self.remove_sync_dir(&path.relative).await?;
                 }
             }
         }
@@ -109,9 +112,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         Ok(())
     }
 
-    async fn handle_create_or_modify(&self, path: WatcherEventPath) -> io::Result<()> {
+    async fn handle_entry_create_or_modify(&self, path: WatcherEventPath) -> io::Result<()> {
         match self.entry_manager.get_entry(&path.relative).await? {
-            None => self.handle_create(path).await,
+            None => self.handle_entry_create(path).await,
 
             Some(entry) if path.is_file() && entry.is_file() => {
                 self.handle_modify_file(path, entry).await
@@ -121,7 +124,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         }
     }
 
-    async fn handle_create(&self, path: WatcherEventPath) -> io::Result<()> {
+    async fn handle_entry_create(&self, path: WatcherEventPath) -> io::Result<()> {
         if path.is_file() {
             self.handle_create_file(path).await
         } else {
@@ -171,7 +174,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         Ok(())
     }
 
-    async fn handle_remove(&self, path: WatcherEventPath) -> io::Result<()> {
+    async fn handle_entry_remove(&self, path: WatcherEventPath) -> io::Result<()> {
         if let Some(removed) = self.entry_manager.remove_entry(&path.relative).await? {
             if !removed.is_file() {
                 let removed_entries = self.entry_manager.remove_dir(&path.relative).await?;
@@ -263,20 +266,30 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
             }
         }
 
-        self.resync_all_peers().await?;
-
-        Ok(())
+        self.resync_all_peers().await
     }
 
     async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
         self.entry_manager.add_sync_dir(name.clone()).await?;
         info!("Sync dir added: {name:?}");
+        let _ = self
+            .state
+            .sse_chan
+            .tx
+            .send(ServerEvent::SyncDirectoryAdded(name))
+            .await;
         Ok(())
     }
 
     async fn remove_sync_dir(&self, name: &RelativePath) -> io::Result<()> {
         if self.entry_manager.remove_sync_dir(name).await? {
             info!("Sync dir removed: {name:?}");
+            let _ = self
+                .state
+                .sse_chan
+                .tx
+                .send(ServerEvent::SyncDirectoryRemoved(name.to_owned()))
+                .await;
         }
         Ok(())
     }

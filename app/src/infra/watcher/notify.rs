@@ -62,13 +62,13 @@ impl FileWatcherInterface for NotifyFileWatcher {
     async fn watch_home(&mut self) -> io::Result<()> {
         self.home_watcher
             .watch(self.state.home_path(), RecursiveMode::Recursive)
-            .map_err(|e| io::Error::other(e.to_string()))
+            .map_err(io::Error::other)
     }
 
     async fn watch_config(&mut self) -> io::Result<()> {
         self.config_watcher
             .watch(&config_file(), RecursiveMode::NonRecursive)
-            .map_err(|e| io::Error::other(e.to_string()))
+            .map_err(io::Error::other)
     }
 
     async fn next_home_event(&self) -> io::Result<Option<HomeWatcherEvent>> {
@@ -83,11 +83,25 @@ impl FileWatcherInterface for NotifyFileWatcher {
                     if let Some(path) = event.paths.first().cloned()
                         && let canonical = CanonicalPath::from_canonical(path)
                         && let relative = RelativePath::new(&canonical, self.state.home_path())
-                        && self.is_valid_entry(&relative).await
                         && !is_ds_store(&canonical)
-                        && let Some(event) = self.handle_home_event(event, canonical, relative)
                     {
-                        return Ok(Some(event));
+                        match self.classify_path(&relative).await {
+                            PathClassification::Ignored => continue,
+                            PathClassification::SyncDirectory => {
+                                if let Some(event) =
+                                    self.handle_sync_dir_event(event, canonical, relative)
+                                {
+                                    return Ok(Some(event));
+                                }
+                            }
+                            PathClassification::ValidEntry => {
+                                if let Some(event) =
+                                    self.handle_entry_event(event, canonical, relative)
+                                {
+                                    return Ok(Some(event));
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -118,7 +132,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
 }
 
 impl NotifyFileWatcher {
-    fn handle_home_event(
+    fn handle_entry_event(
         &self,
         event: Event,
         canonical: CanonicalPath,
@@ -132,7 +146,7 @@ impl NotifyFileWatcher {
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
                 if canonical.exists() && (canonical.is_file() || canonical.is_dir()) =>
             {
-                Some(HomeWatcherEvent::CreateOrModify(WatcherEventPath {
+                Some(HomeWatcherEvent::EntryCreateOrModify(WatcherEventPath {
                     relative,
                     canonical,
                 }))
@@ -143,12 +157,33 @@ impl NotifyFileWatcher {
             | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
                 if !canonical.exists() =>
             {
-                Some(HomeWatcherEvent::Remove(WatcherEventPath {
+                Some(HomeWatcherEvent::EntryRemove(WatcherEventPath {
                     canonical,
                     relative,
                 }))
             }
 
+            _ => None,
+        }
+    }
+
+    fn handle_sync_dir_event(
+        &self,
+        event: Event,
+        canonical: CanonicalPath,
+        relative: RelativePath,
+    ) -> Option<HomeWatcherEvent> {
+        match event.kind {
+            EventKind::Remove(_)
+            | EventKind::Modify(ModifyKind::Name(RenameMode::From))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::Any))
+                if !canonical.exists() =>
+            {
+                Some(HomeWatcherEvent::SyncDirectoryRemove(WatcherEventPath {
+                    canonical,
+                    relative,
+                }))
+            }
             _ => None,
         }
     }
@@ -177,9 +212,21 @@ impl NotifyFileWatcher {
         }
     }
 
-    async fn is_valid_entry(&self, path: &RelativePath) -> bool {
+    async fn classify_path(&self, path: &RelativePath) -> PathClassification {
         let dirs = self.state.sync_dirs.read().await;
 
-        !dirs.contains_key(path) && dirs.keys().any(|d| path.starts_with(&**d))
+        if dirs.contains_key(path) {
+            PathClassification::SyncDirectory
+        } else if dirs.keys().any(|d| path.starts_with(&**d)) {
+            PathClassification::ValidEntry
+        } else {
+            PathClassification::Ignored
+        }
     }
+}
+
+enum PathClassification {
+    Ignored,
+    SyncDirectory,
+    ValidEntry,
 }

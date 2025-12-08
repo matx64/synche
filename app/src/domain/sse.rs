@@ -1,3 +1,4 @@
+use crate::domain::RelativePath;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use uuid::Uuid;
@@ -10,5 +11,7 @@ pub enum ServerEvent {
         hostname: String,
     },
     PeerDisconnected(Uuid),
+    SyncDirectoryAdded(RelativePath),
+    SyncDirectoryRemoved(RelativePath),
     ServerRestart,
 }
