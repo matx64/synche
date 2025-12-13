@@ -34,27 +34,21 @@ To run the application, execute the binary from the project's root directory:
 ./target/release/synche
 ```
 
-Once running, you can access the web interface at **`http://localhost:42880`** to configure your synchronized directories and monitor connected devices.
+Once running, you can access the web interface at **`http://localhost:42880`** to configure your synchronized directories, home path and monitor connected devices.
 
 ## Configuration
 
-The first time you run Synche, it will automatically generate a `config.toml` file to store its configuration. This file is located in the standard configuration directory for your operating system:
+The first time you run Synche, it will automatically generate a `config.toml` file. This file is located in the standard configuration directory for your operating system:
 
 - **Linux**: `$XDG_CONFIG_HOME/synche` or `$HOME/.config/synche`
 - **macOS**: `$HOME/Library/Application Support/synche`
 - **Windows**: `%APPDATA%\synche`
-
-You can customize the following settings in `config.toml`:
 
 ### `config.toml` Example
 
 Here is an example configuration file with explanations for each setting.
 
 ```toml
-# A unique ID for this device. This is generated automatically and should not be
-# copied between different devices.
-device_id = "88bd9d3e-6c27-471f-a4d1-07446f0f3a1f"
-
 # The root directory where your synchronized folders will be stored.
 # If not specified, Synche defaults to:
 # - Unix: $HOME/Synche
@@ -69,16 +63,9 @@ name = "Default Folder"
 
 [[directory]]
 name = "A tiny Project"
-
-# Network ports used by Synche for the web UI, device discovery, and data transfer.
-# You can change these if they conflict with other services.
-[ports]
-http = 42880      # Port for the Web GUI
-presence = 42881  # Port for device discovery on the local network
-transport = 42882 # Port for encrypted data synchronization
 ```
 
-**Note:** If you make changes to `config.toml`, you must restart the Synche application for the new settings to take effect.
+**Note:** Changes are applied automatically without having to manually restart Synche. 
 
 ## Feedback
 

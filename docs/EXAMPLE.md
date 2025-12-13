@@ -26,8 +26,6 @@ Synche will create (if doesn't exist) a folder named `my-project` inside your Sy
 >
 > **Laptop `config.toml`:**
 > ```toml
-> # This ID is unique to the laptop and is generated automatically.
-> device_id = "laptop-unique-id"
 > home_path = "/home/user/Synche" # Example path
 >
 > # Add this block to sync the "my-project" directory.

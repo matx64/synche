@@ -32,7 +32,7 @@ synche
 
 ### Firewall
 
-Ensure your firewall allows traffic on the default ports: `42880` (HTTP), `42881` (Presence/mDNS), and `42882` (Transport/TCP).
+Ensure your firewall allows traffic on the ports: `42880` (HTTP), `42881` (Presence/mDNS), and `42882` (Transport/TCP).
 
 ## 3. Configuration
 
@@ -42,4 +42,4 @@ On the first run, a `config.toml` file is created in the standard OS configurati
 -   **macOS**: `$HOME/Library/Application Support/synche`
 -   **Windows**: `%APPDATA%\synche`
 
-You can edit this file to configure the `home_path`, directories, ports, and other settings. Restart the application for changes to take effect.
+You can edit this file to configure the `home_path` and directories or manage everything in the Web GUI. Changes take effect immediately without restarting.
