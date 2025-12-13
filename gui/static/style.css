@@ -54,6 +54,11 @@ body>header {
         display: flex;
         justify-content: end;
     }
+
+    .settings-btn {
+        background-color: white;
+        color: black;
+    }
 }
 
 main {
@@ -193,6 +198,11 @@ input {
     border: none;
     border-radius: var(--border-radius);
     cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.btn:hover {
+    opacity: 0.85;
 }
 
 .btn-success {
