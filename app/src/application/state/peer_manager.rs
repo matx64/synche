@@ -1,15 +1,20 @@
-use crate::domain::{AppState, EntryInfo, Peer, ServerEvent};
+use super::app_state::AppState;
+use crate::domain::{EntryInfo, Peer, ServerEvent};
 use std::{net::IpAddr, sync::Arc};
 use tracing::info;
 use uuid::Uuid;
 
 pub struct PeerManager {
     state: Arc<AppState>,
+    sse_tx: tokio::sync::mpsc::Sender<ServerEvent>,
 }
 
 impl PeerManager {
     pub fn new(state: Arc<AppState>) -> Arc<Self> {
-        Arc::new(Self { state })
+        Arc::new(Self {
+            sse_tx: state.sse_chan.tx.clone(),
+            state,
+        })
     }
 
     pub async fn insert(&self, peer: Peer) {
@@ -31,8 +36,7 @@ impl PeerManager {
     }
 
     pub async fn exists(&self, addr: IpAddr) -> bool {
-        self.state
-            .peers
+        self.state.peers
             .read()
             .await
             .values()
@@ -46,8 +50,7 @@ impl PeerManager {
     pub async fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
         let root_dir = entry.get_sync_dir();
 
-        self.state
-            .peers
+        self.state.peers
             .read()
             .await
             .values()
@@ -78,7 +81,7 @@ impl PeerManager {
     }
 
     async fn send_sse_event(&self, event: ServerEvent) {
-        if let Err(err) = self.state.sse_chan.tx.send(event).await {
+        if let Err(err) = self.sse_tx.send(event).await {
             tracing::error!("Send Peer SSE error: {err}");
         }
     }

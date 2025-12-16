@@ -1,4 +1,5 @@
 use crate::{
+    application::AppState,
     application::{
         EntryManager, HttpService, PeerManager,
         network::{
@@ -8,7 +9,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
-    domain::{AppState, ServerEvent},
+    domain::ServerEvent,
     infra::{
         self,
         network::{mdns::MdnsAdapter, tcp::TcpAdapter},
@@ -19,7 +20,6 @@ use crate::{
 };
 use std::sync::Arc;
 use tokio::io;
-
 
 pub struct Synchronizer<
     W: FileWatcherInterface,

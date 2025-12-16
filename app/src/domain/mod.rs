@@ -6,7 +6,6 @@ mod fs;
 mod peer;
 mod ports;
 mod sse;
-mod state;
 mod transport;
 
 pub use cfg::Config;
@@ -25,7 +24,6 @@ pub use fs::WatcherEventPath;
 pub use peer::Peer;
 pub use ports::AppPorts;
 pub use sse::ServerEvent;
-pub use state::AppState;
 pub use transport::HandshakeData;
 pub use transport::TransportChannelData;
 pub use transport::TransportData;

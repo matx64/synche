@@ -1,6 +1,6 @@
 use crate::{
     application::network::transport::interface::{TransportError, TransportResult},
-    domain::{AppState, EntryInfo, EntryKind, TransportData},
+    application::AppState, domain::{ EntryInfo, EntryKind, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
 };
 use sha2::{Digest, Sha256};

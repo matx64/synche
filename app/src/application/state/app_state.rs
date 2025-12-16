@@ -20,9 +20,9 @@ pub struct AppState {
     hostname: String,
     home_path: CanonicalPath,
     local_ip: RwLock<IpAddr>,
-    pub peers: RwLock<HashMap<Uuid, Peer>>,
-    pub sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
     pub sse_chan: Channel<ServerEvent>,
+    pub(super) peers: RwLock<HashMap<Uuid, Peer>>,
+    pub(super) sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
 }
 
 impl AppState {
@@ -38,11 +38,13 @@ impl AppState {
             .unwrap_or(&hostname)
             .to_string();
 
-        let sync_dirs = config
-            .directory
-            .iter()
-            .map(|d| (d.name.clone(), d.to_sync()))
-            .collect();
+        let sync_dirs = RwLock::new(
+            config
+                .directory
+                .iter()
+                .map(|d| (d.name.clone(), d.to_sync()))
+                .collect(),
+        );
 
         let ports = AppPorts {
             http: HTTP_PORT,
@@ -59,7 +61,7 @@ impl AppState {
             sse_chan: Channel::new(10),
             home_path: config.home_path,
             local_ip: RwLock::new(local_ip),
-            sync_dirs: RwLock::new(sync_dirs),
+            sync_dirs,
         })
     }
 
@@ -183,5 +185,14 @@ impl AppState {
     async fn write_config(&self, config: &Config) -> io::Result<()> {
         let contents = toml::to_string_pretty(config).map_err(io::Error::other)?;
         fs::write(config_file(), contents).await
+    }
+
+    pub async fn contains_sync_dir(&self, name: &RelativePath) -> bool {
+        self.sync_dirs.read().await.contains_key(name)
+    }
+
+    pub async fn is_under_sync_dir(&self, path: &RelativePath) -> bool {
+        let dirs = self.sync_dirs.read().await;
+        dirs.keys().any(|d| path.starts_with(&**d))
     }
 }

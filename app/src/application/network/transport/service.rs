@@ -6,7 +6,7 @@ use crate::{
         },
         persistence::interface::PersistenceInterface,
     },
-    domain::{AppState, Channel, TransportChannelData},
+    application::AppState, domain::{ Channel, TransportChannelData},
 };
 use std::sync::Arc;
 use tokio::{io, sync::mpsc::Sender};

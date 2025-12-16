@@ -1,4 +1,7 @@
-use crate::domain::{AppState, CanonicalPath, RelativePath};
+use crate::{
+    application::AppState,
+    domain::{CanonicalPath, RelativePath},
+};
 use ignore::gitignore::Gitignore;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;

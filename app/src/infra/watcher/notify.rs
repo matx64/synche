@@ -1,9 +1,6 @@
 use crate::{
-    application::watcher::interface::FileWatcherInterface,
-    domain::{
-        AppState, CanonicalPath, ConfigWatcherEvent, HomeWatcherEvent, RelativePath,
-        WatcherEventPath,
-    },
+    application::{AppState, watcher::interface::FileWatcherInterface},
+    domain::{CanonicalPath, ConfigWatcherEvent, HomeWatcherEvent, RelativePath, WatcherEventPath},
     utils::fs::{config_file, is_ds_store},
 };
 use notify::{
@@ -213,11 +210,9 @@ impl NotifyFileWatcher {
     }
 
     async fn classify_path(&self, path: &RelativePath) -> PathClassification {
-        let dirs = self.state.sync_dirs.read().await;
-
-        if dirs.contains_key(path) {
+        if self.state.contains_sync_dir(path).await {
             PathClassification::SyncDirectory
-        } else if dirs.keys().any(|d| path.starts_with(&**d)) {
+        } else if self.state.is_under_sync_dir(path).await {
             PathClassification::ValidEntry
         } else {
             PathClassification::Ignored

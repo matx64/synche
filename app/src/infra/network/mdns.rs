@@ -1,6 +1,6 @@
 use crate::{
     application::network::presence::interface::{PresenceEvent, PresenceInterface},
-    domain::AppState,
+    application::AppState,
 };
 use mdns_sd::{
     IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties,

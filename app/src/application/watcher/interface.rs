@@ -1,4 +1,7 @@
-use crate::domain::{AppState, ConfigWatcherEvent, HomeWatcherEvent};
+use crate::{
+    application::AppState,
+    domain::{ConfigWatcherEvent, HomeWatcherEvent},
+};
 use std::sync::Arc;
 use tokio::io;
 

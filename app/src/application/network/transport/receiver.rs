@@ -1,10 +1,10 @@
 use crate::{
     application::{
-        EntryManager, PeerManager, network::transport::interface::TransportInterface,
+        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
     domain::{
-        AppState, Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent,
+        Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent,
         VersionCmp,
     },
 };

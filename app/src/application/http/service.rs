@@ -1,6 +1,6 @@
 use crate::{
     application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
-    domain::{AppState, Peer, RelativePath, ServerEvent, SyncDirectory},
+    application::AppState, domain::{ Peer, RelativePath, ServerEvent, SyncDirectory},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::io;

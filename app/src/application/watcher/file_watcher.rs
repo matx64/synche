@@ -1,11 +1,11 @@
 use crate::{
     application::{
-        EntryManager, PeerManager,
+        AppState, EntryManager, PeerManager,
         persistence::interface::PersistenceInterface,
         watcher::{buffer::WatcherBuffer, interface::FileWatcherInterface},
     },
     domain::{
-        AppState, Config, ConfigWatcherEvent, EntryInfo, EntryKind, HomeWatcherEvent, RelativePath,
+        Config, ConfigWatcherEvent, EntryInfo, EntryKind, HomeWatcherEvent, RelativePath,
         ServerEvent, TransportChannelData, WatcherEventPath,
     },
     utils::fs::compute_hash,

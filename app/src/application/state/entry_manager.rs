@@ -1,8 +1,9 @@
+use super::{app_state::AppState, ignore::IgnoreHandler};
 use crate::{
-    application::{entry::ignore::IgnoreHandler, persistence::interface::PersistenceInterface},
+    application::persistence::interface::PersistenceInterface,
     domain::{
-        AppState, CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath,
-        SyncDirectory, VersionCmp,
+        CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath, SyncDirectory,
+        VersionCmp,
     },
     utils::fs::{compute_hash, is_ds_store},
 };
@@ -29,8 +30,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub fn new(db: P, state: Arc<AppState>) -> Arc<Self> {
         Arc::new(Self {
             db,
-            state: state.clone(),
-            ignore_handler: IgnoreHandler::new(state),
+            ignore_handler: IgnoreHandler::new(state.clone()),
+            state,
         })
     }
 

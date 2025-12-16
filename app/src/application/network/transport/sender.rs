@@ -3,7 +3,7 @@ use crate::{
         EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
-    domain::{AppState, Channel, EntryInfo, TransportChannelData, TransportData},
+    application::AppState, domain::{ Channel, EntryInfo, TransportChannelData, TransportData},
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};

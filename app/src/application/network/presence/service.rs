@@ -3,7 +3,7 @@ use crate::{
         PeerManager,
         network::presence::interface::{PresenceEvent, PresenceInterface},
     },
-    domain::{AppState, TransportChannelData},
+    application::AppState, domain::{ TransportChannelData},
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
