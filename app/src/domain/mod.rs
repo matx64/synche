@@ -11,7 +11,7 @@ mod transport;
 pub use cfg::Config;
 pub use cfg::ConfigDirectory;
 pub use chan::BroadcastChannel;
-pub use chan::Channel;
+pub use chan::MutexChannel;
 pub use directory::SyncDirectory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;

@@ -1,12 +1,12 @@
 use crate::{
     application::{
-        EntryManager, PeerManager,
+        AppState, EntryManager, PeerManager,
         network::transport::{
             interface::TransportInterface, receiver::TransportReceiver, sender::TransportSender,
         },
         persistence::interface::PersistenceInterface,
     },
-    application::AppState, domain::{ Channel, TransportChannelData},
+    domain::{MutexChannel, TransportChannelData},
 };
 use std::sync::Arc;
 use tokio::{io, sync::mpsc::Sender};
@@ -24,7 +24,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportService<T, P> {
         entry_manager: Arc<EntryManager<P>>,
     ) -> (Self, Sender<TransportChannelData>) {
         let adapter = Arc::new(adapter);
-        let sender_chan = Channel::new(100);
+        let sender_chan = MutexChannel::new(100);
 
         (
             Self {

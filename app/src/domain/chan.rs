@@ -3,12 +3,12 @@ use tokio::sync::{
     mpsc::{self, Receiver, Sender},
 };
 
-pub struct Channel<K> {
+pub struct MutexChannel<K> {
     pub tx: Sender<K>,
     pub rx: Mutex<Receiver<K>>,
 }
 
-impl<K> Channel<K> {
+impl<K> MutexChannel<K> {
     pub fn new(buffer: usize) -> Self {
         let (tx, rx) = mpsc::channel(buffer);
         Self {

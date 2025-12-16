@@ -1,4 +1,4 @@
-use crate::domain::{Channel, ConfigWatcherEvent, HomeWatcherEvent, RelativePath};
+use crate::domain::{ConfigWatcherEvent, HomeWatcherEvent, MutexChannel, RelativePath};
 use std::{
     collections::HashMap,
     time::{Duration, SystemTime},
@@ -8,8 +8,8 @@ use tokio::{io, sync::RwLock};
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(1);
 
 pub struct WatcherBuffer {
-    home_chan: Channel<HomeWatcherEvent>,
-    config_chan: Channel<ConfigWatcherEvent>,
+    home_chan: MutexChannel<HomeWatcherEvent>,
+    config_chan: MutexChannel<ConfigWatcherEvent>,
     home_events: RwLock<HashMap<RelativePath, DebounceState<HomeWatcherEvent>>>,
     config_events: RwLock<Option<DebounceState<ConfigWatcherEvent>>>,
 }
@@ -22,10 +22,10 @@ struct DebounceState<E> {
 impl Default for WatcherBuffer {
     fn default() -> Self {
         Self {
-            home_chan: Channel::new(100),
-            config_chan: Channel::new(100),
             home_events: Default::default(),
             config_events: Default::default(),
+            home_chan: MutexChannel::new(100),
+            config_chan: MutexChannel::new(100),
         }
     }
 }

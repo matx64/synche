@@ -1,9 +1,9 @@
 use crate::{
     application::{
-        EntryManager, PeerManager, network::transport::interface::TransportInterface,
+        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
         persistence::interface::PersistenceInterface,
     },
-    application::AppState, domain::{ Channel, EntryInfo, TransportChannelData, TransportData},
+    domain::{EntryInfo, MutexChannel, TransportChannelData, TransportData},
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -19,8 +19,8 @@ pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_rx: Mutex<Receiver<TransportChannelData>>,
-    control_chan: Channel<TransportChannelData>,
-    transfer_chan: Channel<(IpAddr, EntryInfo)>,
+    control_chan: MutexChannel<TransportChannelData>,
+    transfer_chan: MutexChannel<(IpAddr, EntryInfo)>,
 }
 
 impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
@@ -37,8 +37,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
             peer_manager,
             entry_manager,
             send_rx,
-            control_chan: Channel::new(100),
-            transfer_chan: Channel::new(16),
+            control_chan: MutexChannel::new(100),
+            transfer_chan: MutexChannel::new(16),
         }
     }
 

@@ -4,7 +4,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
     },
     domain::{
-        Channel, EntryInfo, Peer, TransportChannelData, TransportData, TransportEvent,
+        EntryInfo, MutexChannel, Peer, TransportChannelData, TransportData, TransportEvent,
         VersionCmp,
     },
 };
@@ -19,8 +19,8 @@ pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     send_tx: Sender<TransportChannelData>,
-    control_chan: Channel<TransportEvent>,
-    transfer_chan: Channel<TransportEvent>,
+    control_chan: MutexChannel<TransportEvent>,
+    transfer_chan: MutexChannel<TransportEvent>,
 }
 
 impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
@@ -37,8 +37,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             peer_manager,
             entry_manager,
             send_tx,
-            control_chan: Channel::new(100),
-            transfer_chan: Channel::new(16),
+            control_chan: MutexChannel::new(100),
+            transfer_chan: MutexChannel::new(16),
         }
     }
 
