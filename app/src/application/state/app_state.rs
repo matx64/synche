@@ -1,12 +1,15 @@
 use crate::{
     domain::{
-        AppPorts, CanonicalPath, Channel, Config, ConfigDirectory, Peer, RelativePath, ServerEvent,
-        SyncDirectory,
+        AppPorts, BroadcastChannel, CanonicalPath, Config, ConfigDirectory, Peer, RelativePath,
+        ServerEvent, SyncDirectory,
     },
     utils::fs::{config_file, device_id_file},
 };
 use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc};
-use tokio::{fs, io, sync::RwLock};
+use tokio::{
+    fs, io,
+    sync::{RwLock, broadcast},
+};
 use uuid::Uuid;
 
 const HTTP_PORT: u16 = 42880;
@@ -20,7 +23,7 @@ pub struct AppState {
     hostname: String,
     home_path: CanonicalPath,
     local_ip: RwLock<IpAddr>,
-    pub sse_chan: Channel<ServerEvent>,
+    sse_broadcast: BroadcastChannel<ServerEvent>,
     pub(super) peers: RwLock<HashMap<Uuid, Peer>>,
     pub(super) sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
 }
@@ -58,7 +61,7 @@ impl AppState {
             local_id,
             instance_id,
             peers: Default::default(),
-            sse_chan: Channel::new(10),
+            sse_broadcast: BroadcastChannel::new(100),
             home_path: config.home_path,
             local_ip: RwLock::new(local_ip),
             sync_dirs,
@@ -87,6 +90,14 @@ impl AppState {
 
     pub async fn local_ip(&self) -> IpAddr {
         *self.local_ip.read().await
+    }
+
+    pub fn sse_sender(&self) -> broadcast::Sender<ServerEvent> {
+        self.sse_broadcast.sender()
+    }
+
+    pub fn sse_subscribe(&self) -> broadcast::Receiver<ServerEvent> {
+        self.sse_broadcast.subscribe()
     }
 
     pub async fn init_ids() -> io::Result<(Uuid, Uuid)> {

@@ -143,7 +143,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 res = self._run() => {
                     if let Err(e) = res {
                         if e.to_string().starts_with("HOME_PATH_CHANGED:") {
-                            let _ = self.state.sse_chan.tx.send(ServerEvent::ServerRestart).await;
+                            let _ = self.state.sse_sender().send(ServerEvent::ServerRestart);
 
                             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -178,7 +178,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 res = self._run() => {
                     if let Err(e) = res {
                         if e.to_string().starts_with("HOME_PATH_CHANGED:") {
-                            let _ = self.state.sse_chan.tx.send(ServerEvent::ServerRestart).await;
+                            let _ = self.state.sse_sender().send(ServerEvent::ServerRestart);
 
                             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 

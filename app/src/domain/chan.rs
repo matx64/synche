@@ -1,5 +1,5 @@
 use tokio::sync::{
-    Mutex,
+    Mutex, broadcast,
     mpsc::{self, Receiver, Sender},
 };
 
@@ -15,5 +15,24 @@ impl<K> Channel<K> {
             tx,
             rx: Mutex::new(rx),
         }
+    }
+}
+
+pub struct BroadcastChannel<T: Clone> {
+    tx: broadcast::Sender<T>,
+}
+
+impl<T: Clone> BroadcastChannel<T> {
+    pub fn new(capacity: usize) -> Self {
+        let (tx, _rx) = broadcast::channel(capacity);
+        Self { tx }
+    }
+
+    pub fn sender(&self) -> broadcast::Sender<T> {
+        self.tx.clone()
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<T> {
+        self.tx.subscribe()
     }
 }

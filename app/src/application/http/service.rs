@@ -1,9 +1,11 @@
 use crate::{
-    application::{EntryManager, PeerManager, persistence::interface::PersistenceInterface},
-    application::AppState, domain::{ Peer, RelativePath, ServerEvent, SyncDirectory},
+    application::{
+        AppState, EntryManager, PeerManager, persistence::interface::PersistenceInterface,
+    },
+    domain::{Peer, RelativePath, ServerEvent, SyncDirectory},
 };
 use std::{net::IpAddr, sync::Arc};
-use tokio::io;
+use tokio::{io, sync::broadcast};
 use tracing::info;
 use uuid::Uuid;
 
@@ -68,7 +70,7 @@ impl<P: PersistenceInterface> HttpService<P> {
         self.state.set_home_path_in_config(new_path).await
     }
 
-    pub async fn next_sse_event(&self) -> Option<ServerEvent> {
-        self.state.sse_chan.rx.lock().await.recv().await
+    pub fn subscribe_to_events(&self) -> broadcast::Receiver<ServerEvent> {
+        self.state.sse_subscribe()
     }
 }

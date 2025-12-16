@@ -8,7 +8,8 @@ use axum::{
 };
 use futures_util::stream::Stream;
 use std::{convert::Infallible, sync::Arc};
-use tracing::{error, info};
+use tokio::sync::broadcast;
+use tracing::{error, info, warn};
 
 struct ControllerState<P: PersistenceInterface> {
     http_service: Arc<HttpService<P>>,
@@ -25,15 +26,28 @@ pub fn router<P: PersistenceInterface>(http_service: Arc<HttpService<P>>) -> Rou
 async fn sse_handler<P: PersistenceInterface>(
     State(state): State<Arc<ControllerState<P>>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.http_service.subscribe_to_events();
+
     Sse::new(try_stream! {
-        while let Some(event) = state.http_service.next_sse_event().await {
-            match serde_json::to_string(&event) {
-                Ok(data) => {
-                    yield Event::default().data(data);
-                    info!("Sent SSE: {:?}", event);
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    match serde_json::to_string(&event) {
+                        Ok(data) => {
+                            yield Event::default().data(data);
+                            info!("Sent SSE: {:?}", event);
+                        }
+                        Err(err) => {
+                            error!("Error serializing event: {err}");
+                        }
+                    }
                 }
-                Err(err) => {
-                    error!("Error serializing event: {err}");
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!("SSE client lagged by {n} messages, continuing");
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    info!("SSE broadcast channel closed");
+                    break;
                 }
             }
         }

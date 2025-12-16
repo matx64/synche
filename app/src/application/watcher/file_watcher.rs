@@ -276,10 +276,8 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         info!("Sync dir added: {name:?}");
         let _ = self
             .state
-            .sse_chan
-            .tx
-            .send(ServerEvent::SyncDirectoryAdded(name))
-            .await;
+            .sse_sender()
+            .send(ServerEvent::SyncDirectoryAdded(name));
         Ok(())
     }
 
@@ -288,10 +286,8 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
             info!("Sync dir removed: {name:?}");
             let _ = self
                 .state
-                .sse_chan
-                .tx
-                .send(ServerEvent::SyncDirectoryRemoved(name.to_owned()))
-                .await;
+                .sse_sender()
+                .send(ServerEvent::SyncDirectoryRemoved(name.to_owned()));
             Ok(true)
         } else {
             Ok(false)
