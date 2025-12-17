@@ -1,3 +1,6 @@
+mod server;
+mod routes;
 mod api;
 mod gui;
-pub mod server;
+
+pub use server::run;

@@ -1,7 +1,7 @@
 use crate::{
     application::AppState,
     application::{
-        EntryManager, HttpService, PeerManager,
+        EntryManager, PeerManager,
         network::{
             presence::{interface::PresenceInterface, service::PresenceService},
             transport::{TransportService, interface::TransportInterface},
@@ -29,7 +29,8 @@ pub struct Synchronizer<
 > {
     state: Arc<AppState>,
     file_watcher: FileWatcher<W, P>,
-    http_service: Arc<HttpService<P>>,
+    peer_manager: Arc<PeerManager>,
+    entry_manager: Arc<EntryManager<P>>,
     presence_service: PresenceService<R>,
     transport_service: TransportService<T, P>,
 }
@@ -116,12 +117,11 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             sender_tx,
         );
 
-        let http_service = HttpService::new(state.clone(), peer_manager, entry_manager);
-
         Self {
             state,
             file_watcher,
-            http_service,
+            peer_manager,
+            entry_manager,
             presence_service,
             transport_service,
         }
@@ -199,16 +199,20 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
 
     async fn _run(&mut self) -> io::Result<()> {
         tokio::select!(
-            res = infra::http::server::run(self.state.ports().http, self.http_service.clone()) => res,
             res = self.transport_service.run() => res,
             res = self.presence_service.run() => res,
             res = self.file_watcher.run() => res,
+            res = infra::http::run(
+                self.state.clone(),
+                self.peer_manager.clone(),
+                self.entry_manager.clone(),
+            ) => res,
         )
     }
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.presence_service.shutdown().await;
-        tracing::info!("✅ Synche gracefully shutdown");
+        tracing::info!("Synche gracefully shutdown");
         Ok(())
     }
 }
