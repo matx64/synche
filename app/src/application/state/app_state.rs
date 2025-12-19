@@ -207,3 +207,225 @@ impl AppState {
         dirs.keys().any(|d| path.starts_with(&**d))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_state_getters() {
+        let state = AppState::new().await;
+
+        let _ports = state.ports();
+        let _local_id = state.local_id();
+        let _instance_id = state.instance_id();
+        let _hostname = state.hostname();
+        let _home_path = state.home_path();
+        let _local_ip = state.local_ip().await;
+
+        let instance1 = state.instance_id();
+        let state2 = AppState::new().await;
+        let instance2 = state2.instance_id();
+
+        assert_ne!(
+            instance1, instance2,
+            "Instance IDs should be unique per AppState instance"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_id_persistence() {
+        let state1 = AppState::new().await;
+        let local_id1 = state1.local_id();
+
+        let state2 = AppState::new().await;
+        let local_id2 = state2.local_id();
+
+        assert_eq!(
+            local_id1, local_id2,
+            "Local ID should persist across AppState instances"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_home_path_creates_missing_dir() {
+        let temp = TempDir::new().unwrap();
+        let new_dir = temp.path().join("new_directory");
+        let state = AppState::new().await;
+
+        assert!(!new_dir.exists(), "Directory should not exist initially");
+
+        let result = state.validate_home_path(new_dir.to_str().unwrap()).await;
+        assert!(result.is_ok(), "Should create missing directory");
+
+        assert!(new_dir.exists(), "Directory should have been created");
+        assert!(new_dir.is_dir(), "Created path should be a directory");
+    }
+
+    #[tokio::test]
+    async fn test_validate_home_path_creates_nested_dirs() {
+        let temp = TempDir::new().unwrap();
+        let nested_dir = temp.path().join("level1").join("level2").join("level3");
+        let state = AppState::new().await;
+
+        assert!(!nested_dir.exists());
+
+        let result = state.validate_home_path(nested_dir.to_str().unwrap()).await;
+        assert!(result.is_ok(), "Should create nested directories");
+
+        assert!(nested_dir.exists());
+        assert!(nested_dir.is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_validate_home_path_rejects_file() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("file.txt");
+        tokio::fs::write(&file_path, "test content").await.unwrap();
+        let state = AppState::new().await;
+
+        assert!(file_path.exists());
+        assert!(file_path.is_file());
+
+        let result = state.validate_home_path(file_path.to_str().unwrap()).await;
+        assert!(result.is_err(), "Should reject file path");
+
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("not a directory"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_home_path_relative_path() {
+        let state = AppState::new().await;
+
+        let result = state.validate_home_path("./test_relative").await;
+        assert!(result.is_ok(), "Should handle relative paths");
+    }
+
+    #[tokio::test]
+    async fn test_validate_home_path_with_spaces() {
+        let temp = TempDir::new().unwrap();
+        let dir_with_spaces = temp.path().join("my sync folder");
+        let state = AppState::new().await;
+
+        let result = state
+            .validate_home_path(dir_with_spaces.to_str().unwrap())
+            .await;
+        assert!(result.is_ok(), "Should handle paths with spaces");
+
+        assert!(dir_with_spaces.exists());
+    }
+
+    #[tokio::test]
+    async fn test_validate_home_path_valid_existing_dir() {
+        let temp = TempDir::new().unwrap();
+        let state = AppState::new().await;
+
+        let result = state
+            .validate_home_path(temp.path().to_str().unwrap())
+            .await;
+        assert!(result.is_ok(), "Should accept existing directory");
+
+        let canonical = result.unwrap();
+        assert!(canonical.exists());
+        assert!(canonical.is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_contains_sync_dir_existing() {
+        let state = AppState::new().await;
+
+        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+
+        if let Some(dir) = dirs.first() {
+            assert!(
+                state.contains_sync_dir(dir).await,
+                "Should find existing sync directory"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_under_sync_dir_direct_child() {
+        let state = AppState::new().await;
+
+        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+
+        if let Some(dir) = dirs.first() {
+            let child_path = RelativePath::from(format!(
+                "{}/subdir/file.txt",
+                <RelativePath as AsRef<str>>::as_ref(dir)
+            ));
+            assert!(
+                state.is_under_sync_dir(&child_path).await,
+                "File under sync dir should be detected"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_under_sync_dir_exact_match() {
+        let state = AppState::new().await;
+
+        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+
+        if let Some(dir) = dirs.first() {
+            assert!(
+                state.is_under_sync_dir(dir).await,
+                "Sync dir itself should match is_under_sync_dir"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_add_dir_to_config_duplicate_prevention() {
+        let state = AppState::new().await;
+
+        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+
+        if let Some(existing_dir) = dirs.first() {
+            let result = state.add_dir_to_config(existing_dir).await;
+
+            assert!(result.is_ok(), "Should not error on duplicate");
+            assert_eq!(
+                result.unwrap(),
+                false,
+                "Should return false for duplicate directory"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_dir_from_config_non_existent() {
+        let state = AppState::new().await;
+        let non_existent = RelativePath::from(format!("non_existent_dir_{}", Uuid::new_v4()));
+
+        let result = state.remove_dir_from_config(&non_existent).await;
+        assert!(
+            result.is_ok(),
+            "Removing non-existent directory should be OK (idempotent)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sse_broadcast_channels() {
+        let state = AppState::new().await;
+
+        let sender = state.sse_sender();
+        let mut receiver1 = state.sse_subscribe();
+        let mut receiver2 = state.sse_subscribe();
+
+        let test_event = ServerEvent::ServerRestart;
+        sender.send(test_event.clone()).ok();
+
+        let recv1 =
+            tokio::time::timeout(std::time::Duration::from_millis(100), receiver1.recv()).await;
+        let recv2 =
+            tokio::time::timeout(std::time::Duration::from_millis(100), receiver2.recv()).await;
+
+        assert!(recv1.is_ok(), "First receiver should get event");
+        assert!(recv2.is_ok(), "Second receiver should get event");
+    }
+}
