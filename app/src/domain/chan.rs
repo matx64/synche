@@ -16,6 +16,10 @@ impl<K> MutexChannel<K> {
             rx: Mutex::new(rx),
         }
     }
+
+    pub async fn recv(&self) -> Option<K> {
+        self.rx.lock().await.recv().await
+    }
 }
 
 pub struct BroadcastChannel<T: Clone> {

@@ -83,11 +83,11 @@ impl WatcherBuffer {
     }
 
     pub async fn next_home_event(&self) -> Option<HomeWatcherEvent> {
-        self.home_chan.rx.lock().await.recv().await
+        self.home_chan.recv().await
     }
 
     pub async fn next_config_event(&self) -> Option<ConfigWatcherEvent> {
-        self.config_chan.rx.lock().await.recv().await
+        self.config_chan.recv().await
     }
 
     pub async fn insert_home_event(&self, event: HomeWatcherEvent) {

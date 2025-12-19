@@ -75,7 +75,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     async fn send_control(&self) -> io::Result<()> {
-        while let Some(data) = self.control_chan.rx.lock().await.recv().await {
+        while let Some(data) = self.control_chan.recv().await {
             match data {
                 TransportChannelData::HandshakeSyn(target) => {
                     self.send_handshake(target, true).await?;
@@ -149,7 +149,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     async fn send_files(&self) -> io::Result<()> {
-        while let Some((target, entry)) = self.transfer_chan.rx.lock().await.recv().await {
+        while let Some((target, entry)) = self.transfer_chan.recv().await {
             let path = entry.name.to_canonical(self.state.home_path());
 
             if !path.exists() || !path.is_file() {

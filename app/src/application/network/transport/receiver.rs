@@ -74,7 +74,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     async fn recv_transfer(&self) -> io::Result<()> {
-        while let Some(event) = self.transfer_chan.rx.lock().await.recv().await {
+        while let Some(event) = self.transfer_chan.recv().await {
             self.handle_transfer(event).await?;
         }
         warn!("Transport RECV Transfer channel closed");
@@ -82,7 +82,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     async fn recv_control(&self) -> io::Result<()> {
-        while let Some(event) = self.control_chan.rx.lock().await.recv().await {
+        while let Some(event) = self.control_chan.recv().await {
             match event.payload {
                 TransportData::HandshakeSyn(_) | TransportData::HandshakeAck(_) => {
                     self.handle_handshake(event).await?;
