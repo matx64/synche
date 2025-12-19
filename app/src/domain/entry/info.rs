@@ -54,7 +54,7 @@ impl EntryInfo {
     }
 
     pub fn get_sync_dir(&self) -> RelativePath {
-        self.name.split("/").next().unwrap_or_default().into()
+        self.name.sync_dir()
     }
 
     pub fn set_removed_hash(&mut self) {

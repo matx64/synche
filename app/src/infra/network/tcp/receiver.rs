@@ -1,6 +1,7 @@
 use crate::{
+    application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
-    application::AppState, domain::{ EntryInfo, EntryKind, TransportData},
+    domain::{EntryInfo, EntryKind, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
 };
 use sha2::{Digest, Sha256};
@@ -108,8 +109,8 @@ impl TcpReceiver {
     }
 
     async fn save_entry(&self, entry: &EntryInfo, contents: Vec<u8>) -> TransportResult<()> {
-        let original_path = self.state.home_path().join(&*entry.name);
-        let tmp_path = env::temp_dir().join(&*entry.name);
+        let original_path = entry.name.to_canonical(self.state.home_path());
+        let tmp_path = env::temp_dir().join(&entry.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;

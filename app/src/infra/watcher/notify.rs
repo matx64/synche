@@ -78,8 +78,8 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
                 Ok(event) => {
                     if let Some(path) = event.paths.first().cloned()
-                        && let canonical = CanonicalPath::from_canonical(path)
-                        && let relative = RelativePath::new(&canonical, self.state.home_path())
+                        && let canonical = CanonicalPath::from_absolute(path)
+                        && let Ok(relative) = RelativePath::new(&canonical, self.state.home_path())
                         && !is_ds_store(&canonical)
                     {
                         match self.classify_path(&relative).await {

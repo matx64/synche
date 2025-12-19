@@ -31,11 +31,11 @@ impl IgnoreHandler {
             return;
         };
 
-        if let Some(relative) =
-            RelativePath::new(gitignore_path, self.state.home_path()).strip_suffix("/.gitignore")
+        if let Ok(path_relative) = RelativePath::new(gitignore_path, self.state.home_path())
+            && let Some(relative) = path_relative.strip_suffix("/.gitignore")
         {
             self.gis.write().await.insert(relative.to_string(), gi);
-            info!("⭕  Inserted or Updated .gitignore: {relative}");
+            info!("Inserted or Updated .gitignore: {relative}");
         }
     }
 

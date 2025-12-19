@@ -1,6 +1,7 @@
 use crate::{
+    application::AppState,
     application::network::transport::interface::TransportResult,
-    application::AppState, domain::{ EntryInfo, HandshakeData, TransportData},
+    domain::{EntryInfo, HandshakeData, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
 };
 use sha2::{Digest, Sha256};
@@ -133,7 +134,7 @@ impl TcpSender {
     }
 
     async fn read_entry_contents(&self, entry: &EntryInfo) -> TransportResult<Option<Vec<u8>>> {
-        let path = self.state.home_path().join(&*entry.name);
+        let path = entry.name.to_canonical(self.state.home_path());
 
         let mut fs_file = File::open(path).await?;
         let mut buffer = Vec::new();

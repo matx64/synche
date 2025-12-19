@@ -150,7 +150,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
 
     async fn send_files(&self) -> io::Result<()> {
         while let Some((target, entry)) = self.transfer_chan.rx.lock().await.recv().await {
-            let path = self.state.home_path().join(&*entry.name);
+            let path = entry.name.to_canonical(self.state.home_path());
 
             if !path.exists() || !path.is_file() {
                 continue;

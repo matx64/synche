@@ -225,7 +225,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
         let dir = self.entry_manager.insert_entry(dir).await?;
 
-        let path = self.state.home_path().join(&*dir.name);
+        let path = dir.name.to_canonical(self.state.home_path());
         fs::create_dir_all(path).await?;
 
         self.send_tx

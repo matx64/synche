@@ -39,7 +39,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let mut filesystem_entries = HashMap::new();
 
         for dir in self.state.sync_dirs.read().await.values() {
-            let path = self.state.home_path().join(&*dir.name);
+            let path = dir.name.to_canonical(self.state.home_path());
 
             fs::create_dir_all(&path).await?;
 
@@ -83,7 +83,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .filter_map(Result::ok)
         {
             let canonical = CanonicalPath::new(entry.path())?;
-            let relative = RelativePath::new(&canonical, self.state.home_path());
+            let relative = RelativePath::new(&canonical, self.state.home_path())?;
 
             if self.is_ignored(&canonical, &relative).await {
                 continue;
@@ -170,7 +170,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     }
 
     pub async fn add_sync_dir(&self, name: RelativePath) -> io::Result<()> {
-        let path = self.state.home_path().join(&*name);
+        let path = name.to_canonical(self.state.home_path());
         fs::create_dir_all(&path).await?;
 
         let dir_entries = self.build_dir(path.clone()).await?;
@@ -320,7 +320,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             return Ok(VersionCmp::KeepSelf);
         }
 
-        let path = self.state.home_path().join(&*local_entry.name);
+        let path = local_entry.name.to_canonical(self.state.home_path());
 
         if !path.exists() || path.is_dir() {
             return Ok(VersionCmp::KeepOther);
@@ -391,8 +391,9 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let mut removed_entries = Vec::new();
 
         let entries = self.db.list_all_entries().await?;
+        let removed_path: RelativePath = removed.into();
         for mut entry in entries {
-            if entry.name.starts_with(&format!("{}/", removed)) {
+            if entry.name.starts_with_dir(&removed_path) {
                 entry = self.delete_and_update_entry(entry).await?;
                 removed_entries.push(entry);
             }
