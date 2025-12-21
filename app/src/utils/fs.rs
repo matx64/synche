@@ -149,11 +149,18 @@ pub fn config_file() -> CanonicalPath {
 
 pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     let mut file = File::open(path).await?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 65536];
 
-    let mut content = Vec::new();
-    file.read_to_end(&mut content).await?;
+    loop {
+        let bytes_read = file.read(&mut buffer).await?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
 
-    let hash = format!("{:x}", Sha256::digest(&content));
+    let hash = format!("{:x}", hasher.finalize());
     Ok(hash)
 }
 
