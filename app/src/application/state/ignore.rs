@@ -103,7 +103,7 @@ mod tests {
     async fn test_insert_gitignore() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log", "temp/"]);
 
         handler.insert_gitignore(&gitignore_path).await;
@@ -119,7 +119,7 @@ mod tests {
     async fn test_insert_empty_gitignore() {
         let (temp_dir, _state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &[]);
 
         handler.insert_gitignore(&gitignore_path).await;
@@ -131,7 +131,7 @@ mod tests {
     async fn test_is_ignored_no_gitignore() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let file_path = sync_dir.join("test.log");
         let relative = RelativePath::new(&file_path, state.home_path()).unwrap();
 
@@ -143,7 +143,7 @@ mod tests {
     async fn test_is_ignored_file_pattern() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log", "*.tmp"]);
 
         handler.insert_gitignore(&gitignore_path).await;
@@ -167,7 +167,7 @@ mod tests {
     async fn test_is_ignored_directory_pattern() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["temp/", "build/"]);
 
         handler.insert_gitignore(&gitignore_path).await;
@@ -191,7 +191,7 @@ mod tests {
     async fn test_is_ignored_nested_gitignore() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         create_gitignore(&sync_dir, &["*.log"]);
 
         let nested_dir = sync_dir.join("subdir");
@@ -229,7 +229,7 @@ mod tests {
     async fn test_remove_gitignore() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log"]);
 
         handler.insert_gitignore(&gitignore_path).await;
@@ -246,7 +246,7 @@ mod tests {
     async fn test_remove_nonexistent_gitignore() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = sync_dir.join(".gitignore");
         let relative = RelativePath::new(&gitignore_path, state.home_path()).unwrap();
 
@@ -259,7 +259,7 @@ mod tests {
     async fn test_update_gitignore() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log"]);
 
         handler.insert_gitignore(&gitignore_path).await;
@@ -281,7 +281,7 @@ mod tests {
     async fn test_is_ignored_deep_nesting() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         create_gitignore(&sync_dir, &["*.log"]);
 
         let nested = sync_dir.join("a/b/c");
@@ -301,7 +301,7 @@ mod tests {
     async fn test_is_ignored_with_negation() {
         let (temp_dir, state, handler) = setup_test_env().await;
 
-        let sync_dir = CanonicalPath::from_absolute(temp_dir.path().to_path_buf());
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log", "!important.log"]);
 
         handler.insert_gitignore(&gitignore_path).await;

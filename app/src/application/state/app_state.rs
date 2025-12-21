@@ -302,6 +302,8 @@ mod tests {
 
         let result = state.validate_home_path("./test_relative").await;
         assert!(result.is_ok(), "Should handle relative paths");
+
+        fs::remove_dir_all("./test_relative").await.unwrap();
     }
 
     #[tokio::test]
@@ -389,9 +391,8 @@ mod tests {
             let result = state.add_dir_to_config(existing_dir).await;
 
             assert!(result.is_ok(), "Should not error on duplicate");
-            assert_eq!(
-                result.unwrap(),
-                false,
+            assert!(
+                !result.unwrap(),
                 "Should return false for duplicate directory"
             );
         }

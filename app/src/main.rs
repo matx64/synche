@@ -9,8 +9,3 @@ async fn main() -> tokio::io::Result<()> {
 
     application::Synchronizer::run_default_with_restart().await
 }
-
-#[cfg(test)]
-mod tests {
-    pub mod sqlite;
-}
