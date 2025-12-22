@@ -56,3 +56,96 @@ async fn index<P: PersistenceInterface>(
 
     Ok(Html(rendered))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        application::persistence::interface::PersistenceResult, domain::EntryInfo,
+        infra::http::server::init_template_engine,
+    };
+    use tokio::sync::Mutex;
+
+    struct MockPersistence {
+        entries: Arc<Mutex<Vec<EntryInfo>>>,
+    }
+
+    impl MockPersistence {
+        fn new() -> Self {
+            Self {
+                entries: Arc::new(Mutex::new(vec![])),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PersistenceInterface for MockPersistence {
+        async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
+            self.entries.lock().await.push(entry.clone());
+            Ok(())
+        }
+
+        async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+            Ok(self
+                .entries
+                .lock()
+                .await
+                .iter()
+                .find(|e| &*e.name == name)
+                .cloned())
+        }
+
+        async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
+            Ok(self.entries.lock().await.clone())
+        }
+
+        async fn delete_entry(&self, name: &str) -> PersistenceResult<()> {
+            self.entries.lock().await.retain(|e| &*e.name != name);
+            Ok(())
+        }
+    }
+
+    async fn create_test_components() -> (
+        Arc<AppState>,
+        Arc<PeerManager>,
+        Arc<EntryManager<MockPersistence>>,
+        Environment<'static>,
+    ) {
+        let state = AppState::new().await;
+        let peer_manager = PeerManager::new(state.clone());
+        let mock_db = MockPersistence::new();
+        let entry_manager = EntryManager::new(mock_db, state.clone());
+        let engine = init_template_engine();
+
+        (state, peer_manager, entry_manager, engine)
+    }
+
+    #[tokio::test]
+    async fn test_index_renders_with_metadata() {
+        let (state, pm, em, engine) = create_test_components().await;
+        let gui_state = Arc::new(GuiState {
+            state: state.clone(),
+            engine,
+            peer_manager: pm,
+            entry_manager: em,
+        });
+
+        let result = index(State(gui_state)).await;
+
+        assert!(result.is_ok(), "Index should render successfully");
+
+        let Html(html) = result.unwrap();
+        assert!(
+            html.contains(state.hostname().as_str()),
+            "Should contain hostname"
+        );
+        assert!(
+            html.contains(&state.local_id().to_string()),
+            "Should contain local_id"
+        );
+        assert!(
+            html.contains(&state.local_ip().await.to_string()),
+            "Should contain local_ip"
+        );
+    }
+}

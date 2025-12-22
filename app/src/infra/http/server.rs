@@ -24,7 +24,7 @@ pub async fn run<P: PersistenceInterface>(
     axum::serve(listener, router).await
 }
 
-fn init_template_engine() -> Environment<'static> {
+pub fn init_template_engine() -> Environment<'static> {
     let mut engine = Environment::new();
     engine
         .add_template("index", include_str!("../../../../gui/index.html"))
