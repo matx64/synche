@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+echo "Running pre-commit checks..."
+
+echo "→ cargo clippy"
+cargo clippy -p synche -- -D warnings
+
+echo "→ cargo test"
+cargo test -p synche
+
+echo "All checks passed."

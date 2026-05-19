@@ -12,8 +12,24 @@ The single Cargo workspace member is `app` (binary name `synche`).
 - `cargo test -p synche <name>` — run a single test by name substring (e.g. `cargo test -p synche test_validate_home_path_relative_path`).
 - `cargo fmt` / `cargo clippy` — required to be clean before PRs (per `docs/CONTRIBUTING.md`).
 - `just dev` — runs `watchexec` to restart `cargo run -p synche` whenever `app/` or `gui/index.html` changes. Requires `just` and `watchexec` installed.
+- `just setup-hooks` — installs the git pre-commit hook (run once after cloning).
 
 Running the binary serves the web GUI at `http://localhost:42880`. Ports used: HTTP `42880`, presence (mDNS) `42881`, transport (TCP) `42882` — defined in `app/src/application/state/app_state.rs`.
+
+## Pre-commit checklist (mandatory)
+
+Run both commands after **every** change — no exceptions:
+
+```sh
+cargo clippy -p synche -- -D warnings
+cargo test -p synche
+```
+
+Both must exit with **zero warnings and zero failures**.
+
+- `-D warnings` promotes every Clippy warning to a hard error so nothing slips through.
+- If either command fails, fix the root cause before marking the task done.
+- Never silence a warning with `#[allow(...)]` without explicit approval from the user.
 
 ## Architecture
 
