@@ -3,6 +3,7 @@ use crate::{
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{EntryInfo, EntryKind, TransportData},
     infra::network::tcp::kind::TcpStreamKind,
+    utils::fs::is_git_path,
 };
 use sha2::{Digest, Sha256};
 use std::{env, sync::Arc};
@@ -79,6 +80,10 @@ impl TcpReceiver {
         let mut entry_buf = vec![0u8; entry_size as usize];
         stream.read_exact(&mut entry_buf).await?;
 
+        if is_git_path(&entry.name) {
+            return Ok(TransportData::Transfer(entry));
+        }
+
         if let Some(hash) = &entry.hash
             && !entry.is_removed()
             && matches!(entry.kind, EntryKind::File)
@@ -135,5 +140,65 @@ impl TcpReceiver {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tokio::{
+        fs,
+        io::AsyncWriteExt,
+        net::{TcpListener, TcpStream},
+    };
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn read_transfer_consumes_git_entry_without_writing_to_home() {
+        let state = AppState::new().await;
+        let root = format!("tcp_git_guard_{}", Uuid::new_v4());
+        let entry_name = format!("{root}/.git/config");
+        let original_path = state.home_path().join(&entry_name);
+        let entry = EntryInfo {
+            name: entry_name.clone().into(),
+            kind: EntryKind::File,
+            hash: Some("intentionally-invalid-hash".to_string()),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        };
+        let contents = b"[core]\nrepositoryformatversion = 0\n".to_vec();
+        let entry_json = serde_json::to_vec(&entry).unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(&(entry_json.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            stream.write_all(&entry_json).await.unwrap();
+            stream
+                .write_all(&(contents.len() as u64).to_be_bytes())
+                .await
+                .unwrap();
+            stream.write_all(&contents).await.unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let data = match receiver.read_data(stream, TcpStreamKind::Transfer).await {
+            Ok(data) => data,
+            Err(TransportError::Failure(message)) => panic!("{message}"),
+        };
+        writer.await.unwrap();
+
+        assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(!original_path.exists());
+
+        let root_path = state.home_path().join(&root);
+        if root_path.exists() {
+            fs::remove_dir_all(root_path).await.unwrap();
+        }
     }
 }

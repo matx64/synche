@@ -167,3 +167,40 @@ pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
 pub fn is_ds_store<P: AsRef<Path>>(path: P) -> bool {
     matches!(path.as_ref().file_name(), Some(name) if name == ".DS_Store")
 }
+
+/// Returns true if any component of `path` equals `.git`.
+///
+/// Matches `.git/`, `repo/.git`, `a/b/.git/objects/...` etc.
+/// Does NOT match `.gitignore`, `.gitattributes`, or other `.git*` names.
+pub fn is_git_path(path: &str) -> bool {
+    path.split('/').any(|seg| seg == ".git")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_git_path_matches_exact_component() {
+        assert!(is_git_path(".git"));
+        assert!(is_git_path(".git/config"));
+        assert!(is_git_path("repo/.git"));
+        assert!(is_git_path("repo/.git/objects/ab/cdef"));
+        assert!(is_git_path("a/b/c/.git/HEAD"));
+    }
+
+    #[test]
+    fn is_git_path_does_not_match_git_prefixed_names() {
+        assert!(!is_git_path(".gitignore"));
+        assert!(!is_git_path("repo/.gitignore"));
+        assert!(!is_git_path(".gitattributes"));
+        assert!(!is_git_path("repo/.github/workflows/ci.yml"));
+        assert!(!is_git_path("repo/git/something"));
+        assert!(!is_git_path("repo/foo.git/bar"));
+    }
+
+    #[test]
+    fn is_git_path_empty() {
+        assert!(!is_git_path(""));
+    }
+}

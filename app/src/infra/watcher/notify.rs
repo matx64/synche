@@ -1,7 +1,7 @@
 use crate::{
     application::{AppState, watcher::interface::FileWatcherInterface},
     domain::{CanonicalPath, ConfigWatcherEvent, HomeWatcherEvent, RelativePath, WatcherEventPath},
-    utils::fs::{config_file, is_ds_store},
+    utils::fs::{config_file, is_ds_store, is_git_path},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -81,6 +81,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
                         && let canonical = CanonicalPath::from_absolute(path)
                         && let Ok(relative) = RelativePath::new(&canonical, self.state.home_path())
                         && !is_ds_store(&canonical)
+                        && !is_git_path(&relative)
                     {
                         match self.classify_path(&relative).await {
                             PathClassification::Ignored => continue,

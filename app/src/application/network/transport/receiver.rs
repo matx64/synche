@@ -7,6 +7,7 @@ use crate::{
         EntryInfo, MutexChannel, Peer, TransportChannelData, TransportData, TransportEvent,
         VersionCmp,
     },
+    utils::fs::is_git_path,
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -159,6 +160,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
+        if is_git_path(&peer_entry.name) {
+            return Ok(());
+        }
+
         match self
             .entry_manager
             .handle_metadata(event.metadata.source_id, &peer_entry)
@@ -190,6 +195,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
+        if is_git_path(&requested_entry.name) {
+            return Ok(());
+        }
+
         match self.entry_manager.get_entry(&requested_entry.name).await? {
             Some(local_entry)
                 if local_entry.is_file()
@@ -213,6 +222,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             TransportData::Transfer(entry) => entry,
             _ => unreachable!(),
         };
+
+        if is_git_path(&received_entry.name) {
+            return Ok(());
+        }
 
         let entry = self.entry_manager.insert_entry(received_entry).await?;
 
@@ -267,5 +280,111 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
         self.peer_manager.remove_peer_by_addr(addr).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        application::network::transport::interface::TransportResult,
+        domain::{EntryKind, TransportMetadata},
+        infra::persistence::sqlite::SqliteDb,
+    };
+    use std::{
+        collections::HashMap,
+        net::{IpAddr, Ipv4Addr},
+    };
+    use tokio::sync::mpsc::error::TryRecvError;
+    use uuid::Uuid;
+
+    struct MockTransport;
+
+    impl TransportInterface for MockTransport {
+        async fn recv(&self) -> TransportResult<TransportEvent> {
+            Err(
+                crate::application::network::transport::interface::TransportError::new(
+                    "unused mock recv",
+                ),
+            )
+        }
+
+        async fn send(&self, _target: IpAddr, _data: TransportData) -> TransportResult<()> {
+            Ok(())
+        }
+    }
+
+    async fn setup() -> (
+        TransportReceiver<MockTransport, SqliteDb>,
+        Arc<EntryManager<SqliteDb>>,
+        tokio::sync::mpsc::Receiver<TransportChannelData>,
+    ) {
+        let state = AppState::new().await;
+        let db = SqliteDb::new(":memory:").await.unwrap();
+        let entry_manager = EntryManager::new(db, state.clone());
+        let peer_manager = PeerManager::new(state.clone());
+        let (send_tx, send_rx) = tokio::sync::mpsc::channel(4);
+        let receiver = TransportReceiver::new(
+            Arc::new(MockTransport),
+            state,
+            peer_manager,
+            entry_manager.clone(),
+            send_tx,
+        );
+
+        (receiver, entry_manager, send_rx)
+    }
+
+    fn git_entry(name: &str) -> EntryInfo {
+        EntryInfo {
+            name: name.into(),
+            kind: EntryKind::File,
+            hash: Some("hash".to_string()),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        }
+    }
+
+    fn event(payload: TransportData) -> TransportEvent {
+        TransportEvent {
+            payload,
+            metadata: TransportMetadata {
+                source_id: Uuid::new_v4(),
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_request_ignores_git_entries_without_enqueuing_transfer() {
+        let (receiver, entry_manager, mut send_rx) = setup().await;
+        let entry = git_entry("sync/.git/config");
+        entry_manager.insert_entry(entry.clone()).await.unwrap();
+
+        receiver
+            .handle_request(event(TransportData::Request(entry)))
+            .await
+            .unwrap();
+
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_ignores_git_entries_without_inserting_metadata() {
+        let (receiver, entry_manager, mut send_rx) = setup().await;
+        let entry = git_entry("sync/.git/config");
+
+        receiver
+            .handle_transfer(event(TransportData::Transfer(entry.clone())))
+            .await
+            .unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 }

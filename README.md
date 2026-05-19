@@ -8,7 +8,7 @@
 
 -   **Local-Only:** No internet or cloud dependency.
 -   **Automatic Discovery:** Devices running Synche on the same network find each other automatically using mDNS.
--   **.gitignore Support:** Respects your `.gitignore` files, perfect for syncing source code.
+-   **.gitignore Support:** Respects your `.gitignore` files, plus `.git/` directories are always excluded — safe to sync folders containing Git repositories.
 -   **Real-Time Sync:** Uses a file watcher to detect changes and synchronize them instantly.
 -   **Peer-to-Peer:** Files are transferred directly between your devices.
 -   **Web Interface:** A simple, browser-based GUI for managing the app.

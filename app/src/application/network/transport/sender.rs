@@ -4,6 +4,7 @@ use crate::{
         persistence::interface::PersistenceInterface,
     },
     domain::{EntryInfo, MutexChannel, TransportChannelData, TransportData},
+    utils::fs::is_git_path,
 };
 use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
@@ -121,6 +122,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     async fn send_metadata(&self, entry: EntryInfo) -> io::Result<()> {
+        if is_git_path(&entry.name) {
+            return Ok(());
+        }
+
         for target in self.peer_manager.get_peers_to_send_metadata(&entry).await {
             self.try_send(
                 || {
@@ -136,6 +141,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> io::Result<()> {
+        if is_git_path(&entry.name) {
+            return Ok(());
+        }
+
         self.try_send(
             || {
                 self.adapter
@@ -150,6 +159,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
 
     async fn send_files(&self) -> io::Result<()> {
         while let Some((target, entry)) = self.transfer_chan.recv().await {
+            if is_git_path(&entry.name) {
+                continue;
+            }
+
             let path = entry.name.to_canonical(self.state.home_path());
 
             if !path.exists() || !path.is_file() {

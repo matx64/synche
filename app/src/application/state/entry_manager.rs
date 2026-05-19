@@ -5,7 +5,7 @@ use crate::{
         CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath, SyncDirectory,
         VersionCmp,
     },
-    utils::fs::{compute_hash, is_ds_store},
+    utils::fs::{compute_hash, is_ds_store, is_git_path},
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -85,7 +85,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             let canonical = CanonicalPath::new(entry.path())?;
             let relative = RelativePath::new(&canonical, self.state.home_path())?;
 
-            if self.is_ignored(&canonical, &relative).await {
+            if is_git_path(&relative) || self.is_ignored(&canonical, &relative).await {
                 continue;
             }
 
@@ -252,6 +252,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let dirs = { self.state.sync_dirs.read().await.clone() };
 
         for (name, peer_entry) in peer_entries {
+            if is_git_path(&name) {
+                continue;
+            }
+
             if dirs.contains_key(&peer_entry.get_sync_dir()) {
                 if let Some(mut local_entry) = self.get_entry(&name).await? {
                     let cmp = self
@@ -352,6 +356,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
         peer_id: Uuid,
         peer_entry: &EntryInfo,
     ) -> io::Result<VersionCmp> {
+        if is_git_path(&peer_entry.name) {
+            return Ok(VersionCmp::KeepSelf);
+        }
+
         match self.get_entry(&peer_entry.name).await? {
             Some(mut local_entry) => {
                 self.compare_and_resolve_conflict(&mut local_entry, peer_entry, peer_id)
@@ -426,6 +434,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             .list_all_entries()
             .await?
             .into_iter()
+            .filter(|f| !is_git_path(&f.name))
             .map(|f| (f.name.clone(), f))
             .collect::<HashMap<RelativePath, EntryInfo>>();
 
@@ -443,5 +452,147 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     pub async fn remove_gitignore(&self, relative: &RelativePath) {
         self.ignore_handler.remove_gitignore(relative).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::persistence::sqlite::SqliteDb;
+    use std::fs;
+    use std::net::{IpAddr, Ipv4Addr};
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    async fn setup() -> (TempDir, CanonicalPath, Arc<EntryManager<SqliteDb>>) {
+        let state = AppState::new().await;
+        let home_path = state.home_path().clone();
+        let temp_dir = TempDir::new_in(&home_path).unwrap();
+        let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
+
+        let db = SqliteDb::new(":memory:").await.unwrap();
+        let manager = EntryManager::new(db, state);
+
+        (temp_dir, sync_dir, manager)
+    }
+
+    async fn add_sync_dir(
+        manager: &Arc<EntryManager<SqliteDb>>,
+        sync_dir: &CanonicalPath,
+    ) -> RelativePath {
+        let relative = RelativePath::new(sync_dir, manager.state.home_path()).unwrap();
+        manager.state.sync_dirs.write().await.insert(
+            relative.clone(),
+            SyncDirectory {
+                name: relative.clone(),
+            },
+        );
+        relative
+    }
+
+    fn entry(name: RelativePath, hash: Option<&str>, peer_id: Uuid) -> EntryInfo {
+        EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: hash.map(str::to_string),
+            version: HashMap::from([(peer_id, 1)]),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_dir_excludes_git_directory() {
+        let (_temp_dir, sync_dir, manager) = setup().await;
+
+        fs::write(sync_dir.join("notes.txt"), "hello").unwrap();
+        fs::write(sync_dir.join(".gitignore"), "*.log").unwrap();
+        fs::write(sync_dir.join(".gitattributes"), "* text=auto").unwrap();
+
+        fs::create_dir_all(sync_dir.join(".git/objects/ab")).unwrap();
+        fs::write(sync_dir.join(".git/HEAD"), "ref: refs/heads/main").unwrap();
+        fs::write(sync_dir.join(".git/config"), "[core]").unwrap();
+        fs::write(sync_dir.join(".git/objects/ab/cdef"), "obj").unwrap();
+
+        let entries = manager.build_dir(sync_dir).await.unwrap();
+
+        let names: Vec<&str> = entries.keys().map(|p| p.as_ref()).collect();
+
+        assert!(names.iter().any(|n| n.ends_with("/notes.txt")));
+        assert!(names.iter().any(|n| n.ends_with("/.gitignore")));
+        assert!(names.iter().any(|n| n.ends_with("/.gitattributes")));
+
+        for name in &names {
+            assert!(
+                !name.contains("/.git/") && !name.ends_with("/.git"),
+                "unexpected .git entry: {name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_entries_to_request_ignores_git_peer_entries() {
+        let (_temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+        let peer = Peer::new(
+            peer_id,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            "peer".to_string(),
+            Uuid::new_v4(),
+            vec![SyncDirectory {
+                name: sync_root.clone(),
+            }],
+        );
+
+        let git_name: RelativePath = format!("{}/.git/config", &*sync_root).into();
+        let normal_name: RelativePath = format!("{}/notes.txt", &*sync_root).into();
+        let git_entry = entry(git_name.clone(), Some("git-hash"), peer_id);
+        let normal_entry = entry(normal_name.clone(), Some("notes-hash"), peer_id);
+        let peer_entries =
+            HashMap::from([(git_name, git_entry), (normal_name.clone(), normal_entry)]);
+
+        let entries = manager
+            .get_entries_to_request(&peer, peer_entries)
+            .await
+            .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, normal_name);
+    }
+
+    #[tokio::test]
+    async fn handle_metadata_ignores_git_peer_entries() {
+        let (_temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+        let git_name: RelativePath = format!("{}/.git/config", &*sync_root).into();
+        let peer_entry = entry(git_name.clone(), Some("git-hash"), peer_id);
+
+        let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
+
+        assert!(matches!(cmp, VersionCmp::KeepSelf));
+        assert!(manager.get_entry(&git_name).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_handshake_data_excludes_stale_git_entries() {
+        let (_temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+        let git_name: RelativePath = format!("{}/.git/config", &*sync_root).into();
+        let normal_name: RelativePath = format!("{}/notes.txt", &*sync_root).into();
+
+        manager
+            .insert_entry(entry(git_name.clone(), Some("git-hash"), peer_id))
+            .await
+            .unwrap();
+        manager
+            .insert_entry(entry(normal_name.clone(), Some("notes-hash"), peer_id))
+            .await
+            .unwrap();
+
+        let data = manager.get_handshake_data().await.unwrap();
+
+        assert!(!data.entries.contains_key(&git_name));
+        assert!(data.entries.contains_key(&normal_name));
     }
 }
