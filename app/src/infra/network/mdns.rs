@@ -174,13 +174,15 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
-    async fn create_test_adapter() -> MdnsAdapter {
-        MdnsAdapter::new(AppState::new().await)
+    async fn create_test_adapter() -> (crate::utils::test_support::TestEnv, MdnsAdapter) {
+        let env = crate::utils::test_support::test_env().await;
+        let adapter = MdnsAdapter::new(env.state.clone());
+        (env, adapter)
     }
 
     #[tokio::test]
     async fn test_get_peer_id_valid_uuid() {
-        let adapter = create_test_adapter().await;
+        let (_env, adapter) = create_test_adapter().await;
 
         let uuid = Uuid::new_v4();
         let fullname = format!("{}._synche._udp.local.", uuid);
@@ -191,7 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_peer_id_invalid_uuid() {
-        let adapter = create_test_adapter().await;
+        let (_env, adapter) = create_test_adapter().await;
 
         let fullname = "not-a-uuid._synche._udp.local.";
         let result = adapter.get_peer_id(fullname);
@@ -201,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_peer_id_empty_string() {
-        let adapter = create_test_adapter().await;
+        let (_env, adapter) = create_test_adapter().await;
 
         let fullname = "";
         let result = adapter.get_peer_id(fullname);
@@ -211,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_service_removed_valid() {
-        let adapter = create_test_adapter().await;
+        let (_env, adapter) = create_test_adapter().await;
 
         let uuid = Uuid::new_v4();
         let fullname = format!("{}._synche._udp.local.", uuid);
@@ -226,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_service_removed_invalid_fullname() {
-        let adapter = create_test_adapter().await;
+        let (_env, adapter) = create_test_adapter().await;
 
         let fullname = "invalid-uuid._synche._udp.local.";
         let result = adapter.handle_service_removed(fullname);
@@ -236,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_service_removed_empty_fullname() {
-        let adapter = create_test_adapter().await;
+        let (_env, adapter) = create_test_adapter().await;
 
         let fullname = "";
         let result = adapter.handle_service_removed(fullname);

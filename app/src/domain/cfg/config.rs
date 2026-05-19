@@ -1,6 +1,6 @@
 use crate::{
     domain::{CanonicalPath, ConfigDirectory},
-    utils::fs::{config_file, default_home_dir},
+    utils::{dirs::SyncheDirs, fs::default_home_dir},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io};
@@ -12,11 +12,14 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn init() -> io::Result<Self> {
-        let path = config_file();
+    /// Load `config.toml` from `dirs.config_file()`, writing a default
+    /// file if none exists. The resolved `home_path` directory is created
+    /// if missing.
+    pub async fn init(dirs: &SyncheDirs) -> io::Result<Self> {
+        let path = dirs.config_file();
 
         if path.exists() {
-            let contents = fs::read_to_string(path).await?;
+            let contents = fs::read_to_string(&path).await?;
             let cfg: Self = toml::from_str(&contents).map_err(io::Error::other)?;
 
             if !cfg.home_path.exists() {
@@ -29,7 +32,7 @@ impl Config {
 
             let contents = toml::to_string_pretty(&cfg).map_err(io::Error::other)?;
 
-            fs::write(path, contents).await?;
+            fs::write(&path, contents).await?;
             Ok(cfg)
         }
     }

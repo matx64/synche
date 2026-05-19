@@ -12,6 +12,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
+use uuid::Uuid;
 
 pub struct TcpReceiver {
     state: Arc<AppState>,
@@ -115,7 +116,11 @@ impl TcpReceiver {
 
     async fn save_entry(&self, entry: &EntryInfo, contents: Vec<u8>) -> TransportResult<()> {
         let original_path = entry.name.to_canonical(self.state.home_path());
-        let tmp_path = env::temp_dir().join(&entry.name);
+        // Stage into a per-transfer subdirectory inside the OS temp dir.
+        // Without the Uuid suffix, two concurrent transfers of the same
+        // `entry.name` would race on the same `/tmp/<name>` staging file.
+        let staging_root = env::temp_dir().join(format!("synche-{}", Uuid::new_v4()));
+        let tmp_path = staging_root.join(&entry.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
@@ -136,9 +141,11 @@ impl TcpReceiver {
                 fs::remove_file(&tmp_path).await?;
             }
             Err(e) => {
+                let _ = fs::remove_dir_all(&staging_root).await;
                 return Err(e.into());
             }
         }
+        let _ = fs::remove_dir_all(&staging_root).await;
         Ok(())
     }
 }
@@ -156,7 +163,8 @@ mod tests {
 
     #[tokio::test]
     async fn read_transfer_consumes_git_entry_without_writing_to_home() {
-        let state = AppState::new().await;
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
         let root = format!("tcp_git_guard_{}", Uuid::new_v4());
         let entry_name = format!("{root}/.git/config");
         let original_path = state.home_path().join(&entry_name);

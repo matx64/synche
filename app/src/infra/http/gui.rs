@@ -106,23 +106,25 @@ mod tests {
     }
 
     async fn create_test_components() -> (
+        crate::utils::test_support::TestEnv,
         Arc<AppState>,
         Arc<PeerManager>,
         Arc<EntryManager<MockPersistence>>,
         Environment<'static>,
     ) {
-        let state = AppState::new().await;
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
         let peer_manager = PeerManager::new(state.clone());
         let mock_db = MockPersistence::new();
         let entry_manager = EntryManager::new(mock_db, state.clone());
         let engine = init_template_engine();
 
-        (state, peer_manager, entry_manager, engine)
+        (env, state, peer_manager, entry_manager, engine)
     }
 
     #[tokio::test]
     async fn test_index_renders_with_metadata() {
-        let (state, pm, em, engine) = create_test_components().await;
+        let (_env, state, pm, em, engine) = create_test_components().await;
         let gui_state = Arc::new(GuiState {
             state: state.clone(),
             engine,

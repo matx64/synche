@@ -14,9 +14,21 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(id: Uuid, addr: IpAddr, hostname: String, instance_id: Uuid, sync_dirs: Vec<SyncDirectory>) -> Self {
-        let hostname = hostname.strip_suffix(".local").unwrap_or(&hostname).to_string();
-        let sync_dirs = sync_dirs.into_iter().map(|dir| (dir.name.clone(), dir)).collect();
+    pub fn new(
+        id: Uuid,
+        addr: IpAddr,
+        hostname: String,
+        instance_id: Uuid,
+        sync_dirs: Vec<SyncDirectory>,
+    ) -> Self {
+        let hostname = hostname
+            .strip_suffix(".local")
+            .unwrap_or(&hostname)
+            .to_string();
+        let sync_dirs = sync_dirs
+            .into_iter()
+            .map(|dir| (dir.name.clone(), dir))
+            .collect();
 
         Self {
             id,

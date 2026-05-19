@@ -1,7 +1,7 @@
 use crate::{
     application::{AppState, watcher::interface::FileWatcherInterface},
     domain::{CanonicalPath, ConfigWatcherEvent, HomeWatcherEvent, RelativePath, WatcherEventPath},
-    utils::fs::{config_file, is_ds_store, is_git_path},
+    utils::fs::{is_ds_store, is_git_path},
 };
 use notify::{
     Config, Error, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -46,13 +46,14 @@ impl FileWatcherInterface for NotifyFileWatcher {
         )
         .unwrap();
 
+        let config_path = state.dirs().config_file().as_ref().to_owned();
         Self {
             state,
             home_watcher,
             config_watcher,
             home_rx: Mutex::new(home_rx),
             config_rx: Mutex::new(config_rx),
-            config_path: config_file().as_ref().to_owned(),
+            config_path,
         }
     }
 
@@ -64,7 +65,7 @@ impl FileWatcherInterface for NotifyFileWatcher {
 
     async fn watch_config(&mut self) -> io::Result<()> {
         self.config_watcher
-            .watch(&config_file(), RecursiveMode::NonRecursive)
+            .watch(&self.config_path, RecursiveMode::NonRecursive)
             .map_err(io::Error::other)
     }
 

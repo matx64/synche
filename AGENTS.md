@@ -54,11 +54,22 @@ Permanent path exclusions must be enforced at every boundary where entries can e
 
 ### Runtime / data files (not in repo)
 
-State lives in the OS config dir (`dirs::config_dir()` + `synche/`), not the repo:
+State lives in the OS config dir (`dirs::config_dir()` + `synche/`), not the repo. The paths are resolved through a `SyncheDirs` value type (`app/src/utils/dirs.rs`) carried on `AppState`, **not** through global statics — tests rely on injecting per-test `SyncheDirs` for isolation. Production code goes through `AppState::new_from_os()` and reads paths via `state.dirs()`. Don't reintroduce global `OnceLock`s for these directories.
 
 - `config.toml` — `home_path` and the list of sync directories. Auto-generated on first run. Edits applied live; a `home_path` change triggers the restart loop above.
 - `data.db` — SQLite store for entry metadata (`SqliteDb`).
 - device-id file — persistent UUID for this device. A fresh `instance_id` is generated per process start; `local_id` persists.
+
+### Test isolation
+
+`#[tokio::test]`s run in parallel, so every test that needs an `AppState` MUST build one through `crate::utils::test_support::test_env()` (or `test_env_with_dirs`). The helper gives each test:
+
+- A unique `TempDir` rooted in `/tmp`.
+- A `SyncheDirs` rooted inside that temp dir — fresh `device_id` and `config.toml` per test.
+- A seeded `config.toml` so `Config::init` does not touch the real `~/.config/synche/`.
+- An `AppState` with ephemeral ports (`http: 0, presence: 0, transport: 0`).
+
+Never call `AppState::new_from_os()` from a test, never `TempDir::new_in(state.home_path())` against the real home, never write to `./` or any other CWD-relative path. Hold the returned `TestEnv` (or its `_env` binding) for the lifetime of the test so the temp dir doesn't drop early.
 
 ### Frontend
 

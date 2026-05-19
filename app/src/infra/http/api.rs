@@ -189,21 +189,23 @@ mod tests {
     }
 
     async fn create_test_components() -> (
+        crate::utils::test_support::TestEnv,
         Arc<AppState>,
         Arc<PeerManager>,
         Arc<EntryManager<MockPersistence>>,
     ) {
-        let state = AppState::new().await;
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
         let peer_manager = PeerManager::new(state.clone());
         let mock_db = MockPersistence::new();
         let entry_manager = EntryManager::new(mock_db, state.clone());
 
-        (state, peer_manager, entry_manager)
+        (env, state, peer_manager, entry_manager)
     }
 
     #[tokio::test]
     async fn test_add_sync_dir_success() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
 
         let unique_dir = format!("TestDir_{}", Uuid::new_v4());
         let dir_path = state.home_path().join(&unique_dir);
@@ -226,14 +228,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_sync_dir_duplicate() {
-        let (state, pm, em) = create_test_components().await;
+        // Seed `sync_dirs` via the initial config so the duplicate check
+        // in `add_dir_to_config` trips. (In production the file watcher
+        // populates that map from `config.toml` on startup.)
+        let env =
+            crate::utils::test_support::test_env_with_dirs(&["Default Folder", "DuplicateDir"])
+                .await;
+        let state = env.state.clone();
+        let pm = PeerManager::new(state.clone());
+        let em = EntryManager::new(MockPersistence::new(), state.clone());
 
-        let test_dir = RelativePath::from("DuplicateDir");
-        let test_dir_path = state
-            .home_path()
-            .join(<RelativePath as AsRef<str>>::as_ref(&test_dir));
+        let test_dir_path = state.home_path().join("DuplicateDir");
         tokio::fs::create_dir_all(&test_dir_path).await.ok();
-        state.add_dir_to_config(&test_dir).await.ok();
 
         let api_state = Arc::new(ApiState {
             state: state.clone(),
@@ -252,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_sync_dir_trims_whitespace() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
 
         let unique_dir = format!("TestDir_{}", Uuid::new_v4());
         let trimmed_dir = state.home_path().join(&unique_dir);
@@ -279,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_sync_dir_success() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
 
         let test_dir = RelativePath::from("RemoveMe");
         state.add_dir_to_config(&test_dir).await.ok();
@@ -301,7 +307,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_sync_dir_nonexistent() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
         let api_state = Arc::new(ApiState {
             state,
             peer_manager: pm,
@@ -323,7 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_sync_dir_trims_whitespace() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
 
         let test_dir = RelativePath::from("TrimTest");
         state.add_dir_to_config(&test_dir).await.ok();
@@ -345,7 +351,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_home_path_success() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
         let api_state = Arc::new(ApiState {
             state,
             peer_manager: pm,
@@ -364,7 +370,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_home_path_invalid() {
-        let (state, pm, em) = create_test_components().await;
+        let (_env, state, pm, em) = create_test_components().await;
         let api_state = Arc::new(ApiState {
             state,
             peer_manager: pm,
@@ -390,7 +396,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sse_broadcast_channel() {
-        let (state, _pm, _em) = create_test_components().await;
+        let (_env, state, _pm, _em) = create_test_components().await;
         let sender = state.sse_sender();
         let mut receiver = state.sse_subscribe();
 

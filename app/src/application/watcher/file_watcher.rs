@@ -210,7 +210,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     }
 
     async fn handle_config_modify(&self) -> io::Result<()> {
-        let new_config = Config::init().await?;
+        let new_config = Config::init(self.state.dirs()).await?;
 
         if new_config.home_path != *self.state.home_path() {
             let path_str = new_config.home_path.display().to_string();

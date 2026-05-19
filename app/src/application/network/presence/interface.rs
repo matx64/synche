@@ -12,7 +12,7 @@ pub enum PresenceEvent {
     Ping {
         id: Uuid,
         addr: IpAddr,
-        instance_id: Uuid
+        instance_id: Uuid,
     },
     Disconnect(Uuid),
 }

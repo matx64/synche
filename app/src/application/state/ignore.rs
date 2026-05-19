@@ -80,17 +80,18 @@ impl IgnoreHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::test_support::{TestEnv, test_env};
     use std::fs;
     use tempfile::TempDir;
 
-    async fn setup_test_env() -> (TempDir, Arc<AppState>, IgnoreHandler) {
-        let state = AppState::new().await;
-        let home_path = state.home_path().clone();
-
-        let temp_dir = TempDir::new_in(&home_path).unwrap();
-        let handler = IgnoreHandler::new(state.clone());
-
-        (temp_dir, state, handler)
+    async fn setup_test_env() -> (TempDir, TestEnv, Arc<AppState>, IgnoreHandler) {
+        let env = test_env().await;
+        // Create a sub-dir inside the test's isolated home so the test gets
+        // a working sync-dir scaffold without colliding with other tests.
+        let temp_dir = TempDir::new_in(env.home_path()).unwrap();
+        let handler = IgnoreHandler::new(env.state.clone());
+        let state = env.state.clone();
+        (temp_dir, env, state, handler)
     }
 
     fn create_gitignore(dir: &CanonicalPath, patterns: &[&str]) -> CanonicalPath {
@@ -101,7 +102,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_insert_gitignore() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log", "temp/"]);
@@ -117,7 +118,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_insert_empty_gitignore() {
-        let (temp_dir, _state, handler) = setup_test_env().await;
+        let (temp_dir, _env, _state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &[]);
@@ -129,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_ignored_no_gitignore() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let file_path = sync_dir.join("test.log");
@@ -141,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_ignored_file_pattern() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log", "*.tmp"]);
@@ -165,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_ignored_directory_pattern() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["temp/", "build/"]);
@@ -189,7 +190,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_ignored_nested_gitignore() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         create_gitignore(&sync_dir, &["*.log"]);
@@ -227,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_gitignore() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log"]);
@@ -244,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_nonexistent_gitignore() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = sync_dir.join(".gitignore");
@@ -257,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_gitignore() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log"]);
@@ -279,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_ignored_deep_nesting() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         create_gitignore(&sync_dir, &["*.log"]);
@@ -299,7 +300,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_ignored_with_negation() {
-        let (temp_dir, state, handler) = setup_test_env().await;
+        let (temp_dir, _env, state, handler) = setup_test_env().await;
 
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
         let gitignore_path = create_gitignore(&sync_dir, &["*.log", "!important.log"]);

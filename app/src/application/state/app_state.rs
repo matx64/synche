@@ -3,7 +3,7 @@ use crate::{
         AppPorts, BroadcastChannel, CanonicalPath, Config, ConfigDirectory, Peer, RelativePath,
         ServerEvent, SyncDirectory,
     },
-    utils::fs::{config_file, device_id_file},
+    utils::dirs::SyncheDirs,
 };
 use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc};
 use tokio::{
@@ -12,11 +12,20 @@ use tokio::{
 };
 use uuid::Uuid;
 
-const HTTP_PORT: u16 = 42880;
-const PRESENCE_PORT: u16 = 42881;
-const TRANSPORT_PORT: u16 = 42882;
+pub const DEFAULT_HTTP_PORT: u16 = 42880;
+pub const DEFAULT_PRESENCE_PORT: u16 = 42881;
+pub const DEFAULT_TRANSPORT_PORT: u16 = 42882;
+
+pub fn default_ports() -> AppPorts {
+    AppPorts {
+        http: DEFAULT_HTTP_PORT,
+        presence: DEFAULT_PRESENCE_PORT,
+        transport: DEFAULT_TRANSPORT_PORT,
+    }
+}
 
 pub struct AppState {
+    dirs: SyncheDirs,
     ports: AppPorts,
     local_id: Uuid,
     instance_id: Uuid,
@@ -29,11 +38,16 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new() -> Arc<Self> {
-        let config = Config::init().await.unwrap();
+    /// Build an `AppState` from explicit directories and ports.
+    ///
+    /// Production callers should use [`AppState::new_from_os`] which wires
+    /// the platform default dirs and ports. Tests construct their own
+    /// `SyncheDirs` rooted in a per-test `TempDir` for isolation.
+    pub async fn new(dirs: SyncheDirs, ports: AppPorts) -> Arc<Self> {
+        let config = Config::init(&dirs).await.unwrap();
 
         let local_ip = local_ip_address::local_ip().unwrap();
-        let (local_id, instance_id) = Self::init_ids().await.unwrap();
+        let (local_id, instance_id) = Self::init_ids(&dirs).await.unwrap();
 
         let hostname = hostname::get().unwrap().to_string_lossy().to_string();
         let hostname = hostname
@@ -49,13 +63,8 @@ impl AppState {
                 .collect(),
         );
 
-        let ports = AppPorts {
-            http: HTTP_PORT,
-            presence: PRESENCE_PORT,
-            transport: TRANSPORT_PORT,
-        };
-
         Arc::new(Self {
+            dirs,
             ports,
             hostname,
             local_id,
@@ -66,6 +75,17 @@ impl AppState {
             local_ip: RwLock::new(local_ip),
             sync_dirs,
         })
+    }
+
+    /// Production constructor: resolves the OS-default directories and
+    /// uses the well-known Synche ports.
+    pub async fn new_from_os() -> Arc<Self> {
+        let dirs = SyncheDirs::from_os().expect("Failed to resolve OS directories");
+        Self::new(dirs, default_ports()).await
+    }
+
+    pub fn dirs(&self) -> &SyncheDirs {
+        &self.dirs
     }
 
     pub fn ports(&self) -> &AppPorts {
@@ -100,15 +120,15 @@ impl AppState {
         self.sse_broadcast.subscribe()
     }
 
-    pub async fn init_ids() -> io::Result<(Uuid, Uuid)> {
-        let file = device_id_file();
+    async fn init_ids(dirs: &SyncheDirs) -> io::Result<(Uuid, Uuid)> {
+        let file = dirs.device_id_file();
 
         let local_id = if !file.exists() {
             let id = Uuid::new_v4();
-            fs::write(file, id.to_string()).await?;
+            fs::write(&file, id.to_string()).await?;
             id
         } else {
-            let id = fs::read_to_string(file).await?;
+            let id = fs::read_to_string(&file).await?;
             Uuid::parse_str(&id).map_err(io::Error::other)?
         };
 
@@ -195,7 +215,7 @@ impl AppState {
 
     async fn write_config(&self, config: &Config) -> io::Result<()> {
         let contents = toml::to_string_pretty(config).map_err(io::Error::other)?;
-        fs::write(config_file(), contents).await
+        fs::write(self.dirs.config_file(), contents).await
     }
 
     pub async fn contains_sync_dir(&self, name: &RelativePath) -> bool {
@@ -211,11 +231,13 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::test_support::test_env;
     use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_state_getters() {
-        let state = AppState::new().await;
+        let env = test_env().await;
+        let state = &env.state;
 
         let _ports = state.ports();
         let _local_id = state.local_id();
@@ -225,8 +247,8 @@ mod tests {
         let _local_ip = state.local_ip().await;
 
         let instance1 = state.instance_id();
-        let state2 = AppState::new().await;
-        let instance2 = state2.instance_id();
+        let env2 = test_env().await;
+        let instance2 = env2.state.instance_id();
 
         assert_ne!(
             instance1, instance2,
@@ -236,10 +258,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_id_persistence() {
-        let state1 = AppState::new().await;
-        let local_id1 = state1.local_id();
+        // Reuse the same SyncheDirs so the on-disk device_id file is shared
+        // between two AppState constructions — mirrors a process restart.
+        let env = test_env().await;
+        let local_id1 = env.state.local_id();
 
-        let state2 = AppState::new().await;
+        let state2 = AppState::new(env.dirs.clone(), default_ports()).await;
         let local_id2 = state2.local_id();
 
         assert_eq!(
@@ -252,11 +276,14 @@ mod tests {
     async fn test_validate_home_path_creates_missing_dir() {
         let temp = TempDir::new().unwrap();
         let new_dir = temp.path().join("new_directory");
-        let state = AppState::new().await;
+        let env = test_env().await;
 
         assert!(!new_dir.exists(), "Directory should not exist initially");
 
-        let result = state.validate_home_path(new_dir.to_str().unwrap()).await;
+        let result = env
+            .state
+            .validate_home_path(new_dir.to_str().unwrap())
+            .await;
         assert!(result.is_ok(), "Should create missing directory");
 
         assert!(new_dir.exists(), "Directory should have been created");
@@ -267,11 +294,14 @@ mod tests {
     async fn test_validate_home_path_creates_nested_dirs() {
         let temp = TempDir::new().unwrap();
         let nested_dir = temp.path().join("level1").join("level2").join("level3");
-        let state = AppState::new().await;
+        let env = test_env().await;
 
         assert!(!nested_dir.exists());
 
-        let result = state.validate_home_path(nested_dir.to_str().unwrap()).await;
+        let result = env
+            .state
+            .validate_home_path(nested_dir.to_str().unwrap())
+            .await;
         assert!(result.is_ok(), "Should create nested directories");
 
         assert!(nested_dir.exists());
@@ -283,12 +313,15 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let file_path = temp.path().join("file.txt");
         tokio::fs::write(&file_path, "test content").await.unwrap();
-        let state = AppState::new().await;
+        let env = test_env().await;
 
         assert!(file_path.exists());
         assert!(file_path.is_file());
 
-        let result = state.validate_home_path(file_path.to_str().unwrap()).await;
+        let result = env
+            .state
+            .validate_home_path(file_path.to_str().unwrap())
+            .await;
         assert!(result.is_err(), "Should reject file path");
 
         let err = result.unwrap_err();
@@ -297,22 +330,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_validate_home_path_relative_path() {
-        let state = AppState::new().await;
+    async fn test_validate_home_path_accepts_unique_directory() {
+        // Previously this test wrote to `./test_relative` in the workspace
+        // CWD, which is process-global and races between concurrent tests.
+        // Test the same code path (`fs::create_dir_all` + `canonicalize`)
+        // with a guaranteed-unique absolute path instead.
+        let temp = TempDir::new().unwrap();
+        let unique = temp.path().join(format!("test_path_{}", Uuid::new_v4()));
+        let env = test_env().await;
 
-        let result = state.validate_home_path("./test_relative").await;
-        assert!(result.is_ok(), "Should handle relative paths");
-
-        fs::remove_dir_all("./test_relative").await.unwrap();
+        let result = env.state.validate_home_path(unique.to_str().unwrap()).await;
+        assert!(result.is_ok(), "Should handle freshly-created paths");
+        assert!(unique.exists());
     }
 
     #[tokio::test]
     async fn test_validate_home_path_with_spaces() {
         let temp = TempDir::new().unwrap();
         let dir_with_spaces = temp.path().join("my sync folder");
-        let state = AppState::new().await;
+        let env = test_env().await;
 
-        let result = state
+        let result = env
+            .state
             .validate_home_path(dir_with_spaces.to_str().unwrap())
             .await;
         assert!(result.is_ok(), "Should handle paths with spaces");
@@ -323,9 +362,10 @@ mod tests {
     #[tokio::test]
     async fn test_validate_home_path_valid_existing_dir() {
         let temp = TempDir::new().unwrap();
-        let state = AppState::new().await;
+        let env = test_env().await;
 
-        let result = state
+        let result = env
+            .state
             .validate_home_path(temp.path().to_str().unwrap())
             .await;
         assert!(result.is_ok(), "Should accept existing directory");
@@ -337,13 +377,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_contains_sync_dir_existing() {
-        let state = AppState::new().await;
+        let env = test_env().await;
 
-        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+        let dirs: Vec<RelativePath> = env.state.sync_dirs.read().await.keys().cloned().collect();
 
         if let Some(dir) = dirs.first() {
             assert!(
-                state.contains_sync_dir(dir).await,
+                env.state.contains_sync_dir(dir).await,
                 "Should find existing sync directory"
             );
         }
@@ -351,9 +391,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_under_sync_dir_direct_child() {
-        let state = AppState::new().await;
+        let env = test_env().await;
 
-        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+        let dirs: Vec<RelativePath> = env.state.sync_dirs.read().await.keys().cloned().collect();
 
         if let Some(dir) = dirs.first() {
             let child_path = RelativePath::from(format!(
@@ -361,7 +401,7 @@ mod tests {
                 <RelativePath as AsRef<str>>::as_ref(dir)
             ));
             assert!(
-                state.is_under_sync_dir(&child_path).await,
+                env.state.is_under_sync_dir(&child_path).await,
                 "File under sync dir should be detected"
             );
         }
@@ -369,13 +409,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_under_sync_dir_exact_match() {
-        let state = AppState::new().await;
+        let env = test_env().await;
 
-        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+        let dirs: Vec<RelativePath> = env.state.sync_dirs.read().await.keys().cloned().collect();
 
         if let Some(dir) = dirs.first() {
             assert!(
-                state.is_under_sync_dir(dir).await,
+                env.state.is_under_sync_dir(dir).await,
                 "Sync dir itself should match is_under_sync_dir"
             );
         }
@@ -383,12 +423,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_dir_to_config_duplicate_prevention() {
-        let state = AppState::new().await;
+        let env = test_env().await;
 
-        let dirs: Vec<RelativePath> = state.sync_dirs.read().await.keys().cloned().collect();
+        let dirs: Vec<RelativePath> = env.state.sync_dirs.read().await.keys().cloned().collect();
 
         if let Some(existing_dir) = dirs.first() {
-            let result = state.add_dir_to_config(existing_dir).await;
+            let result = env.state.add_dir_to_config(existing_dir).await;
 
             assert!(result.is_ok(), "Should not error on duplicate");
             assert!(
@@ -400,10 +440,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_dir_from_config_non_existent() {
-        let state = AppState::new().await;
+        let env = test_env().await;
         let non_existent = RelativePath::from(format!("non_existent_dir_{}", Uuid::new_v4()));
 
-        let result = state.remove_dir_from_config(&non_existent).await;
+        let result = env.state.remove_dir_from_config(&non_existent).await;
         assert!(
             result.is_ok(),
             "Removing non-existent directory should be OK (idempotent)"
@@ -412,7 +452,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sse_broadcast_channels() {
-        let state = AppState::new().await;
+        let env = test_env().await;
+        let state = &env.state;
 
         let sender = state.sse_sender();
         let mut receiver1 = state.sse_subscribe();

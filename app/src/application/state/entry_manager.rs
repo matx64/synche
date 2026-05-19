@@ -464,16 +464,22 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    async fn setup() -> (TempDir, CanonicalPath, Arc<EntryManager<SqliteDb>>) {
-        let state = AppState::new().await;
-        let home_path = state.home_path().clone();
-        let temp_dir = TempDir::new_in(&home_path).unwrap();
+    async fn setup() -> (
+        crate::utils::test_support::TestEnv,
+        TempDir,
+        CanonicalPath,
+        Arc<EntryManager<SqliteDb>>,
+    ) {
+        let env = crate::utils::test_support::test_env().await;
+        // Create a sub-dir inside the test's isolated home so the test gets
+        // a sync-dir scaffold that does not collide with other tests.
+        let temp_dir = TempDir::new_in(env.home_path()).unwrap();
         let sync_dir = CanonicalPath::from_absolute(temp_dir.path());
 
         let db = SqliteDb::new(":memory:").await.unwrap();
-        let manager = EntryManager::new(db, state);
+        let manager = EntryManager::new(db, env.state.clone());
 
-        (temp_dir, sync_dir, manager)
+        (env, temp_dir, sync_dir, manager)
     }
 
     async fn add_sync_dir(
@@ -501,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn build_dir_excludes_git_directory() {
-        let (_temp_dir, sync_dir, manager) = setup().await;
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
 
         fs::write(sync_dir.join("notes.txt"), "hello").unwrap();
         fs::write(sync_dir.join(".gitignore"), "*.log").unwrap();
@@ -530,7 +536,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_entries_to_request_ignores_git_peer_entries() {
-        let (_temp_dir, sync_dir, manager) = setup().await;
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
         let peer_id = Uuid::new_v4();
         let peer = Peer::new(
@@ -561,7 +567,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_metadata_ignores_git_peer_entries() {
-        let (_temp_dir, sync_dir, manager) = setup().await;
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
         let peer_id = Uuid::new_v4();
         let git_name: RelativePath = format!("{}/.git/config", &*sync_root).into();
@@ -575,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_handshake_data_excludes_stale_git_entries() {
-        let (_temp_dir, sync_dir, manager) = setup().await;
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
         let peer_id = Uuid::new_v4();
         let git_name: RelativePath = format!("{}/.git/config", &*sync_root).into();

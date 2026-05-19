@@ -126,20 +126,22 @@ mod tests {
     }
 
     async fn create_test_components() -> (
+        crate::utils::test_support::TestEnv,
         Arc<AppState>,
         Arc<PeerManager>,
         mpsc::Sender<TransportChannelData>,
         mpsc::Receiver<TransportChannelData>,
     ) {
-        let state = AppState::new().await;
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
         let peer_manager = PeerManager::new(state.clone());
         let (sender_tx, sender_rx) = mpsc::channel(10);
-        (state, peer_manager, sender_tx, sender_rx)
+        (env, state, peer_manager, sender_tx, sender_rx)
     }
 
     #[tokio::test]
     async fn test_service_calls_advertise_on_run() {
-        let (state, peer_manager, sender_tx, _sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, _sender_rx) = create_test_components().await;
 
         let adapter = MockPresenceAdapter::new(vec![]);
         let service = PresenceService::new(adapter, state, peer_manager, sender_tx);
@@ -153,7 +155,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_ping_sends_handshake_when_not_seen_and_local_id_smaller() {
-        let (state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
 
         let addr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
         let larger_id = Uuid::from_u128(u128::MAX);
@@ -183,7 +185,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_ping_does_not_send_handshake_when_local_id_larger() {
-        let (state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
 
         let addr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
         let smaller_id = Uuid::from_u128(0);
@@ -215,7 +217,7 @@ mod tests {
         use crate::domain::Peer;
         use std::time::SystemTime;
 
-        let (state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
 
         let remote_id = Uuid::from_u128(u128::MAX);
         let instance_id = Uuid::new_v4();
@@ -258,7 +260,7 @@ mod tests {
         use crate::domain::Peer;
         use std::time::SystemTime;
 
-        let (state, peer_manager, sender_tx, _sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, _sender_rx) = create_test_components().await;
 
         let peer_id = Uuid::new_v4();
         let instance_id = Uuid::new_v4();
@@ -301,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_shutdown_calls_adapter_shutdown() {
-        let (state, peer_manager, sender_tx, _sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, _sender_rx) = create_test_components().await;
         let adapter = MockPresenceAdapter::new(vec![]);
         let service = PresenceService::new(adapter, state, peer_manager, sender_tx);
 
@@ -312,7 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_multiple_events_sequentially() {
-        let (state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
+        let (_env, state, peer_manager, sender_tx, mut sender_rx) = create_test_components().await;
 
         let peer1_id = Uuid::from_u128(u128::MAX);
         let peer2_id = Uuid::from_u128(u128::MAX - 1);

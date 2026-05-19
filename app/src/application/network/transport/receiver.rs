@@ -315,11 +315,13 @@ mod tests {
     }
 
     async fn setup() -> (
+        crate::utils::test_support::TestEnv,
         TransportReceiver<MockTransport, SqliteDb>,
         Arc<EntryManager<SqliteDb>>,
         tokio::sync::mpsc::Receiver<TransportChannelData>,
     ) {
-        let state = AppState::new().await;
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
         let db = SqliteDb::new(":memory:").await.unwrap();
         let entry_manager = EntryManager::new(db, state.clone());
         let peer_manager = PeerManager::new(state.clone());
@@ -332,7 +334,7 @@ mod tests {
             send_tx,
         );
 
-        (receiver, entry_manager, send_rx)
+        (env, receiver, entry_manager, send_rx)
     }
 
     fn git_entry(name: &str) -> EntryInfo {
@@ -356,7 +358,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_request_ignores_git_entries_without_enqueuing_transfer() {
-        let (receiver, entry_manager, mut send_rx) = setup().await;
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
         let entry = git_entry("sync/.git/config");
         entry_manager.insert_entry(entry.clone()).await.unwrap();
 
@@ -370,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_transfer_ignores_git_entries_without_inserting_metadata() {
-        let (receiver, entry_manager, mut send_rx) = setup().await;
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
         let entry = git_entry("sync/.git/config");
 
         receiver
