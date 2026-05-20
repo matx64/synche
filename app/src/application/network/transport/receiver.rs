@@ -104,6 +104,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %event.metadata.source_id))]
     async fn handle_handshake(&self, event: TransportEvent) -> io::Result<()> {
         let (hs_data, is_syn) = match event.payload {
             TransportData::HandshakeSyn(data) => (data, true),
@@ -134,7 +135,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .await;
         }
 
-        info!(peer = ?peer.id, "🔁  Syncing Peer...");
+        info!(peer = ?peer.id, "syncing peer");
 
         let entries_to_request = self
             .entry_manager
@@ -154,6 +155,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %event.metadata.source_id))]
     async fn handle_metadata(&self, event: TransportEvent) -> io::Result<()> {
         let peer_entry = match event.payload {
             TransportData::Metadata(entry) => entry,
@@ -189,6 +191,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %event.metadata.source_id))]
     async fn handle_request(&self, event: TransportEvent) -> io::Result<()> {
         let requested_entry = match event.payload {
             TransportData::Request(entry) => entry,
@@ -217,6 +220,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %event.metadata.source_id))]
     async fn handle_transfer(&self, event: TransportEvent) -> io::Result<()> {
         let received_entry = match event.payload {
             TransportData::Transfer(entry) => entry,
@@ -273,7 +277,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             }
 
             if !self.peer_manager.exists(addr).await {
-                warn!("⚠️  Cancelled transport send op because peer disconnected during process.");
+                warn!("cancelled transport send: peer disconnected mid-op");
                 return;
             }
         }

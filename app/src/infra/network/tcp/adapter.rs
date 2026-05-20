@@ -8,7 +8,7 @@ use crate::{
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io::AsyncReadExt, net::TcpListener};
-use tracing::warn;
+use tracing::{trace, warn};
 use uuid::Uuid;
 
 pub struct TcpAdapter {
@@ -43,6 +43,7 @@ impl TransportInterface for TcpAdapter {
             let (mut stream, addr) = self.listener.accept().await?;
 
             let source_ip = addr.ip();
+            trace!(peer = %source_ip, "tcp listener accepted");
 
             let result: TransportResult<TransportEvent> = async {
                 let mut source_id_buf = [0u8; 16];

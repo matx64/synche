@@ -89,8 +89,18 @@ State lives in the OS config dir (`dirs::config_dir()` + `synche/`), not the rep
 - A seeded `config.toml` so `Config::init` does not touch the real `~/.config/synche/`.
 - An `AppState` with ephemeral ports (`http: 0, presence: 0, transport: 0`).
 
-Never call `AppState::new_from_os()` from a test, never `TempDir::new_in(state.home_path())` against the real home, never write to `./` or any other CWD-relative path. Hold the returned `TestEnv` (or its `_env` binding) for the lifetime of the test so the temp dir doesn't drop early.
+Never construct a production `AppState` from a test (the binary builds it via `Synchronizer::run_default_with_restart` from a `SyncheDirs::from_os()` resolved in `main`), never `TempDir::new_in(state.home_path())` against the real home, never write to `./` or any other CWD-relative path. Hold the returned `TestEnv` (or its `_env` binding) for the lifetime of the test so the temp dir doesn't drop early.
 
 ### Frontend
 
 `gui/index.html` is a single-page UI rendered via `minijinja` and served by axum; static assets in `gui/static/`. The server pushes live updates to the GUI over SSE using `ServerEvent` broadcast through `AppState::sse_sender()`.
+
+### Logging
+
+Subscriber wired in `main.rs` via `utils::logging::init(dirs.log_dir())`. Returns a `LogGuards` that **must outlive `main`** — dropping it discards in-flight log lines from the non-blocking file appender.
+
+- Output: stdout (ANSI when stdout is a TTY, plain text when piped/redirected, no target) **and** a daily-rotated file at `<log dir>/synche.log.<date>` (no ANSI, target included). Default log dirs: Linux `~/.local/state/synche/` (or `$XDG_STATE_HOME/synche`), macOS `~/Library/Logs/synche/`, Windows `%LOCALAPPDATA%\synche\logs\`. The appender keeps the last 14 daily files and prunes older ones on rotation.
+- Default level: `synche=debug,warn` in debug builds, `synche=info,warn` in release.
+- Override at runtime with `RUST_LOG` (standard `tracing_subscriber::EnvFilter` syntax), e.g. `RUST_LOG=synche=trace cargo run -p synche`.
+- Log lines pick up context from spans rather than message bodies — prefer `#[tracing::instrument(skip_all, fields(peer = %id, entry = %name))]` on per-peer/per-entry handlers, then keep the message itself short. Root span is `synche{device, instance}` on `Synchronizer::_run`. HTTP requests are spanned by `tower_http::trace::TraceLayer`.
+- No emojis in log messages.

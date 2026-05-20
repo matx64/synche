@@ -101,6 +101,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(target = %target, is_syn))]
     async fn send_handshake(&self, target: IpAddr, is_syn: bool) -> io::Result<()> {
         let data = self.entry_manager.get_handshake_data().await?;
 
@@ -121,6 +122,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(entry = %entry.name))]
     async fn send_metadata(&self, entry: EntryInfo) -> io::Result<()> {
         if is_git_path(&entry.name) {
             return Ok(());
@@ -140,6 +142,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(target = %target, entry = %entry.name))]
     async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> io::Result<()> {
         if is_git_path(&entry.name) {
             return Ok(());
@@ -196,7 +199,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
             }
 
             if !self.peer_manager.exists(addr).await {
-                warn!("⚠️  Cancelled transport send op because peer disconnected during process.");
+                warn!("cancelled transport send: peer disconnected mid-op");
                 return;
             }
         }

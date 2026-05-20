@@ -114,6 +114,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(path = %path.relative))]
     async fn handle_entry_create_or_modify(&self, path: WatcherEventPath) -> io::Result<()> {
         match self.entry_manager.get_entry(&path.relative).await? {
             None => self.handle_entry_create(path).await,
@@ -176,6 +177,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(path = %path.relative))]
     async fn handle_entry_remove(&self, path: WatcherEventPath) -> io::Result<()> {
         if let Some(removed) = self.entry_manager.remove_entry(&path.relative).await? {
             if !removed.is_file() {
@@ -209,6 +211,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn handle_config_modify(&self) -> io::Result<()> {
         let new_config = Config::init(self.state.dirs()).await?;
 
