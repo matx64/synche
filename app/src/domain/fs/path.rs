@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     io,
     ops::Deref,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 /// Wrapper around an absolute filesystem path.
@@ -84,6 +84,14 @@ impl RelativePath {
     pub fn starts_with_dir(&self, dir: &RelativePath) -> bool {
         self.0.starts_with(&format!("{}/", dir.0)) || self.0 == dir.0
     }
+
+    pub fn is_safe_sync_path(&self) -> bool {
+        !self.0.is_empty()
+            && !self.0.contains('\\')
+            && Path::new(&self.0)
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)))
+    }
 }
 
 impl Deref for RelativePath {
@@ -115,5 +123,24 @@ impl From<&str> for RelativePath {
 impl AsRef<Path> for RelativePath {
     fn as_ref(&self) -> &Path {
         Path::new(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_path_rejects_paths_that_escape_home() {
+        for path in ["", "/tmp/file", "../file", "sync/../../file", "sync\\file"] {
+            assert!(!RelativePath::from(path).is_safe_sync_path(), "{path}");
+        }
+    }
+
+    #[test]
+    fn relative_path_accepts_normal_forward_slash_paths() {
+        for path in ["sync", "sync/file.txt", "sync/nested/file.txt"] {
+            assert!(RelativePath::from(path).is_safe_sync_path(), "{path}");
+        }
     }
 }

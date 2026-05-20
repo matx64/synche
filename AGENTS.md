@@ -70,6 +70,8 @@ TCP transport receive errors after a connection is accepted are treated as bad p
 
 Permanent path exclusions must be enforced at every boundary where entries can enter or leave sync: filesystem scans, watcher events, handshakes, metadata handling, request handling, transfer handling, and disk writes. Use `utils::fs::is_git_path` as the shared predicate for `.git/` path exclusion. It matches an exact `.git` path component only, so `.gitignore`, `.gitattributes`, `.github/`, and `foo.git/` remain syncable.
 
+Remote transport paths must be validated before any metadata handling or disk write. Use `RelativePath::is_safe_sync_path` to reject absolute paths, parent-directory traversal, empty paths, and backslash-separated paths from peers.
+
 ### Runtime / data files (not in repo)
 
 State lives in the OS config dir (`dirs::config_dir()` + `synche/`), not the repo. The paths are resolved through a `SyncheDirs` value type (`app/src/utils/dirs.rs`) carried on `AppState`, **not** through global statics — tests rely on injecting per-test `SyncheDirs` for isolation. Production code goes through `AppState::new_from_os()` and reads paths via `state.dirs()`. Don't reintroduce global `OnceLock`s for these directories.

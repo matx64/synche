@@ -1,7 +1,7 @@
 use crate::{
     application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
-    domain::{EntryInfo, EntryKind, TransportData},
+    domain::{EntryInfo, EntryKind, HandshakeData, RelativePath, SyncDirectory, TransportData},
     infra::network::tcp::{
         chunk::{MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE},
         kind::TcpStreamKind,
@@ -59,7 +59,7 @@ impl TcpReceiver {
         stream.read_exact(&mut buf).await?;
 
         let data_str = String::from_utf8(buf).map_err(|e| TransportError::new(&e.to_string()))?;
-        let data = serde_json::from_str(&data_str)?;
+        let data = Self::validate_handshake_data(serde_json::from_str(&data_str)?)?;
 
         if is_syn {
             Ok(TransportData::HandshakeSyn(data))
@@ -136,8 +136,40 @@ impl TcpReceiver {
         let mut json_buf = vec![0u8; json_len];
         stream.read_exact(&mut json_buf).await?;
 
-        let entry = serde_json::from_slice::<EntryInfo>(&json_buf)?;
+        let entry = Self::validate_entry_info(serde_json::from_slice::<EntryInfo>(&json_buf)?)?;
         Ok(entry)
+    }
+
+    fn validate_handshake_data(data: HandshakeData) -> TransportResult<HandshakeData> {
+        for SyncDirectory { name } in &data.sync_dirs {
+            Self::validate_relative_path(name)?;
+        }
+
+        for (name, entry) in &data.entries {
+            Self::validate_relative_path(name)?;
+            Self::validate_relative_path(&entry.name)?;
+
+            if name != &entry.name {
+                return Err(TransportError::new(
+                    "Handshake entry key does not match entry name",
+                ));
+            }
+        }
+
+        Ok(data)
+    }
+
+    fn validate_entry_info(entry: EntryInfo) -> TransportResult<EntryInfo> {
+        Self::validate_relative_path(&entry.name)?;
+        Ok(entry)
+    }
+
+    fn validate_relative_path(path: &RelativePath) -> TransportResult<()> {
+        if path.is_safe_sync_path() {
+            Ok(())
+        } else {
+            Err(TransportError::new("Unsafe sync path received"))
+        }
     }
 
     async fn create_staging(&self, entry: &EntryInfo) -> TransportResult<Staging> {
@@ -255,6 +287,74 @@ mod tests {
         }
     }
 
+    fn file_entry(name: &str, hash: Option<String>) -> EntryInfo {
+        EntryInfo {
+            name: name.into(),
+            kind: EntryKind::File,
+            hash,
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        }
+    }
+
+    fn assert_transport_error<T>(res: TransportResult<T>, expected: &str) {
+        match res {
+            Err(TransportError::Failure(m)) => {
+                assert!(m.contains(expected), "unexpected error: {m}")
+            }
+            Ok(_) => panic!("expected transport error containing {expected}"),
+        }
+    }
+
+    #[test]
+    fn validate_entry_info_rejects_paths_that_escape_home() {
+        for path in [
+            "/tmp/payload.bin",
+            "../payload.bin",
+            "sync/../../payload.bin",
+        ] {
+            assert_transport_error(
+                TcpReceiver::validate_entry_info(file_entry(path, Some("hash".to_string()))),
+                "Unsafe sync path",
+            );
+        }
+    }
+
+    #[test]
+    fn validate_handshake_data_rejects_unsafe_remote_paths() {
+        let entry = file_entry("../payload.bin", Some("hash".to_string()));
+        let data = HandshakeData {
+            hostname: "peer".to_string(),
+            instance_id: Uuid::new_v4(),
+            sync_dirs: vec![SyncDirectory {
+                name: "sync".into(),
+            }],
+            entries: HashMap::from([(entry.name.clone(), entry)]),
+        };
+
+        assert_transport_error(
+            TcpReceiver::validate_handshake_data(data),
+            "Unsafe sync path",
+        );
+    }
+
+    #[test]
+    fn validate_handshake_data_rejects_mismatched_entry_keys() {
+        let entry = file_entry("sync/payload.bin", Some("hash".to_string()));
+        let data = HandshakeData {
+            hostname: "peer".to_string(),
+            instance_id: Uuid::new_v4(),
+            sync_dirs: vec![SyncDirectory {
+                name: "sync".into(),
+            }],
+            entries: HashMap::from([("sync/other.bin".into(), entry)]),
+        };
+
+        assert_transport_error(
+            TcpReceiver::validate_handshake_data(data),
+            "Handshake entry key does not match entry name",
+        );
+    }
+
     #[tokio::test]
     async fn stream_to_file_writes_exact_bytes_across_chunks() {
         let payload: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
@@ -326,12 +426,7 @@ mod tests {
         let original_path = state.home_path().join(&entry_name);
         let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
         let hash = format!("{:x}", Sha256::digest(&contents));
-        let entry = EntryInfo {
-            name: entry_name.clone().into(),
-            kind: EntryKind::File,
-            hash: Some(hash),
-            version: HashMap::from([(Uuid::new_v4(), 1)]),
-        };
+        let entry = file_entry(&entry_name, Some(hash));
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -364,12 +459,7 @@ mod tests {
         let entry_name = format!("{root}/payload.bin");
         let original_path = state.home_path().join(&entry_name);
         let contents = vec![0xAAu8; 64];
-        let entry = EntryInfo {
-            name: entry_name.clone().into(),
-            kind: EntryKind::File,
-            hash: Some("deadbeef".to_string()),
-            version: HashMap::from([(Uuid::new_v4(), 1)]),
-        };
+        let entry = file_entry(&entry_name, Some("deadbeef".to_string()));
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -406,12 +496,7 @@ mod tests {
         let root = format!("tcp_oversize_{}", Uuid::new_v4());
         let entry_name = format!("{root}/payload.bin");
         let original_path = state.home_path().join(&entry_name);
-        let entry = EntryInfo {
-            name: entry_name.clone().into(),
-            kind: EntryKind::File,
-            hash: Some("ignored".to_string()),
-            version: HashMap::from([(Uuid::new_v4(), 1)]),
-        };
+        let entry = file_entry(&entry_name, Some("ignored".to_string()));
         let entry_json = serde_json::to_vec(&entry).unwrap();
         let oversized = crate::infra::network::tcp::chunk::MAX_TRANSFER_SIZE + 1;
 
@@ -436,10 +521,9 @@ mod tests {
         writer.await.unwrap();
 
         match result {
-            Err(TransportError::Failure(m)) => assert!(
-                m.contains("MAX_TRANSFER_SIZE"),
-                "unexpected error: {m}"
-            ),
+            Err(TransportError::Failure(m)) => {
+                assert!(m.contains("MAX_TRANSFER_SIZE"), "unexpected error: {m}")
+            }
             Ok(_) => panic!("expected oversize rejection"),
         }
         assert!(!original_path.exists());
@@ -454,12 +538,7 @@ mod tests {
         let root = format!("tcp_git_guard_{}", Uuid::new_v4());
         let entry_name = format!("{root}/.git/config");
         let original_path = state.home_path().join(&entry_name);
-        let entry = EntryInfo {
-            name: entry_name.clone().into(),
-            kind: EntryKind::File,
-            hash: Some("intentionally-invalid-hash".to_string()),
-            version: HashMap::from([(Uuid::new_v4(), 1)]),
-        };
+        let entry = file_entry(&entry_name, Some("intentionally-invalid-hash".to_string()));
         let contents = b"[core]\nrepositoryformatversion = 0\n".to_vec();
         let entry_json = serde_json::to_vec(&entry).unwrap();
 
