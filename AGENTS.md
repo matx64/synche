@@ -60,6 +60,8 @@ Single Cargo workspace (root `Cargo.toml`) with one member crate at `app/`. Rust
 
 `run_default_with_restart` wraps `run` in a loop that catches a sentinel `io::Error` whose message starts with `HOME_PATH_CHANGED:<old>:<new>` and rebuilds the entire `Synchronizer`. This is how a `home_path` change made through the GUI is applied at runtime — preserve that contract when touching shutdown/restart paths.
 
+TCP transport receive errors after a connection is accepted are treated as bad peer messages and skipped so a corrupt transfer, truncated stream, or malformed payload does not stop the synchronizer. Listener bind/accept failures remain fatal.
+
 ### Conflict resolution
 
 `VersionVector = HashMap<Uuid, u64>` keyed by device `local_id` (`app/src/domain/entry/version.rs`). Comparing two versions yields `VersionCmp::{Equal, KeepSelf, KeepOther, Conflict}` — concurrent edits produce `Conflict` (which the system materializes as a conflict file) rather than overwriting. Anything that mutates `EntryInfo` or decides which side wins must go through this comparison.
@@ -67,6 +69,8 @@ Single Cargo workspace (root `Cargo.toml`) with one member crate at `app/`. Rust
 ### Permanent exclusions
 
 Permanent path exclusions must be enforced at every boundary where entries can enter or leave sync: filesystem scans, watcher events, handshakes, metadata handling, request handling, transfer handling, and disk writes. Use `utils::fs::is_git_path` as the shared predicate for `.git/` path exclusion. It matches an exact `.git` path component only, so `.gitignore`, `.gitattributes`, `.github/`, and `foo.git/` remain syncable.
+
+Remote transport paths must be validated before any metadata handling or disk write. Use `RelativePath::is_safe_sync_path` to reject absolute paths, parent-directory traversal, empty paths, and backslash-separated paths from peers.
 
 ### Runtime / data files (not in repo)
 
