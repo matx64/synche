@@ -8,7 +8,7 @@ use crate::{
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
-use tracing::warn;
+use tracing::{trace, warn};
 use uuid::Uuid;
 
 pub struct PresenceService<P: PresenceInterface> {
@@ -56,6 +56,7 @@ impl<P: PresenceInterface> PresenceService<P> {
     }
 
     async fn handle_ping(&self, id: Uuid, addr: IpAddr, instance_id: Uuid) -> io::Result<()> {
+        trace!(peer = %id, %addr, "presence ping");
         let seen = self.peer_manager.seen(&id, &instance_id).await;
 
         if !seen && self.state.local_id() < id {

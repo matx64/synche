@@ -49,7 +49,7 @@ impl TcpSender {
 
         let contents = serde_json::to_vec(&hs_data)?;
 
-        info!(kind = kind.to_string(), target = ?target, "[⬆️  SEND]");
+        info!(kind = kind.to_string(), target = ?target, "sending");
 
         stream.write_all(self.state.local_id().as_bytes()).await?;
         stream.write_all(&[kind as u8]).await?;
@@ -68,7 +68,7 @@ impl TcpSender {
         let kind = TcpStreamKind::Metadata;
         let contents = serde_json::to_vec(&entry)?;
 
-        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
+        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "sending");
 
         stream.write_all(self.state.local_id().as_bytes()).await?;
         stream.write_all(&[kind as u8]).await?;
@@ -86,7 +86,7 @@ impl TcpSender {
         let kind = TcpStreamKind::Request;
         let contents = serde_json::to_vec(&entry)?;
 
-        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
+        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "sending");
 
         stream.write_all(self.state.local_id().as_bytes()).await?;
         stream.write_all(&[kind as u8]).await?;
@@ -113,7 +113,7 @@ impl TcpSender {
         let kind = TcpStreamKind::Transfer;
         let metadata_json = serde_json::to_vec(&entry)?;
 
-        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "[⬆️  SEND]");
+        info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "sending");
 
         // Write self peer id
         stream.write_all(self.state.local_id().as_bytes()).await?;
@@ -141,7 +141,7 @@ impl TcpSender {
         {
             warn!(
                 entry_name = ?&entry.name,
-                "⚠️  File changed during transfer; receiver will reject by hash mismatch.",
+                "file changed during transfer; receiver will reject by hash mismatch",
             );
         }
 

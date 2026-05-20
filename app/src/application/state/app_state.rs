@@ -40,8 +40,8 @@ pub struct AppState {
 impl AppState {
     /// Build an `AppState` from explicit directories and ports.
     ///
-    /// Production callers should use [`AppState::new_from_os`] which wires
-    /// the platform default dirs and ports. Tests construct their own
+    /// `main` builds `SyncheDirs::from_os()` once and threads it through
+    /// `Synchronizer::run_default_with_restart`; tests construct their own
     /// `SyncheDirs` rooted in a per-test `TempDir` for isolation.
     pub async fn new(dirs: SyncheDirs, ports: AppPorts) -> Arc<Self> {
         let config = Config::init(&dirs).await.unwrap();
@@ -75,13 +75,6 @@ impl AppState {
             local_ip: RwLock::new(local_ip),
             sync_dirs,
         })
-    }
-
-    /// Production constructor: resolves the OS-default directories and
-    /// uses the well-known Synche ports.
-    pub async fn new_from_os() -> Arc<Self> {
-        let dirs = SyncheDirs::from_os().expect("Failed to resolve OS directories");
-        Self::new(dirs, default_ports()).await
     }
 
     pub fn dirs(&self) -> &SyncheDirs {

@@ -7,6 +7,7 @@ use crate::{
             transport::{TransportService, interface::TransportInterface},
         },
         persistence::interface::PersistenceInterface,
+        state::app_state::default_ports,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
     domain::ServerEvent,
@@ -16,6 +17,7 @@ use crate::{
         persistence::sqlite::SqliteDb,
         watcher::notify::NotifyFileWatcher,
     },
+    utils::dirs::SyncheDirs,
 };
 use std::sync::Arc;
 use tokio::io;
@@ -35,8 +37,8 @@ pub struct Synchronizer<
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
-    pub async fn new_default() -> Self {
-        let state = AppState::new_from_os().await;
+    pub async fn new_default_with_dirs(dirs: SyncheDirs) -> Self {
+        let state = AppState::new(dirs, default_ports()).await;
 
         let notify = NotifyFileWatcher::new(state.clone());
         let mdns_adapter = MdnsAdapter::new(state.clone());
@@ -46,9 +48,9 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
         Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
     }
 
-    pub async fn run_default_with_restart() -> io::Result<()> {
+    pub async fn run_default_with_restart(dirs: SyncheDirs) -> io::Result<()> {
         loop {
-            let mut synchronizer = Self::new_default().await;
+            let mut synchronizer = Self::new_default_with_dirs(dirs.clone()).await;
 
             match synchronizer.run().await {
                 Ok(()) => {
@@ -154,15 +156,15 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 }
 
                 _ = ctrl_c => {
-                    tracing::info!("🛑 SIGINT"); self.shutdown().await?;
+                    tracing::info!("received SIGINT, shutting down"); self.shutdown().await?;
                 }
 
                 _ = sigterm.recv() => {
-                    tracing::info!("🛑 SIGTERM"); self.shutdown().await?;
+                    tracing::info!("received SIGTERM, shutting down"); self.shutdown().await?;
                 }
 
                 _ = sighup.recv() => {
-                    tracing::info!("🛑 SIGHUP"); self.shutdown().await?;
+                    tracing::info!("received SIGHUP, shutting down"); self.shutdown().await?;
                 }
             }
         }
@@ -189,13 +191,18 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 }
 
                 _ = ctrl_c => {
-                    tracing::info!("🛑 SIGINT"); self.shutdown().await?;
+                    tracing::info!("received SIGINT, shutting down"); self.shutdown().await?;
                 }
             }
         }
         Ok(())
     }
 
+    #[tracing::instrument(
+        name = "synche",
+        skip_all,
+        fields(device = %self.state.local_id(), instance = %self.state.instance_id()),
+    )]
     async fn _run(&mut self) -> io::Result<()> {
         tokio::select!(
             res = self.transport_service.run() => res,

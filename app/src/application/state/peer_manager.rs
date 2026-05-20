@@ -18,6 +18,7 @@ impl PeerManager {
         })
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %peer.id, addr = %peer.addr))]
     pub async fn insert(&self, peer: Peer) {
         if !self.seen(&peer.id, &peer.instance_id).await {
             info!("Peer connected: {}", peer.id);
@@ -62,6 +63,7 @@ impl PeerManager {
             .collect()
     }
 
+    #[tracing::instrument(skip_all, fields(peer = %id))]
     pub async fn remove_peer(&self, id: Uuid) {
         if self.state.peers.write().await.remove(&id).is_some() {
             info!("Peer disconnected: {id}");
@@ -69,6 +71,7 @@ impl PeerManager {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(addr = %addr))]
     pub async fn remove_peer_by_addr(&self, addr: IpAddr) {
         let mut peers = self.state.peers.write().await;
 

@@ -50,6 +50,10 @@ impl SyncheDirs {
         self.data.join("device_id")
     }
 
+    pub fn log_dir(&self) -> &CanonicalPath {
+        &self.data
+    }
+
     pub fn config_file(&self) -> CanonicalPath {
         self.config.join("config.toml")
     }

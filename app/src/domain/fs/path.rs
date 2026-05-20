@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    io,
+    fmt, io,
     ops::Deref,
     path::{Component, Path, PathBuf},
 };
@@ -105,6 +105,12 @@ impl Deref for RelativePath {
 impl AsRef<str> for RelativePath {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl fmt::Display for RelativePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

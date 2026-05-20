@@ -16,7 +16,7 @@ use tokio::{
     fs::{self},
     io,
 };
-use tracing::warn;
+use tracing::{trace, warn};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -206,6 +206,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     pub async fn insert_entry(&self, mut entry: EntryInfo) -> io::Result<EntryInfo> {
         entry.version.entry(self.state.local_id()).or_insert(0);
+        trace!(entry = %entry.name, "inserting entry");
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(entry)
     }
@@ -274,6 +275,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(to_request)
     }
 
+    #[tracing::instrument(skip_all, fields(entry = %local_entry.name, peer = %peer_id))]
     pub async fn compare_and_resolve_conflict(
         &self,
         local_entry: &mut EntryInfo,
@@ -296,13 +298,14 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(cmp)
     }
 
+    #[tracing::instrument(skip_all, fields(entry = %local_entry.name, peer = %peer_id))]
     pub async fn handle_conflict(
         &self,
         local_entry: &mut EntryInfo,
         peer_entry: &EntryInfo,
         peer_id: Uuid,
     ) -> io::Result<VersionCmp> {
-        warn!(entry = ?local_entry.name, peer = ?peer_id, "[⚠️  CONFLICT]");
+        warn!("version conflict");
 
         match (local_entry.is_removed(), peer_entry.is_removed()) {
             (true, false) => {
@@ -382,6 +385,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             *local_version = (*local_version).max(*pv);
         }
 
+        trace!(entry = %local_entry.name, peer = %peer_id, "merging versions");
         self.db.insert_or_replace_entry(local_entry).await?;
         Ok(())
     }

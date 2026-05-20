@@ -7,6 +7,7 @@ use crate::{
 use minijinja::Environment;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tower_http::trace::TraceLayer;
 
 pub async fn run<P: PersistenceInterface>(
     state: Arc<AppState>,
@@ -16,7 +17,8 @@ pub async fn run<P: PersistenceInterface>(
     let port = state.ports().http;
     let template_engine = init_template_engine();
 
-    let router = routes::build_router(state, peer_manager, entry_manager, template_engine);
+    let router = routes::build_router(state, peer_manager, entry_manager, template_engine)
+        .layer(TraceLayer::new_for_http());
 
     let addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&addr).await?;
