@@ -4,10 +4,16 @@
 //! to call — `tracing_subscriber::registry().init()` is a process-global
 //! action and `cargo test` runs every test in the same process, so a test
 //! that called `init` would race with all the others.
-use std::path::Path;
+use std::{io::IsTerminal, path::Path};
 
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::{
+    non_blocking::WorkerGuard,
+    rolling::{RollingFileAppender, Rotation},
+};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+/// Daily log files kept before the appender prunes older ones on rotation.
+const MAX_LOG_FILES: usize = 14;
 
 /// Holds the background-writer guard for the file appender. Must outlive the
 /// process: dropping it shuts the writer down and discards any in-flight
@@ -26,13 +32,20 @@ fn default_directive() -> &'static str {
 }
 
 pub fn init(log_dir: &Path) -> LogGuards {
-    let file_appender = tracing_appender::rolling::daily(log_dir, "synche.log");
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("synche.log")
+        .max_log_files(MAX_LOG_FILES)
+        .build(log_dir)
+        .expect("failed to build rolling log appender");
     let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directive()));
 
-    let stdout_layer = fmt::layer().with_target(false).with_ansi(true);
+    let stdout_layer = fmt::layer()
+        .with_target(false)
+        .with_ansi(std::io::stdout().is_terminal());
 
     let file_layer = fmt::layer()
         .with_writer(file_writer)
