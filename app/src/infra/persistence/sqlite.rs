@@ -10,6 +10,11 @@ use sqlx::{
 };
 use std::path::Path;
 
+/// `sqlx`-backed SQLite adapter for `PersistenceInterface`.
+///
+/// Stores one row per `EntryInfo` and serializes the `VersionVector`
+/// inline. Accepts `:memory:` as a path so tests can run against an
+/// in-process database without touching disk.
 pub struct SqliteDb {
     pool: Pool<Sqlite>,
 }
@@ -364,7 +369,6 @@ mod tests {
     async fn test_long_hash() {
         let db = create_test_db().await;
 
-        // SHA256 hash (64 characters)
         let long_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
         let entry = create_test_entry("file.txt", EntryKind::File, Some(long_hash.to_string()));
 

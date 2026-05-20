@@ -11,6 +11,12 @@ use crate::{
 use std::sync::Arc;
 use tokio::{io, sync::mpsc::Sender};
 
+/// Pairs a `TransportSender` and `TransportReceiver` over the same
+/// adapter, running them concurrently.
+///
+/// `new` returns the service together with the sender side of the
+/// outbound channel so other subsystems (file watcher, presence) can
+/// enqueue messages without holding a reference to the service.
 pub struct TransportService<T: TransportInterface, P: PersistenceInterface> {
     sender: TransportSender<T, P>,
     receiver: TransportReceiver<T, P>,

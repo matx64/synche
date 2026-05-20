@@ -13,6 +13,13 @@ use uuid::Uuid;
 const SERVICE_TYPE: &str = "_synche._udp.local.";
 const RETRY_COUNT: usize = 3;
 
+/// `mdns-sd` adapter implementing `PresenceInterface`.
+///
+/// Browses the `_synche._udp.local.` service to learn about peers and
+/// publishes this instance's own record (with its `instance_id` in the
+/// TXT properties) so other peers can detect restarts. IPv6 is
+/// disabled at the daemon level because the application's transport
+/// addresses are IPv4-only.
 pub struct MdnsAdapter {
     state: Arc<AppState>,
     daemon: ServiceDaemon,

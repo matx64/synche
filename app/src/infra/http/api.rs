@@ -37,6 +37,8 @@ struct SetHomePathParams {
     pub path: String,
 }
 
+/// JSON API routes — peer listing, sync-directory management,
+/// `home_path` updates, and the SSE stream of `ServerEvent`s.
 pub fn routes<P: PersistenceInterface>(
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,

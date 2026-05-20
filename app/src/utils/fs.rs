@@ -34,6 +34,9 @@ pub fn default_home_dir() -> io::Result<CanonicalPath> {
     CanonicalPath::new(&dir)
 }
 
+/// Returns the lowercase hex SHA-256 of the file at `path`, reading
+/// it in 64 KiB chunks so memory usage stays flat regardless of file
+/// size.
 pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     let mut file = File::open(path).await?;
     let mut hasher = Sha256::new();
@@ -51,6 +54,9 @@ pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     Ok(hash)
 }
 
+/// Returns `true` if `path`'s final component is the macOS metadata
+/// file `.DS_Store`. These files are filtered out by the watcher and
+/// the entry scanner because syncing them is never useful.
 pub fn is_ds_store<P: AsRef<Path>>(path: P) -> bool {
     matches!(path.as_ref().file_name(), Some(name) if name == ".DS_Store")
 }

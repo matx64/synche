@@ -7,6 +7,13 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+/// Maintains per-directory `.gitignore` rules so the entry manager
+/// can skip files the user does not want synchronized.
+///
+/// Keyed by the relative directory that owns each `.gitignore`;
+/// `is_ignored` walks the prefix chain of a path so a deeper
+/// `.gitignore` can layer on top of a parent one (matching git's own
+/// semantics).
 pub struct IgnoreHandler {
     state: Arc<AppState>,
     gis: RwLock<HashMap<String, Gitignore>>,
@@ -20,6 +27,9 @@ impl IgnoreHandler {
         }
     }
 
+    /// Parses a `.gitignore` and registers it under the directory
+    /// that contains it. A subsequent insert for the same key
+    /// replaces the previous rules, providing live edits.
     pub async fn insert_gitignore(&self, gitignore_path: &CanonicalPath) {
         let (gi, err) = Gitignore::new(gitignore_path);
 
@@ -39,6 +49,8 @@ impl IgnoreHandler {
         }
     }
 
+    /// Returns `true` if any registered `.gitignore` (at `relative`
+    /// or any ancestor) matches `path`.
     pub async fn is_ignored(&self, path: &CanonicalPath, relative: &RelativePath) -> bool {
         let gis = self.gis.read().await;
         if gis.is_empty() {
@@ -52,7 +64,6 @@ impl IgnoreHandler {
         let mut parts = relative.split('/').peekable();
         while let Some(part) = parts.next() {
             if parts.peek().is_none() {
-                // skip last/self path
                 break;
             }
 
@@ -70,6 +81,8 @@ impl IgnoreHandler {
         false
     }
 
+    /// Drops the rules registered for the directory containing
+    /// `relative` (which must end in `/.gitignore`).
     pub async fn remove_gitignore(&self, relative: &RelativePath) {
         if let Some(key) = relative.strip_suffix("/.gitignore") {
             self.gis.write().await.remove(key);

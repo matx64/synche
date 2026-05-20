@@ -7,6 +7,14 @@ use tokio::{io, sync::RwLock};
 
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(1);
 
+/// In-memory debounce buffer that coalesces bursty filesystem events
+/// into a single settled event per path.
+///
+/// Home events are debounced per `RelativePath` so rapid writes to the
+/// same file collapse to one downstream message; config events are
+/// debounced as a single slot because `config.toml` is monolithic. An
+/// event is flushed once `DEBOUNCE_DURATION` has elapsed since the
+/// last write for that key.
 pub struct WatcherBuffer {
     home_chan: MutexChannel<HomeWatcherEvent>,
     config_chan: MutexChannel<ConfigWatcherEvent>,
@@ -143,17 +151,14 @@ mod tests {
         let event = create_test_event("file.txt", &temp);
         buffer.insert_home_event(event.clone()).await;
 
-        // Should NOT receive immediately (before debounce window)
         let result = tokio::time::timeout(DEBOUNCE_DURATION / 2, buffer.next_home_event()).await;
         assert!(
             result.is_err(),
             "Event should not be delivered before debounce window"
         );
 
-        // Wait for debounce window to complete
         sleep(DEBOUNCE_DURATION + Duration::from_millis(100)).await;
 
-        // Should receive now
         let received = buffer.next_home_event().await;
         assert!(
             received.is_some(),
@@ -183,7 +188,6 @@ mod tests {
         let path = temp.path().join("file.txt");
         std::fs::write(&path, "initial").unwrap();
 
-        // Insert 5 events for same path within debounce window
         for i in 0..5 {
             std::fs::write(&path, format!("version{}", i)).unwrap();
             let event = HomeWatcherEvent::EntryCreateOrModify(WatcherEventPath {
@@ -194,14 +198,11 @@ mod tests {
             sleep(DEBOUNCE_DURATION / 10).await;
         }
 
-        // Wait for debounce window (with extra margin)
         sleep(DEBOUNCE_DURATION * 2).await;
 
-        // Should receive only ONE event (the last one)
         let received = buffer.next_home_event().await;
         assert!(received.is_some(), "Should receive one debounced event");
 
-        // No more events should be available
         let result = tokio::time::timeout(DEBOUNCE_DURATION / 10, buffer.next_home_event()).await;
         assert!(result.is_err(), "Should not receive duplicate events");
     }
@@ -224,10 +225,8 @@ mod tests {
         buffer.insert_home_event(event2).await;
         buffer.insert_home_event(event3).await;
 
-        // Wait for debounce window (with margin)
         sleep(DEBOUNCE_DURATION + Duration::from_millis(200)).await;
 
-        // Should receive all 3 events
         let mut received_paths = vec![];
         for _ in 0..3 {
             if let Some(HomeWatcherEvent::EntryCreateOrModify(path)) =
@@ -240,7 +239,6 @@ mod tests {
         received_paths.sort();
         assert_eq!(received_paths, vec!["file1.txt", "file2.txt", "file3.txt"]);
 
-        // No more events
         let result = tokio::time::timeout(DEBOUNCE_DURATION / 10, buffer.next_home_event()).await;
         assert!(result.is_err());
     }
@@ -258,7 +256,6 @@ mod tests {
         let config_path = temp.path().join("config.toml");
         std::fs::write(&config_path, "test1").unwrap();
 
-        // Insert multiple config events within debounce window
         for i in 0..3 {
             std::fs::write(&config_path, format!("test{}", i)).unwrap();
             let event = ConfigWatcherEvent::Modify;
@@ -266,14 +263,11 @@ mod tests {
             sleep(DEBOUNCE_DURATION / 5).await;
         }
 
-        // Wait for debounce window (with margin)
         sleep(DEBOUNCE_DURATION + Duration::from_millis(200)).await;
 
-        // Should receive only ONE config event (last one)
         let received = buffer.next_config_event().await;
         assert!(received.is_some(), "Should receive one config event");
 
-        // No more events
         let result = tokio::time::timeout(DEBOUNCE_DURATION / 10, buffer.next_config_event()).await;
         assert!(
             result.is_err(),
@@ -299,7 +293,6 @@ mod tests {
             canonical: CanonicalPath::new(&path).unwrap(),
         };
 
-        // Insert CreateOrModify, then Remove for same path (within debounce window)
         buffer
             .insert_home_event(HomeWatcherEvent::EntryCreateOrModify(watcher_path.clone()))
             .await;
@@ -308,15 +301,12 @@ mod tests {
             .insert_home_event(HomeWatcherEvent::EntryRemove(watcher_path.clone()))
             .await;
 
-        // Wait for debounce window (with margin)
         sleep(DEBOUNCE_DURATION + Duration::from_millis(200)).await;
 
-        // Should receive only the LAST event (Remove)
         let received = buffer.next_home_event().await;
         assert!(received.is_some());
         assert!(matches!(received, Some(HomeWatcherEvent::EntryRemove(_))));
 
-        // No more events
         let result = tokio::time::timeout(DEBOUNCE_DURATION / 10, buffer.next_home_event()).await;
         assert!(result.is_err());
     }
@@ -344,14 +334,12 @@ mod tests {
         // Wait another 80% (total 160% from first, but only 80% from second)
         sleep(DEBOUNCE_DURATION * 4 / 5).await;
 
-        // Should NOT have received event yet (timer was reset)
         let result = tokio::time::timeout(DEBOUNCE_DURATION / 10, buffer.next_home_event()).await;
         assert!(result.is_err(), "Timer should have been reset");
 
         // Wait remaining time (30% more to complete the debounce)
         sleep(DEBOUNCE_DURATION * 3 / 10).await;
 
-        // Now should receive
         let received = buffer.next_home_event().await;
         assert!(received.is_some());
     }

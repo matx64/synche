@@ -58,18 +58,23 @@ impl SyncheDirs {
         &self.logs
     }
 
+    /// Path of the persistent `device_id` file. The UUID inside it is
+    /// generated on first run and reused on every subsequent start.
     pub fn device_id_file(&self) -> CanonicalPath {
         self.data.join("device_id")
     }
 
+    /// Directory where the rolling log appender writes daily files.
     pub fn log_dir(&self) -> &CanonicalPath {
         &self.logs
     }
 
+    /// Path of `config.toml` — the user-editable settings file.
     pub fn config_file(&self) -> CanonicalPath {
         self.config.join("config.toml")
     }
 
+    /// Path of the SQLite database that stores entry metadata.
     pub fn data_db_file(&self) -> CanonicalPath {
         self.data.join("data.db")
     }

@@ -1,5 +1,10 @@
 use crate::{application::network::transport::interface::TransportError, domain::TransportData};
 
+/// One-byte tag prefixed to every TCP message so the receiver knows
+/// how to decode the rest of the frame.
+///
+/// The discriminants are part of the wire format — renumbering them
+/// would break compatibility with peers running older builds.
 #[repr(u8)]
 pub enum TcpStreamKind {
     HandshakeSyn = 1,

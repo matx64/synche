@@ -14,6 +14,14 @@ use std::{net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::mpsc::Sender};
 use tracing::{error, info, warn};
 
+/// Inbound side of the transport service.
+///
+/// Pulls events off the adapter and dispatches them onto two internal
+/// queues — `control_chan` for handshake/metadata/request messages
+/// and `transfer_chan` for entry bytes — so a slow file write cannot
+/// starve protocol traffic. Handlers reconcile peer state, persist
+/// metadata, and either accept, write, or conflict-resolve incoming
+/// entries before re-broadcasting.
 pub struct TransportReceiver<T: TransportInterface, P: PersistenceInterface> {
     adapter: Arc<T>,
     state: Arc<AppState>,

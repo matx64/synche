@@ -16,6 +16,13 @@ use tokio::{
 };
 use tracing::{info, warn};
 
+/// Outbound side of the TCP wire format.
+///
+/// Each `send_*` method opens a fresh connection to the target peer,
+/// writes the device id, a `TcpStreamKind` tag, and the kind-specific
+/// payload. Bulk transfers use `stream_file_to` to chunk content with
+/// a streaming SHA-256 so the receiver can detect mid-transfer
+/// changes.
 pub struct TcpSender {
     state: Arc<AppState>,
 }
@@ -97,6 +104,11 @@ impl TcpSender {
         Ok(())
     }
 
+    /// Streams an entry's bytes to `target`, framed by the wire
+    /// protocol: device id, kind tag, metadata-length + JSON, entry
+    /// size, then `entry_size` bytes of content. Logs a warning (but
+    /// still completes the transfer) if the file changes during
+    /// streaming so the receiver can reject by hash mismatch.
     async fn send_entry(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
         let socket = SocketAddr::new(target, self.state.ports().transport);
         let mut stream = TcpStream::connect(socket).await?;
@@ -115,24 +127,14 @@ impl TcpSender {
 
         info!(kind = kind.to_string(), target = ?target, entry_name = ?&entry.name, "sending");
 
-        // Write self peer id
         stream.write_all(self.state.local_id().as_bytes()).await?;
-
-        // Write sync kind
         stream.write_all(&[kind as u8]).await?;
-
-        // Write metadata json size
         stream
             .write_all(&u32::to_be_bytes(metadata_json.len() as u32))
             .await?;
-
-        // Write metadata json
         stream.write_all(&metadata_json).await?;
-
-        // Write entry size
         stream.write_all(&u64::to_be_bytes(entry_size)).await?;
 
-        // Stream entry contents in chunks
         let computed_hash =
             Self::stream_file_to(&mut file, &mut stream, entry_size, TRANSFER_CHUNK_SIZE).await?;
 
