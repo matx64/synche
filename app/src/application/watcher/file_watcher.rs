@@ -14,6 +14,11 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
 use tracing::{error, info, trace, warn};
 
+/// Application service that consumes events from a
+/// `FileWatcherInterface` adapter, debounces them through a
+/// `WatcherBuffer`, and reacts: home-tree changes become outbound
+/// `Metadata` transfers and persistence writes; `config.toml` changes
+/// are applied live (including the `home_path` restart sentinel).
 pub struct FileWatcher<T: FileWatcherInterface, P: PersistenceInterface> {
     adapter: T,
     buffer: WatcherBuffer,
@@ -41,6 +46,9 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         }
     }
 
+    /// Starts watching both streams and drives the buffer plus the
+    /// four event-handling tasks concurrently. Returns when any task
+    /// errors or terminates.
     pub async fn run(&mut self) -> io::Result<()> {
         self.adapter.watch_home().await?;
         self.adapter.watch_config().await?;

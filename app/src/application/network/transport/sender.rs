@@ -14,6 +14,12 @@ use tokio::{
 };
 use tracing::{error, warn};
 
+/// Outbound side of the transport service.
+///
+/// Reads `TransportChannelData` items off the shared outbound channel
+/// and splits them across two priority lanes — `control_chan` for
+/// handshakes/metadata/requests, `transfer_chan` for bulk entry
+/// transfers — so the latter cannot delay protocol messages.
 pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
     adapter: Arc<T>,
     state: Arc<AppState>,

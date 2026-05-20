@@ -11,6 +11,13 @@ use tokio::{io, sync::mpsc::Sender};
 use tracing::{trace, warn};
 use uuid::Uuid;
 
+/// Application service that turns `PresenceEvent`s from the discovery
+/// adapter into peer-manager updates and outbound handshakes.
+///
+/// New pings trigger a `HandshakeSyn`; disconnects evict the peer
+/// from the manager. The service also calls `shutdown` on the adapter
+/// during graceful shutdown so peers see the retraction before the
+/// presence advert times out.
 pub struct PresenceService<P: PresenceInterface> {
     adapter: P,
     state: Arc<AppState>,
@@ -33,6 +40,8 @@ impl<P: PresenceInterface> PresenceService<P> {
         }
     }
 
+    /// Advertises this instance and drives the event loop until the
+    /// adapter's stream terminates.
     pub async fn run(&self) -> io::Result<()> {
         self.adapter.advertise().await?;
 

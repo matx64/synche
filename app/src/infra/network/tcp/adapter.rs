@@ -11,6 +11,12 @@ use tokio::{io::AsyncReadExt, net::TcpListener};
 use tracing::{trace, warn};
 use uuid::Uuid;
 
+/// TCP adapter implementing `TransportInterface`.
+///
+/// Owns the listening socket plus a `TcpSender` / `TcpReceiver` pair
+/// that implement the wire format. Listener bind/accept failures are
+/// fatal; framing errors on an accepted connection are logged and the
+/// loop continues so a single bad peer cannot stop the synchronizer.
 pub struct TcpAdapter {
     sender: TcpSender,
     receiver: TcpReceiver,

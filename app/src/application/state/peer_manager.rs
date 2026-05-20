@@ -5,6 +5,8 @@ use tokio::sync::broadcast;
 use tracing::info;
 use uuid::Uuid;
 
+/// Coordinates the live peer map on `AppState` and emits
+/// `ServerEvent`s to the GUI when peers come and go.
 pub struct PeerManager {
     state: Arc<AppState>,
     sse_tx: broadcast::Sender<ServerEvent>,
@@ -18,6 +20,9 @@ impl PeerManager {
         })
     }
 
+    /// Inserts or refreshes a peer. Emits `PeerConnected` only on the
+    /// first appearance for a given `(id, instance_id)` pair, so a
+    /// peer restart fires a fresh event while plain re-pings do not.
     #[tracing::instrument(skip_all, fields(peer = %peer.id, addr = %peer.addr))]
     pub async fn insert(&self, peer: Peer) {
         if !self.seen(&peer.id, &peer.instance_id).await {
@@ -33,6 +38,8 @@ impl PeerManager {
         self.state.peers.write().await.insert(peer.id, peer);
     }
 
+    /// Returns `true` if the manager already knows `id` and its
+    /// `instance_id` matches — i.e. the peer has not restarted.
     pub async fn seen(&self, id: &Uuid, instance_id: &Uuid) -> bool {
         matches!(self.state.peers.read().await.get(id), Some(peer) if peer.instance_id == *instance_id)
     }
@@ -50,6 +57,9 @@ impl PeerManager {
         self.state.peers.read().await.values().cloned().collect()
     }
 
+    /// Returns the addresses of peers that share the sync directory
+    /// containing `entry`, i.e. the recipients of an outbound
+    /// metadata broadcast for that entry.
     pub async fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
         let root_dir = entry.get_sync_dir();
 

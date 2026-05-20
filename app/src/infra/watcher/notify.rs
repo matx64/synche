@@ -16,6 +16,13 @@ use tokio::{
     },
 };
 
+/// `notify`-crate adapter for `FileWatcherInterface`.
+///
+/// Runs two independent platform watchers — one recursive on the home
+/// directory, one non-recursive on `config.toml` — and translates
+/// `notify::Event`s into the application's `HomeWatcherEvent` /
+/// `ConfigWatcherEvent` enums while filtering out paths under `.git/`
+/// and `.DS_Store` noise.
 pub struct NotifyFileWatcher {
     state: Arc<AppState>,
     home_watcher: RecommendedWatcher,

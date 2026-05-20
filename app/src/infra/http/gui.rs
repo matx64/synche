@@ -13,6 +13,8 @@ struct GuiState<P: PersistenceInterface> {
     pub entry_manager: Arc<EntryManager<P>>,
 }
 
+/// GUI routes — renders the index template at `/` and serves static
+/// assets from `gui/static/` under `/static`.
 pub fn routes<P: PersistenceInterface>(
     state: Arc<AppState>,
     engine: Environment<'static>,

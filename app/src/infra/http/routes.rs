@@ -8,6 +8,8 @@ use axum::Router;
 use minijinja::Environment;
 use std::sync::Arc;
 
+/// Composes the GUI and JSON API routers into the application's
+/// single top-level `axum::Router`.
 pub fn build_router<P: PersistenceInterface>(
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,

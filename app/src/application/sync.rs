@@ -22,6 +22,13 @@ use crate::{
 use std::sync::Arc;
 use tokio::io;
 
+/// Top-level orchestrator that wires the application's four concurrent
+/// subsystems — transport, presence, file watcher, and HTTP server —
+/// around a shared `AppState`.
+///
+/// Generic over each port so tests can inject in-memory adapters; the
+/// production wiring is `Synchronizer<NotifyFileWatcher, TcpAdapter,
+/// SqliteDb, MdnsAdapter>` (see `new_default_with_dirs`).
 pub struct Synchronizer<
     W: FileWatcherInterface,
     T: TransportInterface,
@@ -37,6 +44,9 @@ pub struct Synchronizer<
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
+    /// Builds a `Synchronizer` wired with the production adapters and
+    /// the supplied `SyncheDirs` (so the binary uses OS dirs and tests
+    /// can inject isolated temporary ones).
     pub async fn new_default_with_dirs(dirs: SyncheDirs) -> Self {
         let state = AppState::new(dirs, default_ports()).await;
 
@@ -48,6 +58,14 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
         Self::new(state, notify, mdns_adapter, tcp_adapter, sqlite_adapter).await
     }
 
+    /// Runs the synchronizer in a loop, rebuilding the entire
+    /// `Synchronizer` whenever `run` returns the sentinel
+    /// `HOME_PATH_CHANGED:<old>:<new>` error so an in-flight
+    /// `home_path` change from the GUI is applied without restarting
+    /// the process. Any other error propagates and exits the loop.
+    ///
+    /// Anything touching shutdown or restart paths must preserve this
+    /// sentinel contract.
     pub async fn run_default_with_restart(dirs: SyncheDirs) -> io::Result<()> {
         loop {
             let mut synchronizer = Self::new_default_with_dirs(dirs.clone()).await;
@@ -84,6 +102,8 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
 impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D: PresenceInterface>
     Synchronizer<W, T, P, D>
 {
+    /// Wires the synchronizer with explicit adapters for every port —
+    /// the seam tests use to inject in-memory or fake implementations.
     pub async fn new(
         state: Arc<AppState>,
         watch_adapter: W,
@@ -128,6 +148,10 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         }
     }
 
+    /// Runs the four subsystems concurrently until any one exits or a
+    /// shutdown signal arrives (`SIGINT`/`SIGTERM`/`SIGHUP` on Unix,
+    /// `Ctrl+C` elsewhere). Returns the `HOME_PATH_CHANGED:` sentinel
+    /// untouched so `run_default_with_restart` can rebuild.
     pub async fn run(&mut self) -> io::Result<()> {
         #[cfg(unix)]
         {
@@ -216,6 +240,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         )
     }
 
+    /// Cleanly stops background services (currently presence).
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.presence_service.shutdown().await;
         tracing::info!("Synche gracefully shutdown");

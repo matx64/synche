@@ -16,6 +16,9 @@ pub const DEFAULT_HTTP_PORT: u16 = 42880;
 pub const DEFAULT_PRESENCE_PORT: u16 = 42881;
 pub const DEFAULT_TRANSPORT_PORT: u16 = 42882;
 
+/// Returns the production port assignment. Tests inject their own
+/// `AppPorts { http: 0, ... }` to avoid collisions with a running
+/// instance and with each other.
 pub fn default_ports() -> AppPorts {
     AppPorts {
         http: DEFAULT_HTTP_PORT,
@@ -24,6 +27,17 @@ pub fn default_ports() -> AppPorts {
     }
 }
 
+/// Process-wide runtime hub shared as `Arc<AppState>` across every
+/// subsystem.
+///
+/// Holds the device's identities (`local_id` persists across
+/// restarts; `instance_id` is regenerated per process), the active
+/// `home_path` and port assignments, the live peer and sync-dir maps,
+/// and the SSE broadcast channel used to push events to the GUI.
+///
+/// All on-disk paths are resolved through the injected `SyncheDirs`
+/// rather than global statics — see `CLAUDE.md` (Runtime / data
+/// files) for why tests depend on per-test isolation here.
 pub struct AppState {
     dirs: SyncheDirs,
     ports: AppPorts,
@@ -128,6 +142,9 @@ impl AppState {
         Ok((local_id, Uuid::new_v4()))
     }
 
+    /// Adds `name` to `config.toml` and the in-memory `sync_dirs`
+    /// map. Returns `Ok(false)` if the directory was already present
+    /// (idempotent, no rewrite).
     pub async fn add_dir_to_config(&self, name: &RelativePath) -> io::Result<bool> {
         let mut directory: Vec<ConfigDirectory> = {
             let dirs = self.sync_dirs.read().await;
@@ -151,6 +168,8 @@ impl AppState {
         .map(|_| true)
     }
 
+    /// Removes `name` from `config.toml`. No-op if the directory was
+    /// not configured.
     pub async fn remove_dir_from_config(&self, name: &RelativePath) -> io::Result<()> {
         let directory: Vec<ConfigDirectory> = {
             let dirs = self.sync_dirs.read().await;
@@ -172,6 +191,10 @@ impl AppState {
         .await
     }
 
+    /// Validates `new_path` and rewrites `config.toml` with it. The
+    /// running synchronizer observes the change through its config
+    /// watcher and triggers the `HOME_PATH_CHANGED:` restart loop in
+    /// `Synchronizer::run_default_with_restart`.
     pub async fn set_home_path_in_config(&self, new_path: String) -> io::Result<()> {
         let new_home_path = self.validate_home_path(&new_path).await?;
 
@@ -191,6 +214,9 @@ impl AppState {
         .await
     }
 
+    /// Canonicalizes `path_str`, creating the directory (and parents)
+    /// if it does not exist. Errors if the path exists but is not a
+    /// directory.
     pub async fn validate_home_path(&self, path_str: &str) -> io::Result<CanonicalPath> {
         let path_buf = PathBuf::from(path_str);
 
@@ -211,10 +237,15 @@ impl AppState {
         fs::write(self.dirs.config_file(), contents).await
     }
 
+    /// Returns `true` if `name` is an exact match for a configured
+    /// sync directory.
     pub async fn contains_sync_dir(&self, name: &RelativePath) -> bool {
         self.sync_dirs.read().await.contains_key(name)
     }
 
+    /// Returns `true` if `path` falls under any configured sync
+    /// directory — the boundary check that decides whether a watcher
+    /// event is relevant.
     pub async fn is_under_sync_dir(&self, path: &RelativePath) -> bool {
         let dirs = self.sync_dirs.read().await;
         dirs.keys().any(|d| path.starts_with(&**d))

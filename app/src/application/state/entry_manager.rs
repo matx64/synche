@@ -20,6 +20,14 @@ use tracing::{trace, warn};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+/// Owns the lifecycle of synchronized filesystem entries.
+///
+/// Combines a `PersistenceInterface` (durable metadata store), the
+/// shared `AppState` (sync directories, home path, device id), and an
+/// `IgnoreHandler` (`.gitignore` rules) to scan the home directory at
+/// startup, react to local file events, and reconcile metadata that
+/// arrives from peers — including materializing conflict files when
+/// `VersionCmp::Conflict` is detected.
 pub struct EntryManager<P: PersistenceInterface> {
     db: P,
     state: Arc<AppState>,
@@ -35,6 +43,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
         })
     }
 
+    /// Scans every configured sync directory, then reconciles the
+    /// on-disk view with the persisted entries — creating missing
+    /// directories, hashing files, and seeding version vectors for
+    /// fresh entries. Called once at startup.
     pub async fn init(&self) -> io::Result<()> {
         let mut filesystem_entries = HashMap::new();
 
@@ -243,6 +255,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(entry)
     }
 
+    /// Given a peer's full entry map (typically delivered in a
+    /// handshake), returns the subset that we should request from
+    /// them — entries we don't have, or entries where the peer's
+    /// version dominates ours after conflict resolution.
     pub async fn get_entries_to_request(
         &self,
         peer: &Peer,
@@ -275,6 +291,11 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(to_request)
     }
 
+    /// Compares the local and peer copies of an entry and, if the
+    /// result is `Conflict`, defers to `handle_conflict` to decide a
+    /// winner (and possibly write a conflict file). When the local
+    /// side wins or both sides agree, also merges the peer's version
+    /// counters into the local entry so future comparisons converge.
     #[tracing::instrument(skip_all, fields(entry = %local_entry.name, peer = %peer_id))]
     pub async fn compare_and_resolve_conflict(
         &self,
@@ -298,6 +319,13 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(cmp)
     }
 
+    /// Resolves a true concurrent-edit conflict.
+    ///
+    /// Removal-vs-live takes a fixed tiebreak (the live side wins);
+    /// otherwise the lower `local_id` wins to give a deterministic,
+    /// peer-agnostic choice. If the local side must give way, the
+    /// existing file is copied to `<stem>_CONFLICT_<unix>_<id>.<ext>`
+    /// so no user data is lost before the peer's version is adopted.
     #[tracing::instrument(skip_all, fields(entry = %local_entry.name, peer = %peer_id))]
     pub async fn handle_conflict(
         &self,
@@ -354,6 +382,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(VersionCmp::KeepOther)
     }
 
+    /// Reconciles a single inbound metadata message: drops it if the
+    /// path is excluded, requests/keeps based on
+    /// `compare_and_resolve_conflict` if the entry exists locally, or
+    /// declares the remote version the winner if we've never seen it.
     pub async fn handle_metadata(
         &self,
         peer_id: Uuid,

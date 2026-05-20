@@ -31,6 +31,16 @@ fn default_directive() -> &'static str {
     }
 }
 
+/// Initialises the global `tracing` subscriber for the binary.
+///
+/// Pipes events to two layers: stdout (ANSI when stdout is a TTY,
+/// plain text otherwise, no target) and a daily-rotated file under
+/// `log_dir` (no ANSI, target included). Honours `RUST_LOG` and falls
+/// back to `synche=debug,warn` in debug builds / `synche=info,warn`
+/// in release.
+///
+/// The returned `LogGuards` MUST be held for the lifetime of `main`
+/// — dropping it discards in-flight log lines.
 pub fn init(log_dir: &Path) -> LogGuards {
     let file_appender = RollingFileAppender::builder()
         .rotation(Rotation::DAILY)

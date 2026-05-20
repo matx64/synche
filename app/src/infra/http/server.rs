@@ -9,6 +9,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 
+/// Binds the HTTP listener on the configured port and serves the GUI
+/// and JSON API. Runs until the listener errors or the task is
+/// cancelled by the synchronizer's `tokio::select!`.
 pub async fn run<P: PersistenceInterface>(
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
@@ -26,6 +29,8 @@ pub async fn run<P: PersistenceInterface>(
     axum::serve(listener, router).await
 }
 
+/// Builds the minijinja environment with the GUI template embedded at
+/// compile time so no runtime template lookup is needed.
 pub fn init_template_engine() -> Environment<'static> {
     let mut engine = Environment::new();
     engine

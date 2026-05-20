@@ -17,6 +17,14 @@ use tokio::{
 };
 use uuid::Uuid;
 
+/// Inbound side of the TCP wire format.
+///
+/// Decodes a `TcpStreamKind`-tagged payload back into a
+/// `TransportData`. For bulk transfers, the bytes are written to a
+/// per-transfer staging file in the OS temp directory and only moved
+/// to their final location after the streamed SHA-256 matches the
+/// advertised hash and safety validation passes; corrupt or unsafe
+/// transfers are dropped without touching the user's home tree.
 pub struct TcpReceiver {
     state: Arc<AppState>,
 }

@@ -5,6 +5,12 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io};
 
+/// On-disk representation of `config.toml`.
+///
+/// Holds the user's chosen `home_path` and the list of sync
+/// directories. Edits to this file are observed by the config watcher
+/// and applied live; changing `home_path` triggers the synchronizer's
+/// restart loop (see `Synchronizer::run_default_with_restart`).
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub home_path: CanonicalPath,

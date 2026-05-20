@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
 
+/// Metadata for a single synchronized filesystem entry.
+///
+/// `hash` is `None` for directories and the SHA-256 of the contents for
+/// files (with the sentinel `REMOVED_HASH` marking a tombstone — see
+/// `set_removed_hash`). `version` is the `VersionVector` that drives
+/// conflict resolution; see `VersionCmp`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryInfo {
     pub name: RelativePath,
@@ -11,6 +17,7 @@ pub struct EntryInfo {
     pub version: VersionVector,
 }
 
+/// Whether an `EntryInfo` describes a file or a directory.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EntryKind {
     File,
@@ -18,6 +25,13 @@ pub enum EntryKind {
 }
 
 impl EntryInfo {
+    /// Compares two entries to decide which side wins.
+    ///
+    /// Equal `kind` and `hash` short-circuits to `Equal` regardless of
+    /// version vectors. Otherwise the comparison walks both vectors:
+    /// strictly newer on every peer → `KeepSelf`/`KeepOther`, mixed →
+    /// `Conflict`. A `Conflict` is materialized as a conflict file by
+    /// the caller rather than overwriting either side.
     pub fn compare(&self, other: &EntryInfo) -> VersionCmp {
         if self.kind == other.kind && self.hash == other.hash {
             return VersionCmp::Equal;
@@ -57,10 +71,14 @@ impl EntryInfo {
         self.name.sync_dir()
     }
 
+    /// Marks the entry as removed by stamping a sentinel hash, so the
+    /// tombstone propagates through the same metadata channel as live
+    /// updates.
     pub fn set_removed_hash(&mut self) {
         self.hash = Some(REMOVED_HASH.to_string());
     }
 
+    /// Returns `true` if the entry's hash matches the removal sentinel.
     pub fn is_removed(&self) -> bool {
         matches!(self.hash.as_deref(), Some(REMOVED_HASH))
     }
