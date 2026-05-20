@@ -2,14 +2,17 @@ use crate::{
     application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{EntryInfo, EntryKind, TransportData},
-    infra::network::tcp::{chunk::TRANSFER_CHUNK_SIZE, kind::TcpStreamKind},
+    infra::network::tcp::{
+        chunk::{MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE},
+        kind::TcpStreamKind,
+    },
     utils::fs::is_git_path,
 };
 use sha2::{Digest, Sha256};
 use std::{env, path::PathBuf, sync::Arc};
 use tokio::{
     fs::{self, File},
-    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 use uuid::Uuid;
@@ -83,6 +86,12 @@ impl TcpReceiver {
         let mut entry_size_buf = [0u8; 8];
         stream.read_exact(&mut entry_size_buf).await?;
         let entry_size = u64::from_be_bytes(entry_size_buf);
+
+        if entry_size > MAX_TRANSFER_SIZE {
+            return Err(TransportError::new(&format!(
+                "Transfer entry_size {entry_size} exceeds MAX_TRANSFER_SIZE {MAX_TRANSFER_SIZE}",
+            )));
+        }
 
         if is_git_path(&entry.name) {
             // Drain the payload from the wire without writing to disk.
@@ -188,7 +197,7 @@ impl TcpReceiver {
     ) -> TransportResult<String>
     where
         R: AsyncRead + Unpin,
-        W: AsyncWriteExt + Unpin,
+        W: AsyncWrite + Unpin,
     {
         let mut hasher = Sha256::new();
         let mut buf = vec![0u8; chunk_size];
@@ -388,6 +397,54 @@ mod tests {
         if root_path.exists() {
             fs::remove_dir_all(root_path).await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn read_transfer_rejects_oversized_payload() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let root = format!("tcp_oversize_{}", Uuid::new_v4());
+        let entry_name = format!("{root}/payload.bin");
+        let original_path = state.home_path().join(&entry_name);
+        let entry = EntryInfo {
+            name: entry_name.clone().into(),
+            kind: EntryKind::File,
+            hash: Some("ignored".to_string()),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        };
+        let entry_json = serde_json::to_vec(&entry).unwrap();
+        let oversized = crate::infra::network::tcp::chunk::MAX_TRANSFER_SIZE + 1;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(&(entry_json.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            stream.write_all(&entry_json).await.unwrap();
+            stream
+                .write_all(&u64::to_be_bytes(oversized))
+                .await
+                .unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver.read_data(stream, TcpStreamKind::Transfer).await;
+        writer.await.unwrap();
+
+        match result {
+            Err(TransportError::Failure(m)) => assert!(
+                m.contains("MAX_TRANSFER_SIZE"),
+                "unexpected error: {m}"
+            ),
+            Ok(_) => panic!("expected oversize rejection"),
+        }
+        assert!(!original_path.exists());
+        let root_path = state.home_path().join(&root);
+        assert!(!root_path.exists());
     }
 
     #[tokio::test]

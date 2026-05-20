@@ -10,8 +10,8 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    fs::{self, File},
-    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    fs::File,
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 use tracing::{info, warn};
@@ -102,7 +102,13 @@ impl TcpSender {
         let mut stream = TcpStream::connect(socket).await?;
 
         let path = entry.name.to_canonical(self.state.home_path());
-        let entry_size = fs::metadata(&path).await?.len();
+        // Open the file first, then derive the wire size from the same handle
+        // we will read from. Reading metadata via `fs::metadata` and then
+        // opening separately would race: the file could be replaced or
+        // truncated between the two syscalls, so the size advertised on the
+        // wire would not match the bytes we then stream.
+        let mut file = File::open(&path).await?;
+        let entry_size = file.metadata().await?.len();
 
         let kind = TcpStreamKind::Transfer;
         let metadata_json = serde_json::to_vec(&entry)?;
@@ -127,7 +133,6 @@ impl TcpSender {
         stream.write_all(&u64::to_be_bytes(entry_size)).await?;
 
         // Stream entry contents in chunks
-        let mut file = File::open(&path).await?;
         let computed_hash =
             Self::stream_file_to(&mut file, &mut stream, entry_size, TRANSFER_CHUNK_SIZE).await?;
 
@@ -154,7 +159,7 @@ impl TcpSender {
         chunk_size: usize,
     ) -> TransportResult<String>
     where
-        R: AsyncReadExt + Unpin,
+        R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
         let mut hasher = Sha256::new();
