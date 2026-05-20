@@ -2,20 +2,26 @@ use crate::{
     application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{EntryInfo, EntryKind, TransportData},
-    infra::network::tcp::kind::TcpStreamKind,
+    infra::network::tcp::{chunk::TRANSFER_CHUNK_SIZE, kind::TcpStreamKind},
     utils::fs::is_git_path,
 };
 use sha2::{Digest, Sha256};
-use std::{env, sync::Arc};
+use std::{env, path::PathBuf, sync::Arc};
 use tokio::{
     fs::{self, File},
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 use uuid::Uuid;
 
 pub struct TcpReceiver {
     state: Arc<AppState>,
+}
+
+struct Staging {
+    root: PathBuf,
+    tmp_path: PathBuf,
+    file: File,
 }
 
 impl TcpReceiver {
@@ -78,26 +84,37 @@ impl TcpReceiver {
         stream.read_exact(&mut entry_size_buf).await?;
         let entry_size = u64::from_be_bytes(entry_size_buf);
 
-        let mut entry_buf = vec![0u8; entry_size as usize];
-        stream.read_exact(&mut entry_buf).await?;
-
         if is_git_path(&entry.name) {
+            // Drain the payload from the wire without writing to disk.
+            Self::discard_bytes(stream, entry_size, TRANSFER_CHUNK_SIZE).await?;
             return Ok(TransportData::Transfer(entry));
         }
+
+        let mut staging = self.create_staging(&entry).await?;
+
+        let computed_hash =
+            match Self::stream_to_file(stream, &mut staging.file, entry_size, TRANSFER_CHUNK_SIZE)
+                .await
+            {
+                Ok(h) => h,
+                Err(e) => {
+                    let _ = fs::remove_dir_all(&staging.root).await;
+                    return Err(e);
+                }
+            };
 
         if let Some(hash) = &entry.hash
             && !entry.is_removed()
             && matches!(entry.kind, EntryKind::File)
+            && computed_hash != *hash
         {
-            let computed_hash = format!("{:x}", Sha256::digest(&entry_buf));
-            if computed_hash != *hash {
-                return Err(TransportError::new(
-                    "Hash mismatch: data corruption detected",
-                ));
-            }
+            let _ = fs::remove_dir_all(&staging.root).await;
+            return Err(TransportError::new(
+                "Hash mismatch: data corruption detected",
+            ));
         }
 
-        self.save_entry(&entry, entry_buf).await?;
+        self.finalise_staging(&entry, staging).await?;
 
         Ok(TransportData::Transfer(entry))
     }
@@ -114,38 +131,98 @@ impl TcpReceiver {
         Ok(entry)
     }
 
-    async fn save_entry(&self, entry: &EntryInfo, contents: Vec<u8>) -> TransportResult<()> {
-        let original_path = entry.name.to_canonical(self.state.home_path());
+    async fn create_staging(&self, entry: &EntryInfo) -> TransportResult<Staging> {
         // Stage into a per-transfer subdirectory inside the OS temp dir.
         // Without the Uuid suffix, two concurrent transfers of the same
         // `entry.name` would race on the same `/tmp/<name>` staging file.
-        let staging_root = env::temp_dir().join(format!("synche-{}", Uuid::new_v4()));
-        let tmp_path = staging_root.join(&entry.name);
+        let root = env::temp_dir().join(format!("synche-{}", Uuid::new_v4()));
+        let tmp_path = root.join(&entry.name);
 
         if let Some(parent) = tmp_path.parent() {
             fs::create_dir_all(parent).await?;
         }
+        let file = File::create(&tmp_path).await?;
 
-        let mut tmp_file = File::create(&tmp_path).await?;
-        tmp_file.write_all(&contents).await?;
-        tmp_file.flush().await?;
+        Ok(Staging {
+            root,
+            tmp_path,
+            file,
+        })
+    }
 
+    async fn finalise_staging(
+        &self,
+        entry: &EntryInfo,
+        mut staging: Staging,
+    ) -> TransportResult<()> {
+        staging.file.flush().await?;
+        drop(staging.file);
+
+        let original_path = entry.name.to_canonical(self.state.home_path());
         if let Some(parent) = original_path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
-        match fs::rename(&tmp_path, &original_path).await {
+        match fs::rename(&staging.tmp_path, &original_path).await {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                fs::copy(&tmp_path, &original_path).await?;
-                fs::remove_file(&tmp_path).await?;
+                fs::copy(&staging.tmp_path, &original_path).await?;
+                fs::remove_file(&staging.tmp_path).await?;
             }
             Err(e) => {
-                let _ = fs::remove_dir_all(&staging_root).await;
+                let _ = fs::remove_dir_all(&staging.root).await;
                 return Err(e.into());
             }
         }
-        let _ = fs::remove_dir_all(&staging_root).await;
+        let _ = fs::remove_dir_all(&staging.root).await;
+        Ok(())
+    }
+
+    /// Stream exactly `total` bytes from `reader` into `writer` in `chunk_size`
+    /// chunks, returning the hex-encoded SHA-256 of the bytes streamed.
+    pub(super) async fn stream_to_file<R, W>(
+        reader: &mut R,
+        writer: &mut W,
+        total: u64,
+        chunk_size: usize,
+    ) -> TransportResult<String>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWriteExt + Unpin,
+    {
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; chunk_size];
+        let mut remaining = total;
+
+        while remaining > 0 {
+            let want = remaining.min(chunk_size as u64) as usize;
+            reader.read_exact(&mut buf[..want]).await?;
+            hasher.update(&buf[..want]);
+            writer.write_all(&buf[..want]).await?;
+            remaining -= want as u64;
+        }
+
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    /// Read and discard exactly `total` bytes from `reader` in `chunk_size`
+    /// chunks. Used when an incoming Transfer is filtered out (e.g. .git path)
+    /// but the wire framing still requires consuming the advertised payload.
+    pub(super) async fn discard_bytes<R>(
+        reader: &mut R,
+        total: u64,
+        chunk_size: usize,
+    ) -> TransportResult<()>
+    where
+        R: AsyncRead + Unpin,
+    {
+        let mut buf = vec![0u8; chunk_size];
+        let mut remaining = total;
+        while remaining > 0 {
+            let want = remaining.min(chunk_size as u64) as usize;
+            reader.read_exact(&mut buf[..want]).await?;
+            remaining -= want as u64;
+        }
         Ok(())
     }
 }
@@ -154,12 +231,164 @@ impl TcpReceiver {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::io::Cursor;
     use tokio::{
         fs,
         io::AsyncWriteExt,
         net::{TcpListener, TcpStream},
     };
     use uuid::Uuid;
+
+    fn ok<T>(res: TransportResult<T>) -> T {
+        match res {
+            Ok(v) => v,
+            Err(TransportError::Failure(m)) => panic!("{m}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_to_file_writes_exact_bytes_across_chunks() {
+        let payload: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
+        let mut src = Cursor::new(payload.clone());
+        let mut dst: Vec<u8> = Vec::new();
+
+        let hash =
+            ok(TcpReceiver::stream_to_file(&mut src, &mut dst, payload.len() as u64, 16).await);
+
+        assert_eq!(dst, payload);
+        assert_eq!(hash, format!("{:x}", Sha256::digest(&payload)));
+    }
+
+    #[tokio::test]
+    async fn stream_to_file_handles_exact_chunk_boundary() {
+        let payload: Vec<u8> = (0..64u32).map(|i| (i % 256) as u8).collect();
+        let mut src = Cursor::new(payload.clone());
+        let mut dst: Vec<u8> = Vec::new();
+
+        ok(TcpReceiver::stream_to_file(&mut src, &mut dst, payload.len() as u64, 16).await);
+
+        assert_eq!(dst, payload);
+    }
+
+    #[tokio::test]
+    async fn stream_to_file_handles_payload_smaller_than_chunk() {
+        let payload = vec![0x55u8; 5];
+        let mut src = Cursor::new(payload.clone());
+        let mut dst: Vec<u8> = Vec::new();
+
+        ok(TcpReceiver::stream_to_file(&mut src, &mut dst, payload.len() as u64, 1024).await);
+
+        assert_eq!(dst, payload);
+    }
+
+    #[tokio::test]
+    async fn discard_bytes_consumes_exact_count() {
+        let payload = vec![0xFEu8; 100];
+        let mut src = Cursor::new(payload);
+
+        ok(TcpReceiver::discard_bytes(&mut src, 100, 16).await);
+
+        // After discarding everything, the cursor should be at EOF.
+        let mut tail = Vec::new();
+        src.read_to_end(&mut tail).await.unwrap();
+        assert!(tail.is_empty());
+    }
+
+    async fn write_transfer_to_stream(stream: &mut TcpStream, entry: &EntryInfo, contents: &[u8]) {
+        let entry_json = serde_json::to_vec(entry).unwrap();
+        stream
+            .write_all(&(entry_json.len() as u32).to_be_bytes())
+            .await
+            .unwrap();
+        stream.write_all(&entry_json).await.unwrap();
+        stream
+            .write_all(&(contents.len() as u64).to_be_bytes())
+            .await
+            .unwrap();
+        stream.write_all(contents).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_transfer_streams_file_to_home_and_validates_hash() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let root = format!("tcp_chunk_ok_{}", Uuid::new_v4());
+        let entry_name = format!("{root}/payload.bin");
+        let original_path = state.home_path().join(&entry_name);
+        let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
+        let hash = format!("{:x}", Sha256::digest(&contents));
+        let entry = EntryInfo {
+            name: entry_name.clone().into(),
+            kind: EntryKind::File,
+            hash: Some(hash),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entry_clone = entry.clone();
+        let contents_clone = contents.clone();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let data = ok(receiver.read_data(stream, TcpStreamKind::Transfer).await);
+        writer.await.unwrap();
+
+        assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(original_path.exists());
+        let on_disk = fs::read(&original_path).await.unwrap();
+        assert_eq!(on_disk, contents);
+
+        let root_path = state.home_path().join(&root);
+        fs::remove_dir_all(root_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_transfer_rejects_hash_mismatch_and_cleans_staging() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let root = format!("tcp_chunk_bad_{}", Uuid::new_v4());
+        let entry_name = format!("{root}/payload.bin");
+        let original_path = state.home_path().join(&entry_name);
+        let contents = vec![0xAAu8; 64];
+        let entry = EntryInfo {
+            name: entry_name.clone().into(),
+            kind: EntryKind::File,
+            hash: Some("deadbeef".to_string()),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entry_clone = entry.clone();
+        let contents_clone = contents.clone();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver.read_data(stream, TcpStreamKind::Transfer).await;
+        writer.await.unwrap();
+
+        match result {
+            Err(TransportError::Failure(m)) => {
+                assert!(m.contains("Hash mismatch"), "unexpected error: {m}")
+            }
+            Ok(_) => panic!("expected hash-mismatch failure"),
+        }
+        assert!(!original_path.exists());
+
+        let root_path = state.home_path().join(&root);
+        if root_path.exists() {
+            fs::remove_dir_all(root_path).await.unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn read_transfer_consumes_git_entry_without_writing_to_home() {
@@ -195,10 +424,7 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = match receiver.read_data(stream, TcpStreamKind::Transfer).await {
-            Ok(data) => data,
-            Err(TransportError::Failure(message)) => panic!("{message}"),
-        };
+        let data = ok(receiver.read_data(stream, TcpStreamKind::Transfer).await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));
