@@ -299,7 +299,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 mod tests {
     use super::*;
     use crate::{
-        application::network::transport::interface::TransportResult,
+        application::network::transport::test_support::RecordingTransport,
         domain::{EntryKind, TransportMetadata},
         infra::persistence::sqlite::SqliteDb,
     };
@@ -310,25 +310,9 @@ mod tests {
     use tokio::sync::mpsc::error::TryRecvError;
     use uuid::Uuid;
 
-    struct MockTransport;
-
-    impl TransportInterface for MockTransport {
-        async fn recv(&self) -> TransportResult<TransportEvent> {
-            Err(
-                crate::application::network::transport::interface::TransportError::new(
-                    "unused mock recv",
-                ),
-            )
-        }
-
-        async fn send(&self, _target: IpAddr, _data: TransportData) -> TransportResult<()> {
-            Ok(())
-        }
-    }
-
     async fn setup() -> (
         crate::utils::test_support::TestEnv,
-        TransportReceiver<MockTransport, SqliteDb>,
+        TransportReceiver<RecordingTransport, SqliteDb>,
         Arc<EntryManager<SqliteDb>>,
         tokio::sync::mpsc::Receiver<TransportChannelData>,
     ) {
@@ -339,7 +323,7 @@ mod tests {
         let peer_manager = PeerManager::new(state.clone());
         let (send_tx, send_rx) = tokio::sync::mpsc::channel(4);
         let receiver = TransportReceiver::new(
-            Arc::new(MockTransport),
+            Arc::new(RecordingTransport::new()),
             state,
             peer_manager,
             entry_manager.clone(),

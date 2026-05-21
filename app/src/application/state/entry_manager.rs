@@ -615,6 +615,276 @@ mod tests {
         assert!(manager.get_entry(&git_name).await.unwrap().is_none());
     }
 
+    /// A directory peer-vs-self conflict can't be materialized as a file,
+    /// so it falls through to the peer-wins branch. Use files so we can
+    /// also assert the on-disk conflict-file side effect.
+    fn dir_relative(sync_root: &RelativePath, leaf: &str) -> RelativePath {
+        format!("{}/{}", &**sync_root, leaf).into()
+    }
+
+    #[tokio::test]
+    async fn entry_modified_bumps_local_version_counter() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+
+        let initial = manager
+            .insert_entry(EntryInfo {
+                name: dir_relative(&sync_root, "file.txt"),
+                kind: EntryKind::File,
+                hash: Some("v1".into()),
+                version: HashMap::from([(local_id, 3)]),
+            })
+            .await
+            .unwrap();
+
+        let bumped = manager
+            .entry_modified(initial, Some("v2".into()))
+            .await
+            .unwrap();
+
+        assert_eq!(bumped.version.get(&local_id), Some(&4));
+        assert_eq!(bumped.hash.as_deref(), Some("v2"));
+    }
+
+    #[tokio::test]
+    async fn compare_and_resolve_conflict_keeps_self_when_local_id_lower_than_peer() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        // Force peer_id > local_id so the deterministic tiebreak keeps self.
+        let peer_id = Uuid::from_u128(u128::MAX);
+
+        let name = dir_relative(&sync_root, "doc.txt");
+        let mut local = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("local-hash".into()),
+            version: HashMap::from([(local_id, 1)]),
+        };
+        let peer = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            version: HashMap::from([(peer_id, 1)]),
+        };
+
+        let cmp = manager
+            .compare_and_resolve_conflict(&mut local, &peer, peer_id)
+            .await
+            .unwrap();
+
+        assert!(matches!(cmp, VersionCmp::KeepSelf));
+    }
+
+    #[tokio::test]
+    async fn handle_conflict_writes_conflict_file_when_local_id_higher_and_file_exists() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        // peer_id < any real Uuid::new_v4 so local must give way.
+        let peer_id = Uuid::nil();
+
+        let rel: RelativePath = dir_relative(&sync_root, "report.md");
+        let absolute = rel.to_canonical(manager.state.home_path());
+        fs::write(&absolute, b"local contents").unwrap();
+
+        let mut local = EntryInfo {
+            name: rel.clone(),
+            kind: EntryKind::File,
+            hash: Some("local-hash".into()),
+            version: HashMap::from([(manager.state.local_id(), 1)]),
+        };
+        let peer = EntryInfo {
+            name: rel,
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            version: HashMap::from([(peer_id, 1)]),
+        };
+
+        let cmp = manager
+            .handle_conflict(&mut local, &peer, peer_id)
+            .await
+            .unwrap();
+
+        assert!(matches!(cmp, VersionCmp::KeepOther));
+
+        let siblings: Vec<String> = fs::read_dir(&sync_dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            siblings.iter().any(|n| n.contains("_CONFLICT_")),
+            "expected a _CONFLICT_ file in {sync_dir:?}, found: {siblings:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_conflict_removed_local_vs_live_peer_keeps_peer() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "x.txt");
+
+        let mut local = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(manager.state.local_id(), 1)]),
+        };
+        local.set_removed_hash();
+
+        let peer = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: Some("live-peer".into()),
+            version: HashMap::from([(peer_id, 1)]),
+        };
+
+        let cmp = manager
+            .handle_conflict(&mut local, &peer, peer_id)
+            .await
+            .unwrap();
+        assert!(matches!(cmp, VersionCmp::KeepOther));
+    }
+
+    #[tokio::test]
+    async fn handle_conflict_live_local_vs_removed_peer_keeps_local() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "y.txt");
+
+        let mut local = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("live-local".into()),
+            version: HashMap::from([(manager.state.local_id(), 1)]),
+        };
+        let mut peer = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer_id, 1)]),
+        };
+        peer.set_removed_hash();
+
+        let cmp = manager
+            .handle_conflict(&mut local, &peer, peer_id)
+            .await
+            .unwrap();
+        assert!(matches!(cmp, VersionCmp::KeepSelf));
+    }
+
+    #[tokio::test]
+    async fn handle_metadata_unknown_entry_returns_keep_other() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+        let peer_entry = entry(
+            dir_relative(&sync_root, "new.txt"),
+            Some("peer-hash"),
+            peer_id,
+        );
+
+        let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
+        assert!(matches!(cmp, VersionCmp::KeepOther));
+    }
+
+    /// When the local copy already dominates on every axis, the peer's
+    /// metadata is rejected (no overwrite, no conflict file).
+    #[tokio::test]
+    async fn handle_metadata_local_strictly_newer_returns_keep_self() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "doc.txt");
+
+        manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("new-local".into()),
+                version: HashMap::from([(local_id, 5), (peer_id, 1)]),
+            })
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: Some("old-peer".into()),
+            version: HashMap::from([(local_id, 3), (peer_id, 1)]),
+        };
+
+        let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
+        assert!(matches!(cmp, VersionCmp::KeepSelf));
+    }
+
+    /// After a non-conflict handle_metadata, the local entry's version
+    /// vector must include every peer counter, taking the max.
+    #[tokio::test]
+    async fn handle_metadata_merges_peer_version_vector_into_local() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let third_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "shared.txt");
+
+        manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("same-hash".into()),
+                version: HashMap::from([(local_id, 2)]),
+            })
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("same-hash".into()),
+            version: HashMap::from([(local_id, 1), (peer_id, 4), (third_id, 7)]),
+        };
+
+        let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
+        assert!(matches!(cmp, VersionCmp::Equal));
+
+        let stored = manager.get_entry(&name).await.unwrap().unwrap();
+        assert_eq!(stored.version.get(&local_id), Some(&2));
+        assert_eq!(stored.version.get(&peer_id), Some(&4));
+        assert_eq!(stored.version.get(&third_id), Some(&7));
+    }
+
+    #[tokio::test]
+    async fn remove_dir_marks_all_descendants_as_removed() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+
+        for leaf in ["a.txt", "sub/b.txt", "sub/deep/c.txt"] {
+            manager
+                .insert_entry(entry(dir_relative(&sync_root, leaf), Some("h"), peer_id))
+                .await
+                .unwrap();
+        }
+        // Sibling that lives outside the removed directory and must survive.
+        let outside: RelativePath = "Other Folder/keep.txt".into();
+        manager
+            .insert_entry(entry(outside.clone(), Some("h"), peer_id))
+            .await
+            .unwrap();
+
+        let removed = manager.remove_dir(&sync_root).await.unwrap();
+        assert_eq!(removed.len(), 3);
+        for e in &removed {
+            assert!(e.is_removed(), "{} should carry tombstone hash", e.name);
+        }
+        assert!(manager.get_entry(&outside).await.unwrap().is_some());
+    }
+
     #[tokio::test]
     async fn get_handshake_data_excludes_stale_git_entries() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
