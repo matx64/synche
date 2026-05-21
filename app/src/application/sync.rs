@@ -22,6 +22,19 @@ use crate::{
 use std::sync::Arc;
 use tokio::io;
 
+/// Parses the `HOME_PATH_CHANGED:<old>:<new>` sentinel emitted by the
+/// HTTP layer when the user changes `home_path` through the GUI.
+///
+/// Uses `strip_prefix` + `split_once` so a colon inside `new` (e.g.
+/// a Windows drive letter like `C:\Users\...`) does not corrupt
+/// parsing. Returns `None` for any other error.
+fn parse_home_path_changed_sentinel(err: &io::Error) -> Option<(String, String)> {
+    let msg = err.to_string();
+    let rest = msg.strip_prefix("HOME_PATH_CHANGED:")?;
+    let (old, new) = rest.split_once(':')?;
+    Some((old.to_string(), new.to_string()))
+}
+
 /// Top-level orchestrator that wires the application's four concurrent
 /// subsystems — transport, presence, file watcher, and HTTP server —
 /// around a shared `AppState`.
@@ -75,12 +88,8 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
                     // Normal shutdown
                     break;
                 }
-                Err(e) if e.to_string().starts_with("HOME_PATH_CHANGED:") => {
-                    let error_msg = e.to_string();
-                    let parts: Vec<&str> = error_msg.split(':').collect();
-                    if parts.len() >= 3 {
-                        let old_path = parts[1];
-                        let new_path = parts[2];
+                Err(e) if parse_home_path_changed_sentinel(&e).is_some() => {
+                    if let Some((old_path, new_path)) = parse_home_path_changed_sentinel(&e) {
                         tracing::info!(
                             "home_path changed from {} to {}. Restarting synchronizer...",
                             old_path,
@@ -167,7 +176,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             tokio::select! {
                 res = self._run() => {
                     if let Err(e) = res {
-                        if e.to_string().starts_with("HOME_PATH_CHANGED:") {
+                        if parse_home_path_changed_sentinel(&e).is_some() {
                             let _ = self.state.sse_sender().send(ServerEvent::ServerRestart);
 
                             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -202,7 +211,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             tokio::select! {
                 res = self._run() => {
                     if let Err(e) = res {
-                        if e.to_string().starts_with("HOME_PATH_CHANGED:") {
+                        if parse_home_path_changed_sentinel(&e).is_some() {
                             let _ = self.state.sse_sender().send(ServerEvent::ServerRestart);
 
                             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -245,5 +254,44 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         self.presence_service.shutdown().await;
         tracing::info!("Synche gracefully shutdown");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_home_path_changed_sentinel_extracts_old_and_new_paths() {
+        let err = io::Error::other("HOME_PATH_CHANGED:/old/home:/new/home");
+        let parsed = parse_home_path_changed_sentinel(&err);
+        assert_eq!(
+            parsed,
+            Some(("/old/home".to_string(), "/new/home".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_home_path_changed_sentinel_returns_none_for_unrelated_error() {
+        let err = io::Error::other("something else went wrong");
+        assert_eq!(parse_home_path_changed_sentinel(&err), None);
+    }
+
+    #[test]
+    fn parse_home_path_changed_sentinel_returns_none_when_separator_missing() {
+        let err = io::Error::other("HOME_PATH_CHANGED:/onlyone");
+        assert_eq!(parse_home_path_changed_sentinel(&err), None);
+    }
+
+    /// Regression test for the bug the refactor fixes: a colon in the
+    /// new path (e.g. a Windows drive letter) must not corrupt parsing.
+    #[test]
+    fn parse_home_path_changed_sentinel_preserves_colon_in_new_path() {
+        let err = io::Error::other("HOME_PATH_CHANGED:/old:C:\\Users\\new");
+        let parsed = parse_home_path_changed_sentinel(&err);
+        assert_eq!(
+            parsed,
+            Some(("/old".to_string(), "C:\\Users\\new".to_string()))
+        );
     }
 }

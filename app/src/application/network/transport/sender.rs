@@ -214,3 +214,187 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
         self.peer_manager.remove_peer_by_addr(addr).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        application::network::transport::test_support::RecordingTransport,
+        domain::{EntryInfo, EntryKind, Peer, SyncDirectory},
+        infra::persistence::sqlite::SqliteDb,
+    };
+    use std::{
+        collections::HashMap,
+        net::{IpAddr, Ipv4Addr},
+    };
+    use uuid::Uuid;
+
+    struct Harness {
+        _env: crate::utils::test_support::TestEnv,
+        sender: TransportSender<RecordingTransport, SqliteDb>,
+        peer_manager: Arc<PeerManager>,
+        adapter: Arc<RecordingTransport>,
+    }
+
+    async fn setup() -> Harness {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let db = SqliteDb::new(":memory:").await.unwrap();
+        let entry_manager = EntryManager::new(db, state.clone());
+        let peer_manager = PeerManager::new(state.clone());
+
+        let adapter = Arc::new(RecordingTransport::new());
+        let (_send_tx, send_rx) = tokio::sync::mpsc::channel(8);
+
+        let sender = TransportSender::new(
+            adapter.clone(),
+            state,
+            peer_manager.clone(),
+            entry_manager,
+            Mutex::new(send_rx),
+        );
+
+        Harness {
+            _env: env,
+            sender,
+            peer_manager,
+            adapter,
+        }
+    }
+
+    async fn add_peer(pm: &PeerManager, addr: IpAddr, sync_dirs: Vec<SyncDirectory>) -> Uuid {
+        let id = Uuid::new_v4();
+        pm.insert(Peer::new(
+            id,
+            addr,
+            "host".into(),
+            Uuid::new_v4(),
+            sync_dirs,
+        ))
+        .await;
+        id
+    }
+
+    fn entry(name: &str) -> EntryInfo {
+        EntryInfo {
+            name: name.into(),
+            kind: EntryKind::File,
+            hash: Some("h".into()),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        }
+    }
+
+    /// A `send_handshake` call reaches the adapter as exactly one `send`
+    /// against the target address.
+    #[tokio::test]
+    async fn send_handshake_dispatches_handshake_syn_to_target() {
+        let h = setup().await;
+        let target = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+
+        h.sender.send_handshake(target, true).await.unwrap();
+
+        let recorded = h.adapter.sends.lock().await;
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, target);
+        assert!(matches!(
+            recorded[0].1,
+            crate::domain::TransportData::HandshakeSyn(_)
+        ));
+    }
+
+    /// Git paths must be filtered out before any outbound send — the
+    /// transport contract excludes `.git/` entries at every boundary.
+    #[tokio::test]
+    async fn send_metadata_skips_git_paths() {
+        let h = setup().await;
+        let addr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+        add_peer(
+            &h.peer_manager,
+            addr,
+            vec![SyncDirectory {
+                name: "sync".into(),
+            }],
+        )
+        .await;
+
+        h.sender
+            .send_metadata(entry("sync/.git/config"))
+            .await
+            .unwrap();
+
+        assert_eq!(h.adapter.sends_count().await, 0);
+    }
+
+    /// `send_request` must also drop git paths — covers the second
+    /// boundary where they could otherwise leak.
+    #[tokio::test]
+    async fn send_request_skips_git_paths() {
+        let h = setup().await;
+        let target = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 6));
+
+        h.sender
+            .send_request(target, entry("sync/.git/HEAD"))
+            .await
+            .unwrap();
+
+        assert_eq!(h.adapter.sends_count().await, 0);
+    }
+
+    /// Metadata broadcasts only to peers that share the entry's
+    /// top-level sync directory.
+    #[tokio::test]
+    async fn send_metadata_broadcasts_only_to_peers_sharing_sync_dir() {
+        let h = setup().await;
+        let sharing = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3));
+        let other = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 4));
+
+        add_peer(
+            &h.peer_manager,
+            sharing,
+            vec![SyncDirectory {
+                name: "Default Folder".into(),
+            }],
+        )
+        .await;
+        add_peer(
+            &h.peer_manager,
+            other,
+            vec![SyncDirectory {
+                name: "Other Dir".into(),
+            }],
+        )
+        .await;
+
+        h.sender
+            .send_metadata(entry("Default Folder/file.txt"))
+            .await
+            .unwrap();
+
+        let recorded = h.adapter.sends.lock().await;
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, sharing);
+    }
+
+    /// Three consecutive `send` failures must evict the peer via
+    /// `PeerManager::remove_peer_by_addr` — the disconnect contract that
+    /// keeps a dead TCP target from blocking the sender forever.
+    #[tokio::test]
+    async fn send_disconnects_peer_after_three_consecutive_failures() {
+        let h = setup().await;
+        let addr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
+        add_peer(&h.peer_manager, addr, vec![]).await;
+        h.adapter.set_fail_sends(true);
+
+        h.sender.send_handshake(addr, true).await.unwrap();
+
+        assert!(
+            !h.peer_manager.exists(addr).await,
+            "peer should have been evicted after 3 failed sends"
+        );
+        assert_eq!(
+            h.adapter.sends_count().await,
+            0,
+            "no send should have succeeded"
+        );
+    }
+}
