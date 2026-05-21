@@ -136,6 +136,24 @@ mod tests {
         }
     }
 
+    /// Polls `check` until it returns true or a 2s safety deadline
+    /// elapses. The test asserts the post-condition independently, so a
+    /// deadline hit just lets the surrounding `select!` lose the race
+    /// and produce a normal assertion failure instead of a hang.
+    async fn wait_for<F, Fut>(mut check: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if check().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    }
+
     /// Driving the service-level seam: pushing a `HandshakeSyn` onto the
     /// outbound channel must reach the adapter as a single `send` call.
     #[tokio::test]
@@ -148,7 +166,10 @@ mod tests {
             .await
             .unwrap();
 
-        let _ = tokio::time::timeout(Duration::from_millis(150), h.service.run()).await;
+        tokio::select! {
+            _ = h.service.run() => unreachable!("service.run() exited"),
+            _ = wait_for(|| async { !h.sends.lock().await.is_empty() }) => {}
+        }
 
         let recorded = h.sends.lock().await;
         assert_eq!(recorded.len(), 1, "expected one outbound send");
@@ -171,7 +192,10 @@ mod tests {
             .send(Ok(handshake_event(source_id, source_ip)))
             .unwrap();
 
-        let _ = tokio::time::timeout(Duration::from_millis(150), h.service.run()).await;
+        tokio::select! {
+            _ = h.service.run() => unreachable!("service.run() exited"),
+            _ = wait_for(|| async { !h.peer_manager.list().await.is_empty() }) => {}
+        }
 
         let peers = h.peer_manager.list().await;
         assert_eq!(peers.len(), 1);
@@ -202,7 +226,10 @@ mod tests {
             )))
             .unwrap();
 
-        let _ = tokio::time::timeout(Duration::from_millis(150), h.service.run()).await;
+        tokio::select! {
+            _ = h.service.run() => unreachable!("service.run() exited"),
+            _ = wait_for(|| async { !h.sends.lock().await.is_empty() }) => {}
+        }
 
         let recorded = h.sends.lock().await;
         assert_eq!(recorded.len(), 1);

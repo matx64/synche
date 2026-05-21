@@ -84,23 +84,18 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
             let mut synchronizer = Self::new_default_with_dirs(dirs.clone()).await;
 
             match synchronizer.run().await {
-                Ok(()) => {
-                    // Normal shutdown
-                    break;
-                }
-                Err(e) if parse_home_path_changed_sentinel(&e).is_some() => {
-                    if let Some((old_path, new_path)) = parse_home_path_changed_sentinel(&e) {
+                Ok(()) => break,
+                Err(e) => match parse_home_path_changed_sentinel(&e) {
+                    Some((old_path, new_path)) => {
                         tracing::info!(
                             "home_path changed from {} to {}. Restarting synchronizer...",
                             old_path,
                             new_path
                         );
+                        continue;
                     }
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e);
-                }
+                    None => return Err(e),
+                },
             }
         }
 
