@@ -159,7 +159,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     .await
                     .map_err(io::Error::other)?;
             } else {
-                self.create_received_dir(entry).await?;
+                self.create_received_dir(event.metadata.source_id, entry)
+                    .await?;
             }
         }
         Ok(())
@@ -172,7 +173,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if is_git_path(&peer_entry.name) {
+        if is_git_path(&peer_entry.name) || !self.is_in_configured_sync_dir(&peer_entry).await {
             return Ok(());
         }
 
@@ -194,7 +195,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                         .await
                         .map_err(io::Error::other)
                 } else {
-                    self.create_received_dir(peer_entry).await
+                    self.create_received_dir(event.metadata.source_id, peer_entry)
+                        .await
                 }
             }
 
@@ -209,7 +211,9 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if is_git_path(&requested_entry.name) {
+        if is_git_path(&requested_entry.name)
+            || !self.is_in_configured_sync_dir(&requested_entry).await
+        {
             return Ok(());
         }
 
@@ -238,11 +242,19 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if is_git_path(&received_entry.name) {
+        if is_git_path(&received_entry.name)
+            || !self.is_in_configured_sync_dir(&received_entry).await
+        {
             return Ok(());
         }
 
-        let entry = self.entry_manager.insert_entry(received_entry).await?;
+        let Some(entry) = self
+            .entry_manager
+            .insert_peer_entry(event.metadata.source_id, received_entry)
+            .await?
+        else {
+            return Ok(());
+        };
 
         self.broadcast_sync_completed(event.metadata.source_id, &entry);
 
@@ -250,6 +262,14 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .send(TransportChannelData::Metadata(entry))
             .await
             .map_err(io::Error::other)
+    }
+
+    /// Returns true if `entry`'s top-level component is one of the
+    /// directories the local user has opted in to syncing. Acts as a
+    /// scope guard for inbound Metadata / Request / Transfer so a peer
+    /// cannot push or pull data outside the configured sync set.
+    async fn is_in_configured_sync_dir(&self, entry: &EntryInfo) -> bool {
+        self.state.contains_sync_dir(&entry.get_sync_dir()).await
     }
 
     fn broadcast_sync_started(&self, peer: Uuid, entry: &EntryInfo) {
@@ -271,8 +291,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             });
     }
 
-    async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
-        let dir = self.entry_manager.insert_entry(dir).await?;
+    async fn create_received_dir(&self, peer_id: Uuid, dir: EntryInfo) -> io::Result<()> {
+        let Some(dir) = self.entry_manager.insert_peer_entry(peer_id, dir).await? else {
+            return Ok(());
+        };
 
         let path = dir.name.to_canonical(self.state.home_path());
         fs::create_dir_all(path).await?;
@@ -340,7 +362,10 @@ mod tests {
         Arc<EntryManager<SqliteDb>>,
         tokio::sync::mpsc::Receiver<TransportChannelData>,
     ) {
-        let env = crate::utils::test_support::test_env().await;
+        // Use "sync" as the configured directory so the existing
+        // `sync/...` entry paths are inside a configured sync dir
+        // (scope guard added for issue #32).
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
         let db = SqliteDb::new(":memory:").await.unwrap();
         let entry_manager = EntryManager::new(db, state.clone());
@@ -447,6 +472,127 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_metadata_drops_entries_outside_configured_sync_dirs() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        // "other" is not in the configured sync_dirs (only "sync" is).
+        let entry = file_entry("other/payload.bin");
+
+        receiver
+            .handle_metadata(event(TransportData::Metadata(entry.clone())))
+            .await
+            .unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_request_drops_entries_outside_configured_sync_dirs() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let entry = file_entry("other/payload.bin");
+        // Force-insert the entry to prove the scope guard rejects the
+        // request before any DB lookup or transfer enqueue.
+        entry_manager.insert_entry(entry.clone()).await.unwrap();
+
+        receiver
+            .handle_request(event(TransportData::Request(entry)))
+            .await
+            .unwrap();
+
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_strips_foreign_axes_from_peer_version_vector() {
+        let (_env, receiver, entry_manager, _send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let third = Uuid::new_v4();
+        let entry = EntryInfo {
+            name: "sync/payload.bin".into(),
+            kind: EntryKind::File,
+            hash: Some("hash".into()),
+            // Peer reports its own axis AND a claim about `third`'s
+            // counter — only the peer's own axis must be persisted.
+            version: HashMap::from([(peer, 3), (third, 99)]),
+        };
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        let stored = entry_manager.get_entry(&entry.name).await.unwrap().unwrap();
+        assert_eq!(stored.version.get(&peer), Some(&3));
+        assert!(
+            !stored.version.contains_key(&third),
+            "foreign axis must not be persisted from Transfer"
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_drops_entry_with_poisoned_peer_counter() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let entry = EntryInfo {
+            name: "sync/payload.bin".into(),
+            kind: EntryKind::File,
+            hash: Some("hash".into()),
+            version: HashMap::from([(peer, u64::MAX)]),
+        };
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none(),
+            "poisoned peer entry must not be persisted"
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_drops_entries_outside_configured_sync_dirs() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let entry = file_entry("other/payload.bin");
+
+        receiver
+            .handle_transfer(event(TransportData::Transfer(entry.clone())))
+            .await
+            .unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+        assert!(sse_rx.try_recv().is_err());
     }
 
     #[tokio::test]

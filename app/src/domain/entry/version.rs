@@ -8,6 +8,15 @@ use uuid::Uuid;
 /// change. Two versions are comparable per `EntryInfo::compare`.
 pub type VersionVector = HashMap<Uuid, u64>;
 
+/// Upper bound on a peer-supplied version counter that we'll merge.
+///
+/// Honest counters bump by one per local edit, so they grow slowly.
+/// A peer advertising anything past half of `u64::MAX` is either
+/// broken or hostile, so the merge boundary rejects it rather than
+/// poisoning our state. Half-range leaves plenty of headroom for the
+/// `checked_add` paths in `EntryManager`.
+pub const MAX_TRUSTED_COUNTER: u64 = u64::MAX / 2;
+
 /// The outcome of comparing two `EntryInfo` version vectors.
 ///
 /// `Conflict` is not an error condition — it means the two sides have

@@ -72,6 +72,26 @@ Permanent path exclusions must be enforced at every boundary where entries can e
 
 Remote transport paths must be validated before any metadata handling or disk write. Use `RelativePath::is_safe_sync_path` to reject absolute paths, parent-directory traversal, empty paths, and backslash-separated paths from peers.
 
+### Scoping inbound entries to configured sync_dirs
+
+Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`app/src/application/network/transport/receiver.rs`) drops entries whose top component is not a configured sync directory. The guard is `TransportReceiver::is_in_configured_sync_dir`, which delegates to `AppState::contains_sync_dir`. The same check already runs in `EntryManager::get_entries_to_request` and `build_db`. `TcpReceiver` must also enforce the configured-sync-dir guard before staging or finalizing inbound `Transfer` bytes, because application-layer filtering happens after the TCP adapter has decoded the frame. If you add a new inbound entry path, add the guard alongside the existing `is_git_path` filter — they belong together.
+
+"Path under sync dir" checks must be component-aware: use `RelativePath::starts_with_dir`, never `str::starts_with` on a `RelativePath`. The dereference-to-`str` makes it look right, but `foo` would then match `foobar/...`.
+
+### Inbound TCP message size caps
+
+`app/src/infra/network/tcp/chunk.rs` defines three hard caps that are enforced **before** allocating: `MAX_TRANSFER_SIZE` (raw file bytes), `MAX_HANDSHAKE_JSON_SIZE` (handshake JSON), `MAX_ENTRY_JSON_SIZE` (single `EntryInfo` JSON). Anything that decodes a peer-supplied `u32` length must check it against the right cap before `vec![0u8; len]`. Don't add a new variable-length frame without picking (or adding) a cap.
+
+### Sanitizing peer-supplied version vectors
+
+Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` for accepted Transfer / directory-create entries). When replacing an existing row with a peer entry, preserve the trusted existing version vector and merge only the sender's own inbound axis; never reset the local axis to zero after accepting a transfer. `TcpReceiver` must reject or drain-and-drop poisoned `Transfer` frames before disk writes, since the file bytes are materialized before metadata is persisted. Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
+
+Comparison decisions must use the same sanitized peer view before calling `EntryInfo::compare`. Do not let foreign axes influence `handle_metadata`, handshake request selection, conflict resolution, delete decisions, or transfer requests; sanitize to the sender's own axis first, then persist through the hardened paths above.
+
+### Peer identity is currently untrusted
+
+`source_id` on the TCP frame is read off the wire and **not** verified — there is no TLS or signature today. The follow-up tracked under issue #32 will replace this with mutual TLS or Noise IK. Until that lands, any code that decides "is this peer allowed to do X" cannot trust `source_id` for cross-peer authorization — only use it for routing.
+
 ### Runtime / data files (not in repo)
 
 State lives in the OS config dir (`dirs::config_dir()` + `synche/`), not the repo. The paths are resolved through a `SyncheDirs` value type (`app/src/utils/dirs.rs`) carried on `AppState`, **not** through global statics — tests rely on injecting per-test `SyncheDirs` for isolation. Production code goes through `AppState::new_from_os()` and reads paths via `state.dirs()`. Don't reintroduce global `OnceLock`s for these directories.

@@ -106,6 +106,14 @@ This naming ensures no data is lost and the conflict file is unambiguously assoc
 
 Deleted entries are not removed from the metadata store.  Instead, their `hash` field is set to the 32-character all-zeros string `"00000000000000000000000000000000"` (`REMOVED_HASH`).  This sentinel allows the version vector to keep propagating the deletion to peers that missed it.
 
+### Merging peer version vectors
+
+When a peer report arrives, only the peer's **own axis** (`peer_entry.version[peer_id]`) is merged into the local vector.  Foreign axes the peer claims to know about are dropped, because an unauthenticated peer can advertise arbitrary values for other devices' counters and poison their meaning.  Our copy of device B's counter only updates when we receive a message directly from B.  Counters above `MAX_TRUSTED_COUNTER` (`u64::MAX / 2`) are rejected as poisoned; the merge is skipped rather than persisted.
+
+The same rule applies on the first-sight Transfer / directory-create path: `TransportReceiver::handle_transfer` and `create_received_dir` go through `EntryManager::insert_peer_entry`, which strips foreign axes and rejects poisoned counters before persisting.  `TcpReceiver` also rejects or drain-and-drops poisoned `Transfer` frames before staging bytes, because the TCP adapter materializes file payloads before metadata persistence.  Plain `insert_entry` is reserved for trusted local writes.
+
+Local counter increments (`entry_modified`, `delete_and_update_entry`, `build_db`) use `checked_add`, so an overflow returns an `io::Error` instead of wrapping silently.
+
 ---
 
 ## TCP Wire Format
@@ -168,6 +176,33 @@ Both use the short frame (no file bytes):
 `Transfer` frames stream file bytes in **1 MiB chunks** (constant `TRANSFER_CHUNK_SIZE = 1024 * 1024`) with a streaming SHA-256 computed over the bytes actually sent.  The maximum supported transfer size is **16 GiB** (`MAX_TRANSFER_SIZE = 16 * 1024 * 1024 * 1024`).
 
 If the source file shrinks during streaming the remaining bytes are zero-padded so the wire size matches the advertised `S`.  The hash will diverge and the receiver rejects the transfer by hash mismatch.
+
+### Inbound payload size caps
+
+Each variable-length JSON frame has a hard upper bound that is enforced **before** allocating the receive buffer, so a peer that advertises a multi-gigabyte length cannot force an oversized allocation:
+
+| Constant | Value | Applies to |
+|----------|-------|-----------|
+| `MAX_HANDSHAKE_JSON_SIZE` | 8 MiB | `HandshakeSyn` / `HandshakeAck` JSON |
+| `MAX_ENTRY_JSON_SIZE` | 64 KiB | `EntryInfo` JSON in `Metadata` / `Request` / `Transfer` |
+| `MAX_TRANSFER_SIZE` | 16 GiB | The raw file bytes following a `Transfer` header |
+
+Oversized frames are rejected with a `TransportError`; the adapter logs and skips them, the synchronizer keeps running.
+
+### Inbound entry scoping
+
+Every inbound entry boundary applies two co-located filters before any DB mutation or disk write:
+
+1. The path component check `is_git_path` (`.git/` is always excluded).
+2. The configured-sync-dir check `AppState::contains_sync_dir(entry.get_sync_dir())`.
+
+This applies in `TransportReceiver::handle_metadata`, `handle_request`, and `handle_transfer`, mirroring the check already in `get_entries_to_request` and `build_db`.  For `Transfer` frames, `TcpReceiver` applies the configured-sync-dir check before staging or finalizing bytes, because application-layer handling happens after the adapter decodes the frame.  A peer cannot push or pull entries that resolve to a sync directory the local user has not opted in to.
+
+`RelativePath::starts_with_dir` is used everywhere a "is path under directory X" check is needed, including `AppState::is_under_sync_dir`, so a configured directory `foo` never matches a sibling path like `foobar/file.txt`.
+
+### Peer identity (deferred)
+
+The `source_id` field on the wire frame is currently **trusted as advertised** — there is no cryptographic identity behind it.  Mutual TLS with per-device certificates (or a Noise IK handshake) is tracked as a separate follow-up to issue #32; until that lands, treat Synche as safe to run on a trusted LAN only.
 
 ### Error handling
 

@@ -2,11 +2,13 @@ use crate::{
     application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{
-        EntryInfo, EntryKind, HandshakeData, RelativePath, ServerEvent, SyncDirectory,
-        TransportData,
+        EntryInfo, EntryKind, HandshakeData, MAX_TRUSTED_COUNTER, RelativePath, ServerEvent,
+        SyncDirectory, TransportData,
     },
     infra::network::tcp::{
-        chunk::{MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE},
+        chunk::{
+            MAX_ENTRY_JSON_SIZE, MAX_HANDSHAKE_JSON_SIZE, MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE,
+        },
         kind::TcpStreamKind,
     },
     utils::fs::is_git_path,
@@ -67,6 +69,12 @@ impl TcpReceiver {
         stream.read_exact(&mut len_buf).await?;
         let len = u32::from_be_bytes(len_buf) as usize;
 
+        if len > MAX_HANDSHAKE_JSON_SIZE {
+            return Err(TransportError::new(&format!(
+                "Handshake JSON size {len} exceeds MAX_HANDSHAKE_JSON_SIZE {MAX_HANDSHAKE_JSON_SIZE}",
+            )));
+        }
+
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await?;
 
@@ -102,7 +110,10 @@ impl TcpReceiver {
         // Header parsed — any failure from here on can be attributed to this
         // specific entry, so emit `EntrySyncFailed` before propagating the
         // error (the adapter then swallows the error itself).
-        match self.read_transfer_after_header(stream, &entry).await {
+        match self
+            .read_transfer_after_header(stream, &entry, source_id)
+            .await
+        {
             Ok(()) => Ok(TransportData::Transfer(entry)),
             Err(err) => {
                 self.broadcast_sync_failed(source_id, &entry, &err);
@@ -115,6 +126,7 @@ impl TcpReceiver {
         &self,
         stream: &mut TcpStream,
         entry: &EntryInfo,
+        source_id: Uuid,
     ) -> TransportResult<()> {
         let mut entry_size_buf = [0u8; 8];
         stream.read_exact(&mut entry_size_buf).await?;
@@ -126,7 +138,10 @@ impl TcpReceiver {
             )));
         }
 
-        if is_git_path(&entry.name) {
+        if self
+            .should_drop_transfer_before_disk_write(entry, source_id)
+            .await
+        {
             // Drain the payload from the wire without writing to disk.
             Self::discard_bytes(stream, entry_size, TRANSFER_CHUNK_SIZE).await?;
             return Ok(());
@@ -159,6 +174,21 @@ impl TcpReceiver {
         self.finalise_staging(entry, staging).await
     }
 
+    async fn should_drop_transfer_before_disk_write(
+        &self,
+        entry: &EntryInfo,
+        source_id: Uuid,
+    ) -> bool {
+        if is_git_path(&entry.name) || !self.state.contains_sync_dir(&entry.get_sync_dir()).await {
+            return true;
+        }
+
+        entry
+            .version
+            .get(&source_id)
+            .is_some_and(|counter| *counter > MAX_TRUSTED_COUNTER)
+    }
+
     fn broadcast_sync_failed(&self, peer: Uuid, entry: &EntryInfo, err: &TransportError) {
         let TransportError::Failure(reason) = err;
         let _ = self.state.sse_sender().send(ServerEvent::EntrySyncFailed {
@@ -173,6 +203,12 @@ impl TcpReceiver {
         let mut json_len_buf = [0u8; 4];
         stream.read_exact(&mut json_len_buf).await?;
         let json_len = u32::from_be_bytes(json_len_buf) as usize;
+
+        if json_len > MAX_ENTRY_JSON_SIZE {
+            return Err(TransportError::new(&format!(
+                "Entry JSON size {json_len} exceeds MAX_ENTRY_JSON_SIZE {MAX_ENTRY_JSON_SIZE}",
+            )));
+        }
 
         let mut json_buf = vec![0u8; json_len];
         stream.read_exact(&mut json_buf).await?;
@@ -460,10 +496,10 @@ mod tests {
 
     #[tokio::test]
     async fn read_transfer_streams_file_to_home_and_validates_hash() {
-        let env = crate::utils::test_support::test_env().await;
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
         let root = format!("tcp_chunk_ok_{}", Uuid::new_v4());
-        let entry_name = format!("{root}/payload.bin");
+        let entry_name = format!("sync/{root}/payload.bin");
         let original_path = state.home_path().join(&entry_name);
         let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
         let hash = format!("{:x}", Sha256::digest(&contents));
@@ -490,17 +526,17 @@ mod tests {
         let on_disk = fs::read(&original_path).await.unwrap();
         assert_eq!(on_disk, contents);
 
-        let root_path = state.home_path().join(&root);
+        let root_path = state.home_path().join(format!("sync/{root}"));
         fs::remove_dir_all(root_path).await.unwrap();
     }
 
     #[tokio::test]
     async fn read_transfer_rejects_hash_mismatch_and_cleans_staging() {
-        let env = crate::utils::test_support::test_env().await;
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
         let mut sse_rx = state.sse_subscribe();
         let root = format!("tcp_chunk_bad_{}", Uuid::new_v4());
-        let entry_name = format!("{root}/payload.bin");
+        let entry_name = format!("sync/{root}/payload.bin");
         let original_path = state.home_path().join(&entry_name);
         let contents = vec![0xAAu8; 64];
         let entry = file_entry(&entry_name, Some("deadbeef".to_string()));
@@ -544,7 +580,7 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
 
-        let root_path = state.home_path().join(&root);
+        let root_path = state.home_path().join(format!("sync/{root}"));
         if root_path.exists() {
             fs::remove_dir_all(root_path).await.unwrap();
         }
@@ -634,6 +670,139 @@ mod tests {
         let root_path = state.home_path().join(&root);
         if root_path.exists() {
             fs::remove_dir_all(root_path).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn read_transfer_outside_configured_sync_dir_never_writes_to_home() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let entry_name = "other/payload.bin";
+        let original_path = state.home_path().join(entry_name);
+        let contents = b"outside configured sync dir".to_vec();
+        let hash = format!("{:x}", Sha256::digest(&contents));
+        let entry = file_entry(entry_name, Some(hash));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entry_clone = entry.clone();
+        let contents_clone = contents.clone();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let data = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
+            .await);
+        writer.await.unwrap();
+
+        assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(!original_path.exists());
+        assert!(!state.home_path().join("other").exists());
+    }
+
+    #[tokio::test]
+    async fn read_transfer_with_poisoned_peer_counter_never_overwrites_home() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let peer = Uuid::new_v4();
+        let entry_name = "sync/payload.bin";
+        let original_path = state.home_path().join(entry_name);
+        fs::create_dir_all(original_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&original_path, b"original").await.unwrap();
+
+        let contents = b"poisoned payload".to_vec();
+        let hash = format!("{:x}", Sha256::digest(&contents));
+        let entry = EntryInfo {
+            name: entry_name.into(),
+            kind: EntryKind::File,
+            hash: Some(hash),
+            version: HashMap::from([(peer, u64::MAX)]),
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entry_clone = entry.clone();
+        let contents_clone = contents.clone();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let data = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, peer)
+            .await);
+        writer.await.unwrap();
+
+        assert!(matches!(data, TransportData::Transfer(_)));
+        assert_eq!(fs::read(&original_path).await.unwrap(), b"original");
+    }
+
+    #[tokio::test]
+    async fn read_handshake_rejects_oversized_advertised_length() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let oversized = (MAX_HANDSHAKE_JSON_SIZE + 1) as u32;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            // Only the length prefix is sent — the receiver must
+            // reject before allocating, so no JSON body follows.
+            stream.write_all(&oversized.to_be_bytes()).await.unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver
+            .read_data(stream, TcpStreamKind::HandshakeSyn, Uuid::new_v4())
+            .await;
+        writer.await.unwrap();
+
+        match result {
+            Err(TransportError::Failure(m)) => {
+                assert!(
+                    m.contains("MAX_HANDSHAKE_JSON_SIZE"),
+                    "unexpected error: {m}"
+                )
+            }
+            Ok(_) => panic!("expected oversize rejection"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_entry_info_rejects_oversized_advertised_length() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let oversized = (MAX_ENTRY_JSON_SIZE + 1) as u32;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream.write_all(&oversized.to_be_bytes()).await.unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver
+            .read_data(stream, TcpStreamKind::Metadata, Uuid::new_v4())
+            .await;
+        writer.await.unwrap();
+
+        match result {
+            Err(TransportError::Failure(m)) => {
+                assert!(m.contains("MAX_ENTRY_JSON_SIZE"), "unexpected error: {m}")
+            }
+            Ok(_) => panic!("expected oversize rejection"),
         }
     }
 }
