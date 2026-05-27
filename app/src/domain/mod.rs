@@ -15,6 +15,7 @@ pub use chan::MutexChannel;
 pub use directory::SyncDirectory;
 pub use entry::EntryInfo;
 pub use entry::EntryKind;
+pub use entry::MAX_TRUSTED_COUNTER;
 pub use entry::VersionCmp;
 pub use entry::VersionVector;
 pub use fs::CanonicalPath;

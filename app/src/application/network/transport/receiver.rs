@@ -172,7 +172,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if is_git_path(&peer_entry.name) {
+        if is_git_path(&peer_entry.name) || !self.is_in_configured_sync_dir(&peer_entry).await {
             return Ok(());
         }
 
@@ -209,7 +209,9 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if is_git_path(&requested_entry.name) {
+        if is_git_path(&requested_entry.name)
+            || !self.is_in_configured_sync_dir(&requested_entry).await
+        {
             return Ok(());
         }
 
@@ -238,7 +240,9 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        if is_git_path(&received_entry.name) {
+        if is_git_path(&received_entry.name)
+            || !self.is_in_configured_sync_dir(&received_entry).await
+        {
             return Ok(());
         }
 
@@ -250,6 +254,14 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .send(TransportChannelData::Metadata(entry))
             .await
             .map_err(io::Error::other)
+    }
+
+    /// Returns true if `entry`'s top-level component is one of the
+    /// directories the local user has opted in to syncing. Acts as a
+    /// scope guard for inbound Metadata / Request / Transfer so a peer
+    /// cannot push or pull data outside the configured sync set.
+    async fn is_in_configured_sync_dir(&self, entry: &EntryInfo) -> bool {
+        self.state.contains_sync_dir(&entry.get_sync_dir()).await
     }
 
     fn broadcast_sync_started(&self, peer: Uuid, entry: &EntryInfo) {
@@ -340,7 +352,10 @@ mod tests {
         Arc<EntryManager<SqliteDb>>,
         tokio::sync::mpsc::Receiver<TransportChannelData>,
     ) {
-        let env = crate::utils::test_support::test_env().await;
+        // Use "sync" as the configured directory so the existing
+        // `sync/...` entry paths are inside a configured sync dir
+        // (scope guard added for issue #32).
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
         let db = SqliteDb::new(":memory:").await.unwrap();
         let entry_manager = EntryManager::new(db, state.clone());
@@ -447,6 +462,65 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_metadata_drops_entries_outside_configured_sync_dirs() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        // "other" is not in the configured sync_dirs (only "sync" is).
+        let entry = file_entry("other/payload.bin");
+
+        receiver
+            .handle_metadata(event(TransportData::Metadata(entry.clone())))
+            .await
+            .unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_request_drops_entries_outside_configured_sync_dirs() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let entry = file_entry("other/payload.bin");
+        // Force-insert the entry to prove the scope guard rejects the
+        // request before any DB lookup or transfer enqueue.
+        entry_manager.insert_entry(entry.clone()).await.unwrap();
+
+        receiver
+            .handle_request(event(TransportData::Request(entry)))
+            .await
+            .unwrap();
+
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_drops_entries_outside_configured_sync_dirs() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let entry = file_entry("other/payload.bin");
+
+        receiver
+            .handle_transfer(event(TransportData::Transfer(entry.clone())))
+            .await
+            .unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+        assert!(sse_rx.try_recv().is_err());
     }
 
     #[tokio::test]

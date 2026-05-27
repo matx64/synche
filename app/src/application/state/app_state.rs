@@ -246,9 +246,13 @@ impl AppState {
     /// Returns `true` if `path` falls under any configured sync
     /// directory — the boundary check that decides whether a watcher
     /// event is relevant.
+    ///
+    /// Uses component-aware matching via `RelativePath::starts_with_dir`,
+    /// so a configured dir `foo` does **not** match a sibling path
+    /// `foobar/file.txt`.
     pub async fn is_under_sync_dir(&self, path: &RelativePath) -> bool {
         let dirs = self.sync_dirs.read().await;
-        dirs.keys().any(|d| path.starts_with(&**d))
+        dirs.keys().any(|d| path.starts_with_dir(d))
     }
 }
 
@@ -443,6 +447,23 @@ mod tests {
                 "Sync dir itself should match is_under_sync_dir"
             );
         }
+    }
+
+    /// Verifies the component-aware boundary check (issue #32 finding
+    /// #4). A configured sync dir `foo` must NOT match a sibling path
+    /// like `foobar/file.txt`.
+    #[tokio::test]
+    async fn is_under_sync_dir_does_not_match_string_prefix_siblings() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["foo"]).await;
+
+        assert!(
+            env.state.is_under_sync_dir(&"foo/file.txt".into()).await,
+            "child path under foo/ should match"
+        );
+        assert!(
+            !env.state.is_under_sync_dir(&"foobar/file.txt".into()).await,
+            "string-prefix sibling foobar/ must NOT match foo"
+        );
     }
 
     #[tokio::test]

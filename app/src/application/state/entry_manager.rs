@@ -2,8 +2,8 @@ use super::{app_state::AppState, ignore::IgnoreHandler};
 use crate::{
     application::persistence::interface::PersistenceInterface,
     domain::{
-        CanonicalPath, EntryInfo, EntryKind, HandshakeData, Peer, RelativePath, SyncDirectory,
-        VersionCmp,
+        CanonicalPath, EntryInfo, EntryKind, HandshakeData, MAX_TRUSTED_COUNTER, Peer,
+        RelativePath, SyncDirectory, VersionCmp,
     },
     utils::fs::{compute_hash, is_ds_store, is_git_path},
 };
@@ -153,7 +153,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
             match filesystem_entries.get(name) {
                 Some(fs_entry) if fs_entry.hash != entry.hash => {
-                    *entry.version.entry(self.state.local_id()).or_insert(0) += 1;
+                    bump_local_counter(&mut entry.version, self.state.local_id())?;
 
                     self.db
                         .insert_or_replace_entry(&EntryInfo {
@@ -244,7 +244,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         hash: Option<String>,
     ) -> io::Result<EntryInfo> {
         entry.hash = hash;
-        *entry.version.entry(self.state.local_id()).or_insert(0) += 1;
+        bump_local_counter(&mut entry.version, self.state.local_id())?;
 
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(entry)
@@ -404,6 +404,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
     }
 
+    /// Merges the peer's version counter for **its own axis** into
+    /// the local copy and persists.
+    ///
+    /// Only `peer_entry.version[peer_id]` is trusted — foreign axes in
+    /// the inbound vector are ignored to prevent a buggy or hostile
+    /// peer from inflating another device's counter. A counter above
+    /// `MAX_TRUSTED_COUNTER` is treated as poisoned and the merge is
+    /// skipped (warn-and-drop) instead of erroring, so one bad entry
+    /// cannot tear down the connection.
     pub async fn merge_versions_and_insert(
         &self,
         local_entry: &mut EntryInfo,
@@ -412,9 +421,18 @@ impl<P: PersistenceInterface> EntryManager<P> {
     ) -> io::Result<()> {
         local_entry.version.entry(peer_id).or_insert(0);
 
-        for (pid, pv) in &peer_entry.version {
-            let local_version = local_entry.version.entry(*pid).or_insert(0);
-            *local_version = (*local_version).max(*pv);
+        if let Some(&pv) = peer_entry.version.get(&peer_id) {
+            if pv > MAX_TRUSTED_COUNTER {
+                warn!(
+                    entry = %local_entry.name,
+                    peer = %peer_id,
+                    counter = pv,
+                    "rejecting poisoned peer version counter"
+                );
+                return Ok(());
+            }
+            let local_version = local_entry.version.entry(peer_id).or_insert(0);
+            *local_version = (*local_version).max(pv);
         }
 
         trace!(entry = %local_entry.name, peer = %peer_id, "merging versions");
@@ -449,7 +467,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub async fn delete_and_update_entry(&self, mut entry: EntryInfo) -> io::Result<EntryInfo> {
         self.db.delete_entry(&entry.name).await?;
 
-        *entry.version.entry(self.state.local_id()).or_insert(0) += 1;
+        bump_local_counter(&mut entry.version, self.state.local_id())?;
         entry.set_removed_hash();
 
         Ok(entry)
@@ -489,6 +507,22 @@ impl<P: PersistenceInterface> EntryManager<P> {
     pub async fn remove_gitignore(&self, relative: &RelativePath) {
         self.ignore_handler.remove_gitignore(relative).await;
     }
+}
+
+/// Increment the local axis of a version vector with overflow checking.
+///
+/// With foreign-axis poisoning prevented in `merge_versions_and_insert`,
+/// this counter only grows via honest local edits, so overflow is
+/// unreachable in practice. `checked_add` is a cheap defense-in-depth.
+fn bump_local_counter(
+    version: &mut crate::domain::VersionVector,
+    local_id: Uuid,
+) -> io::Result<()> {
+    let v = version.entry(local_id).or_insert(0);
+    *v = v
+        .checked_add(1)
+        .ok_or_else(|| io::Error::other("version counter overflow"))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -821,10 +855,13 @@ mod tests {
         assert!(matches!(cmp, VersionCmp::KeepSelf));
     }
 
-    /// After a non-conflict handle_metadata, the local entry's version
-    /// vector must include every peer counter, taking the max.
+    /// After a non-conflict handle_metadata, only the peer's own axis
+    /// (`peer_entry.version[peer_id]`) is merged into the local vector.
+    /// Foreign axes the peer claims to know about are ignored, because
+    /// an unauthenticated peer can advertise arbitrary values for them
+    /// (issue #32 finding #3).
     #[tokio::test]
-    async fn handle_metadata_merges_peer_version_vector_into_local() {
+    async fn handle_metadata_merges_only_peer_own_axis() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
         let local_id = manager.state.local_id();
@@ -855,7 +892,54 @@ mod tests {
         let stored = manager.get_entry(&name).await.unwrap().unwrap();
         assert_eq!(stored.version.get(&local_id), Some(&2));
         assert_eq!(stored.version.get(&peer_id), Some(&4));
-        assert_eq!(stored.version.get(&third_id), Some(&7));
+        // Third-device axis must NOT have been adopted from the peer's
+        // claim — we'd only learn it by hearing from `third_id` directly.
+        assert!(
+            !stored.version.contains_key(&third_id),
+            "foreign axis must not be merged from peer report"
+        );
+    }
+
+    /// A peer-supplied counter above `MAX_TRUSTED_COUNTER` is treated as
+    /// poisoned: the merge is skipped (warn-and-drop) so future
+    /// legitimate updates from that device don't look stale forever
+    /// (issue #32 finding #5).
+    #[tokio::test]
+    async fn merge_versions_skips_poisoned_peer_counter() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "shared.txt");
+
+        manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("same-hash".into()),
+                version: HashMap::from([(local_id, 2)]),
+            })
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("same-hash".into()),
+            version: HashMap::from([(peer_id, u64::MAX)]),
+        };
+
+        // Equal kind + hash + dominated local axis means handle_metadata
+        // would normally try to merge — the poisoned counter must abort
+        // that merge cleanly rather than persist `u64::MAX`.
+        manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
+
+        let stored = manager.get_entry(&name).await.unwrap().unwrap();
+        let observed = stored.version.get(&peer_id).copied().unwrap_or(0);
+        assert!(
+            observed < crate::domain::MAX_TRUSTED_COUNTER,
+            "poisoned counter must not be persisted; got {observed}"
+        );
     }
 
     #[tokio::test]

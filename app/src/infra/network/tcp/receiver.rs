@@ -6,7 +6,9 @@ use crate::{
         TransportData,
     },
     infra::network::tcp::{
-        chunk::{MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE},
+        chunk::{
+            MAX_ENTRY_JSON_SIZE, MAX_HANDSHAKE_JSON_SIZE, MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE,
+        },
         kind::TcpStreamKind,
     },
     utils::fs::is_git_path,
@@ -66,6 +68,12 @@ impl TcpReceiver {
         let mut len_buf = [0u8; 4];
         stream.read_exact(&mut len_buf).await?;
         let len = u32::from_be_bytes(len_buf) as usize;
+
+        if len > MAX_HANDSHAKE_JSON_SIZE {
+            return Err(TransportError::new(&format!(
+                "Handshake JSON size {len} exceeds MAX_HANDSHAKE_JSON_SIZE {MAX_HANDSHAKE_JSON_SIZE}",
+            )));
+        }
 
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await?;
@@ -173,6 +181,12 @@ impl TcpReceiver {
         let mut json_len_buf = [0u8; 4];
         stream.read_exact(&mut json_len_buf).await?;
         let json_len = u32::from_be_bytes(json_len_buf) as usize;
+
+        if json_len > MAX_ENTRY_JSON_SIZE {
+            return Err(TransportError::new(&format!(
+                "Entry JSON size {json_len} exceeds MAX_ENTRY_JSON_SIZE {MAX_ENTRY_JSON_SIZE}",
+            )));
+        }
 
         let mut json_buf = vec![0u8; json_len];
         stream.read_exact(&mut json_buf).await?;
@@ -634,6 +648,67 @@ mod tests {
         let root_path = state.home_path().join(&root);
         if root_path.exists() {
             fs::remove_dir_all(root_path).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn read_handshake_rejects_oversized_advertised_length() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let oversized = (MAX_HANDSHAKE_JSON_SIZE + 1) as u32;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            // Only the length prefix is sent — the receiver must
+            // reject before allocating, so no JSON body follows.
+            stream.write_all(&oversized.to_be_bytes()).await.unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver
+            .read_data(stream, TcpStreamKind::HandshakeSyn, Uuid::new_v4())
+            .await;
+        writer.await.unwrap();
+
+        match result {
+            Err(TransportError::Failure(m)) => {
+                assert!(
+                    m.contains("MAX_HANDSHAKE_JSON_SIZE"),
+                    "unexpected error: {m}"
+                )
+            }
+            Ok(_) => panic!("expected oversize rejection"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_entry_info_rejects_oversized_advertised_length() {
+        let env = crate::utils::test_support::test_env().await;
+        let state = env.state.clone();
+        let oversized = (MAX_ENTRY_JSON_SIZE + 1) as u32;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream.write_all(&oversized.to_be_bytes()).await.unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver
+            .read_data(stream, TcpStreamKind::Metadata, Uuid::new_v4())
+            .await;
+        writer.await.unwrap();
+
+        match result {
+            Err(TransportError::Failure(m)) => {
+                assert!(m.contains("MAX_ENTRY_JSON_SIZE"), "unexpected error: {m}")
+            }
+            Ok(_) => panic!("expected oversize rejection"),
         }
     }
 }
