@@ -166,6 +166,22 @@
                         </summary>
                         <p><strong>IP:</strong> {{ peer.addr }}</p>
                         <p><strong>ID:</strong> {{ peer.id }}</p>
+                        <p><strong>Instance ID:</strong> {{ peer.instance_id }}</p>
+                        <p>
+                            <strong>Last Seen:</strong>
+                            <span class="peer-last-seen" data-ts="{{ peer.last_seen.secs_since_epoch }}"></span>
+                        </p>
+                        <p><strong>Sync Directories:</strong>
+                            {% if peer.sync_dirs %}
+                                <ul>
+                                    {% for dir_name, _ in peer.sync_dirs %}
+                                        <li>{{ dir_name }}</li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                None
+                            {% endif %}
+                        </p>
                     </details>
                     {% endfor %}
                 </div>
@@ -409,5 +425,11 @@
 
         <script type="module" src="/static/main.js"></script>
         <script type="module" src="/static/sse.js"></script>
+        <script>
+            document.querySelectorAll(".peer-last-seen[data-ts]").forEach(function (el) {
+                var ts = parseInt(el.dataset.ts, 10);
+                if (ts) el.textContent = new Date(ts * 1000).toLocaleString();
+            });
+        </script>
     </body>
 </html>

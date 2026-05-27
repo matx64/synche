@@ -38,7 +38,15 @@ export function dirListItem(name) {
           </details>`;
 }
 
-export function peerListItem({ id, addr, hostname }) {
+export function peerListItem({ id, addr, hostname, instance_id, last_seen, sync_dirs }) {
+  const tsLabel = last_seen
+    ? new Date(last_seen * 1000).toLocaleString()
+    : "unknown";
+  const dirsList =
+    sync_dirs && sync_dirs.length
+      ? `<ul>${sync_dirs.map((d) => `<li>${d}</li>`).join("")}</ul>`
+      : "None";
+
   return `<details class="list-item" id="peer-${id}">
             <summary><strong><svg class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal" fill="none" height="20" stroke="currentColor" stroke-linecap="round"
                                  stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
@@ -58,6 +66,9 @@ export function peerListItem({ id, addr, hostname }) {
                 </small></summary>
             <p><strong>IP:</strong> ${addr}</p>
             <p><strong>ID:</strong> ${id}</p>
+            <p><strong>Instance ID:</strong> ${instance_id ?? "unknown"}</p>
+            <p><strong>Last Seen:</strong> ${tsLabel}</p>
+            <p><strong>Sync Directories:</strong> ${dirsList}</p>
           </details>`;
 }
 
