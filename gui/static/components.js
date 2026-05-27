@@ -1,3 +1,17 @@
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c],
+  );
+}
+
 export function dirListItem(name) {
   return `<details class="list-item" id="dir-${name}">
             <summary>
@@ -44,7 +58,7 @@ export function peerListItem({ id, addr, hostname, instance_id, last_seen, sync_
     : "unknown";
   const dirsList =
     sync_dirs && sync_dirs.length
-      ? `<ul>${sync_dirs.map((d) => `<li>${d}</li>`).join("")}</ul>`
+      ? `<ul>${sync_dirs.map((d) => `<li>${escapeHtml(d)}</li>`).join("")}</ul>`
       : "None";
 
   return `<details class="list-item" id="peer-${id}">
