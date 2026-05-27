@@ -136,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn recv_ignores_corrupt_transfer_and_keeps_listening() {
-        let env = crate::utils::test_support::test_env().await;
+        let env = crate::utils::test_support::test_env_with_dirs(&["bad"]).await;
         let adapter = TcpAdapter::new(env.state.clone()).await;
         let addr = adapter.listener.local_addr().unwrap();
         let source_id = Uuid::new_v4();

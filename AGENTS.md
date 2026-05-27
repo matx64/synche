@@ -74,7 +74,7 @@ Remote transport paths must be validated before any metadata handling or disk wr
 
 ### Scoping inbound entries to configured sync_dirs
 
-Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`app/src/application/network/transport/receiver.rs`) drops entries whose top component is not a configured sync directory. The guard is `TransportReceiver::is_in_configured_sync_dir`, which delegates to `AppState::contains_sync_dir`. The same check already runs in `EntryManager::get_entries_to_request` and `build_db`. If you add a new inbound entry path, add the guard alongside the existing `is_git_path` filter — they belong together.
+Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`app/src/application/network/transport/receiver.rs`) drops entries whose top component is not a configured sync directory. The guard is `TransportReceiver::is_in_configured_sync_dir`, which delegates to `AppState::contains_sync_dir`. The same check already runs in `EntryManager::get_entries_to_request` and `build_db`. `TcpReceiver` must also enforce the configured-sync-dir guard before staging or finalizing inbound `Transfer` bytes, because application-layer filtering happens after the TCP adapter has decoded the frame. If you add a new inbound entry path, add the guard alongside the existing `is_git_path` filter — they belong together.
 
 "Path under sync dir" checks must be component-aware: use `RelativePath::starts_with_dir`, never `str::starts_with` on a `RelativePath`. The dereference-to-`str` makes it look right, but `foo` would then match `foobar/...`.
 
@@ -84,7 +84,7 @@ Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`a
 
 ### Sanitizing peer-supplied version vectors
 
-Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` on first-sight Transfer / directory-create). Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
+Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` on first-sight Transfer / directory-create). `TcpReceiver` must reject or drain-and-drop poisoned `Transfer` frames before disk writes, since the file bytes are materialized before metadata is persisted. Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
 
 ### Peer identity is currently untrusted
 

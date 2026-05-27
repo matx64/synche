@@ -110,7 +110,7 @@ Deleted entries are not removed from the metadata store.  Instead, their `hash` 
 
 When a peer report arrives, only the peer's **own axis** (`peer_entry.version[peer_id]`) is merged into the local vector.  Foreign axes the peer claims to know about are dropped, because an unauthenticated peer can advertise arbitrary values for other devices' counters and poison their meaning.  Our copy of device B's counter only updates when we receive a message directly from B.  Counters above `MAX_TRUSTED_COUNTER` (`u64::MAX / 2`) are rejected as poisoned; the merge is skipped rather than persisted.
 
-The same rule applies on the first-sight Transfer / directory-create path: `TransportReceiver::handle_transfer` and `create_received_dir` go through `EntryManager::insert_peer_entry`, which strips foreign axes and rejects poisoned counters before persisting.  Plain `insert_entry` is reserved for trusted local writes.
+The same rule applies on the first-sight Transfer / directory-create path: `TransportReceiver::handle_transfer` and `create_received_dir` go through `EntryManager::insert_peer_entry`, which strips foreign axes and rejects poisoned counters before persisting.  `TcpReceiver` also rejects or drain-and-drops poisoned `Transfer` frames before staging bytes, because the TCP adapter materializes file payloads before metadata persistence.  Plain `insert_entry` is reserved for trusted local writes.
 
 Local counter increments (`entry_modified`, `delete_and_update_entry`, `build_db`) use `checked_add`, so an overflow returns an `io::Error` instead of wrapping silently.
 
@@ -196,7 +196,7 @@ Every inbound entry boundary applies two co-located filters before any DB mutati
 1. The path component check `is_git_path` (`.git/` is always excluded).
 2. The configured-sync-dir check `AppState::contains_sync_dir(entry.get_sync_dir())`.
 
-This applies in `TransportReceiver::handle_metadata`, `handle_request`, and `handle_transfer`, mirroring the check already in `get_entries_to_request` and `build_db`.  A peer cannot push or pull entries that resolve to a sync directory the local user has not opted in to.
+This applies in `TransportReceiver::handle_metadata`, `handle_request`, and `handle_transfer`, mirroring the check already in `get_entries_to_request` and `build_db`.  For `Transfer` frames, `TcpReceiver` applies the configured-sync-dir check before staging or finalizing bytes, because application-layer handling happens after the adapter decodes the frame.  A peer cannot push or pull entries that resolve to a sync directory the local user has not opted in to.
 
 `RelativePath::starts_with_dir` is used everywhere a "is path under directory X" check is needed, including `AppState::is_under_sync_dir`, so a configured directory `foo` never matches a sibling path like `foobar/file.txt`.
 
