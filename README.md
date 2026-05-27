@@ -36,6 +36,11 @@ You can either download a prebuilt binary or build it from source:
 -   **[Latest Release](https://github.com/matx64/synche/releases/latest)** (Recommended for most users)
 -   **[Build Guide](docs/BUILD.md)** (For developers who want to build from source)
 
+## Documentation
+
+-   **[HTTP API Reference](docs/API.md)** — endpoint details, query parameters, response codes, and SSE event shapes.
+-   **[Architecture Guide](docs/ARCHITECTURE.md)** — hexagonal layout, version vectors and conflict resolution, TCP wire format, `home_path` restart contract, and mDNS discovery.
+
 ## Contributing & Feedback
 
 This project is in active development, and contributions are welcome. Check out the **[Contributing Guide](docs/CONTRIBUTING.md)** for more details.
