@@ -185,6 +185,16 @@ Changing `home_path` via [`POST /api/set-home-path`](API.md#post-apiset-home-pat
 HOME_PATH_CHANGED:<old_path>:<new_path>
 ```
 
+### Live activity events
+
+The transport receiver broadcasts per-entry SSE events as files move across the network:
+
+- `EntrySyncStarted` is emitted from `TransportReceiver` at both points where this device enqueues a `Request` (handshake catch-up and the `KeepOther` branch of `handle_metadata`).
+- `EntrySyncCompleted` is emitted after `handle_transfer` calls `insert_entry`.
+- `EntrySyncFailed` is emitted from `TcpReceiver::read_transfer` once the entry header has been parsed; the original `TransportError` is still propagated up so the receive loop logs and skips it as a bad peer message.
+
+The GUI renders these into a per-directory activity strip with a rolling history of recent completed/failed entries.  See [API.md](API.md#server-sent-events) for the wire schemas.
+
 ### Restart flow
 
 1. The API handler calls `AppState::set_home_path_in_config()`, which writes the config and returns the sentinel error.

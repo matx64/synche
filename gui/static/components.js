@@ -13,7 +13,8 @@ function escapeHtml(s) {
 }
 
 export function dirListItem(name) {
-  return `<details class="list-item" id="dir-${name}">
+  const safe = escapeHtml(name);
+  return `<details class="list-item" id="dir-${safe}">
             <summary>
               <strong>
                         <svg class="lucide lucide-folder-open-icon lucide-folder-open" fill="none" height="20"
@@ -22,9 +23,11 @@ export function dirListItem(name) {
                              xmlns="http://www.w3.org/2000/svg">
                             <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
                         </svg>
-                        <span>${name}</span>
+                        <span>${safe}</span>
                     </strong>
             </summary>
+
+            <div class="dir-activity" hidden></div>
 
             <div class="dir-actions">
             <button class="btn icon-btn remove-dir-btn">
@@ -111,4 +114,100 @@ export function setPeerAsDisconnected(peer) {
   if (status) {
     status.innerHTML = peerDisconnectedStatus();
   }
+}
+
+const ACTIVITY_HISTORY_LIMIT = 5;
+
+function getActivityStrip(dir) {
+  const el = document.getElementById(`dir-${dir}`);
+  if (!el) return null;
+  let strip = el.querySelector(".dir-activity");
+  if (!strip) {
+    strip = document.createElement("div");
+    strip.className = "dir-activity";
+    strip.hidden = true;
+    el.insertBefore(strip, el.querySelector(".dir-actions") ?? null);
+  }
+  return strip;
+}
+
+function ensureActiveSlot(strip) {
+  let slot = strip.querySelector(".dir-activity-current");
+  if (!slot) {
+    slot = document.createElement("div");
+    slot.className = "dir-activity-current";
+    strip.prepend(slot);
+  }
+  return slot;
+}
+
+function ensureHistory(strip) {
+  let hist = strip.querySelector(".dir-activity-history");
+  if (!hist) {
+    hist = document.createElement("ul");
+    hist.className = "dir-activity-history";
+    strip.append(hist);
+  }
+  return hist;
+}
+
+function peerLabel(peerId) {
+  const peerEl = document.getElementById(`peer-${peerId}`);
+  const hostnameSpan = peerEl?.querySelector("summary strong span");
+  const text = hostnameSpan?.textContent?.trim();
+  return text && text.length > 0 ? text : peerId;
+}
+
+function activeKey(path, peer) {
+  return `${peer}::${path}`;
+}
+
+function pushHistory(strip, html) {
+  const hist = ensureHistory(strip);
+  const item = document.createElement("li");
+  item.innerHTML = html;
+  hist.prepend(item);
+  while (hist.children.length > ACTIVITY_HISTORY_LIMIT) {
+    hist.removeChild(hist.lastChild);
+  }
+}
+
+export function setSyncStarted({ dir, relative_path, peer }) {
+  const strip = getActivityStrip(dir);
+  if (!strip) return;
+  strip.hidden = false;
+  const slot = ensureActiveSlot(strip);
+  slot.dataset.key = activeKey(relative_path, peer);
+  slot.innerHTML =
+    `<span class="sync-active">Syncing <code>${escapeHtml(relative_path)}</code> ` +
+    `from <strong>${escapeHtml(peerLabel(peer))}</strong>&hellip;</span>`;
+}
+
+export function setSyncCompleted({ dir, relative_path, peer }) {
+  const strip = getActivityStrip(dir);
+  if (!strip) return;
+  strip.hidden = false;
+  const slot = strip.querySelector(".dir-activity-current");
+  if (slot && slot.dataset.key === activeKey(relative_path, peer)) {
+    slot.remove();
+  }
+  pushHistory(
+    strip,
+    `<span class="sync-done">synced <code>${escapeHtml(relative_path)}</code></span>`,
+  );
+}
+
+export function setSyncFailed({ dir, relative_path, peer, reason }) {
+  const strip = getActivityStrip(dir);
+  if (!strip) return;
+  strip.hidden = false;
+  const slot = strip.querySelector(".dir-activity-current");
+  if (slot && slot.dataset.key === activeKey(relative_path, peer)) {
+    slot.remove();
+  }
+  pushHistory(
+    strip,
+    `<span class="sync-failed">failed <code>${escapeHtml(relative_path)}</code>` +
+      ` &mdash; ${escapeHtml(reason)}</span>`,
+  );
 }

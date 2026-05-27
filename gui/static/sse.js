@@ -2,7 +2,10 @@ import {
   addPeerToList,
   setPeerAsDisconnected,
   addDirToList,
-  removeDirFromList
+  removeDirFromList,
+  setSyncStarted,
+  setSyncCompleted,
+  setSyncFailed
 } from './components.js';
 
 const el_peer_list = document.getElementById("peer-list");
@@ -39,6 +42,18 @@ es.onmessage = (event) => {
 
     case "SyncDirectoryRemoved":
       removeDirFromList(payload);
+      break;
+
+    case "EntrySyncStarted":
+      setSyncStarted(payload);
+      break;
+
+    case "EntrySyncCompleted":
+      setSyncCompleted(payload);
+      break;
+
+    case "EntrySyncFailed":
+      setSyncFailed(payload);
       break;
   }
 };

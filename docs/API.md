@@ -195,6 +195,64 @@ A sync directory was removed from the local configuration.
 
 The inner value is the directory name relative to `home_path`.
 
+### `EntrySyncStarted`
+
+This device has begun receiving an entry from a peer.  Emitted on every file the receiver enqueues a `Request` for (both during the handshake catch-up and when later metadata announces a newer version).
+
+```json
+{
+  "EntrySyncStarted": {
+    "dir": "Photos",
+    "relative_path": "Photos/2024/trip.jpg",
+    "peer": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dir` | `RelativePath` | Top-level sync directory the entry belongs to |
+| `relative_path` | `RelativePath` | Full path of the entry inside `home_path` |
+| `peer` | UUID string | Peer (`local_id`) the entry is being received from |
+
+### `EntrySyncCompleted`
+
+The entry finished transferring and the receiver wrote the file and persisted its metadata.
+
+```json
+{
+  "EntrySyncCompleted": {
+    "dir": "Photos",
+    "relative_path": "Photos/2024/trip.jpg",
+    "peer": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+Field semantics match `EntrySyncStarted`.
+
+### `EntrySyncFailed`
+
+A transfer was aborted mid-flight (hash mismatch, oversized payload, I/O error, or staging-finalise failure).  The peer is not evicted — the receive loop continues.
+
+```json
+{
+  "EntrySyncFailed": {
+    "dir": "Photos",
+    "relative_path": "Photos/2024/trip.jpg",
+    "peer": "550e8400-e29b-41d4-a716-446655440000",
+    "reason": "Hash mismatch: data corruption detected"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dir` | `RelativePath` | Top-level sync directory the entry belongs to |
+| `relative_path` | `RelativePath` | Full path of the entry inside `home_path` |
+| `peer` | UUID string | Peer (`local_id`) the failed transfer originated from |
+| `reason` | string | Human-readable failure reason |
+
 ### `ServerRestart`
 
 The server is about to perform an in-process restart (e.g. after a `home_path` change).  Clients should reconnect to `/api/events` after receiving this event.
