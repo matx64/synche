@@ -232,6 +232,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// directory-create boundary so a peer cannot poison foreign axes
     /// or write `u64::MAX` counters into the DB on initial sync.
     ///
+    /// Contract: **first-sight callers only.** The persisted vector is
+    /// rebuilt as `{peer_id: pv, local_id: 0}`, which unconditionally
+    /// resets the local axis. Safe for `handle_transfer` /
+    /// `create_received_dir` (the row is new, or its existing local
+    /// counter has already been incorporated into the version
+    /// comparison that decided to accept the peer's copy). Do **not**
+    /// call this on a path where a non-zero local axis still needs to
+    /// be preserved — go through `merge_versions_and_insert` instead.
+    ///
     /// Returns `Ok(None)` if the entry was dropped (warn-and-drop),
     /// `Ok(Some(entry))` after a successful persist.
     pub async fn insert_peer_entry(
