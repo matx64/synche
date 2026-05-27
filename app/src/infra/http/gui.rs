@@ -53,6 +53,7 @@ async fn index<P: PersistenceInterface>(
             peers => state.peer_manager.list().await,
             local_ip => state.state.local_ip().await,
             home_path => state.state.home_path().display().to_string(),
+            version => env!("CARGO_PKG_VERSION"),
         })
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -150,6 +151,10 @@ mod tests {
         assert!(
             html.contains(&state.local_ip().await.to_string()),
             "Should contain local_ip"
+        );
+        assert!(
+            html.contains(env!("CARGO_PKG_VERSION")),
+            "Should contain crate version in footer"
         );
     }
 }
