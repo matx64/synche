@@ -142,7 +142,10 @@ A new peer was discovered on the network, or an existing peer reconnected.
   "PeerConnected": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "addr": "192.168.1.42",
-    "hostname": "laptop"
+    "hostname": "laptop",
+    "instance_id": "7b3f9c1a-2d4e-4f5a-b6c7-d8e9f0a1b2c3",
+    "last_seen": 1748390400,
+    "sync_dirs": ["Documents", "Photos"]
   }
 }
 ```
@@ -152,6 +155,9 @@ A new peer was discovered on the network, or an existing peer reconnected.
 | `id` | UUID string | Persistent device identifier (`local_id`) |
 | `addr` | IP address string | IPv4 address of the peer |
 | `hostname` | string | Peer hostname (`.local` suffix stripped) |
+| `instance_id` | UUID string | Regenerated on every process start; a change signals a peer restart |
+| `last_seen` | integer | UNIX timestamp (seconds) of the peer's most recent presence announcement |
+| `sync_dirs` | array of strings | Names of the sync directories this peer is sharing (relative to its home path) |
 
 ### `PeerDisconnected`
 

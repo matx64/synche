@@ -31,6 +31,13 @@ impl PeerManager {
                 id: peer.id,
                 addr: peer.addr,
                 hostname: peer.hostname.clone(),
+                instance_id: peer.instance_id,
+                last_seen: peer
+                    .last_seen
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                sync_dirs: peer.sync_dirs.keys().cloned().collect(),
             })
             .await;
         }
@@ -277,5 +284,32 @@ mod tests {
 
         let recipients = pm.get_peers_to_send_metadata(&entry).await;
         assert_eq!(recipients, vec![sharing]);
+    }
+
+    #[tokio::test]
+    async fn peer_connected_event_includes_instance_last_seen_and_dirs() {
+        let (_env, pm, mut rx) = setup().await;
+        let id = Uuid::new_v4();
+        let instance = Uuid::new_v4();
+        let addr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 10));
+
+        pm.insert(peer(id, instance, addr, vec!["Docs"])).await;
+
+        let event = rx.try_recv().unwrap();
+        if let ServerEvent::PeerConnected {
+            id: ev_id,
+            instance_id,
+            last_seen,
+            sync_dirs,
+            ..
+        } = event
+        {
+            assert_eq!(ev_id, id);
+            assert_eq!(instance_id, instance);
+            assert!(last_seen > 0);
+            assert_eq!(sync_dirs, vec![RelativePath::from("Docs")]);
+        } else {
+            panic!("expected PeerConnected");
+        }
     }
 }

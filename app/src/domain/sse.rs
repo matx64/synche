@@ -13,6 +13,12 @@ pub enum ServerEvent {
         id: Uuid,
         addr: IpAddr,
         hostname: String,
+        /// Regenerated on every process start; a change signals a peer restart.
+        instance_id: Uuid,
+        /// Seconds since UNIX epoch — when the peer last announced itself.
+        last_seen: u64,
+        /// Names of the sync directories this peer is sharing.
+        sync_dirs: Vec<RelativePath>,
     },
     /// A peer was evicted (timed out, or explicitly disconnected).
     PeerDisconnected(Uuid),
