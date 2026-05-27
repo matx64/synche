@@ -245,21 +245,16 @@ impl<P: PersistenceInterface> EntryManager<P> {
         peer_id: Uuid,
         mut entry: EntryInfo,
     ) -> io::Result<Option<EntryInfo>> {
-        let pv = entry.version.get(&peer_id).copied().unwrap_or(0);
-        if pv > MAX_TRUSTED_COUNTER {
-            warn!(
-                entry = %entry.name,
-                peer = %peer_id,
-                counter = pv,
-                "rejecting poisoned peer version counter on inbound entry"
-            );
+        let Some(sanitized) = Self::sanitize_peer_entry(peer_id, &entry) else {
             return Ok(None);
-        }
+        };
+
         let mut version = self
             .get_entry(&entry.name)
             .await?
             .map(|stored| stored.version)
             .unwrap_or_default();
+        let pv = sanitized.version.get(&peer_id).copied().unwrap_or(0);
         let peer_version = version.entry(peer_id).or_insert(0);
         *peer_version = (*peer_version).max(pv);
         version.entry(self.state.local_id()).or_insert(0);
@@ -320,6 +315,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
             }
 
             if dirs.contains_key(&peer_entry.get_sync_dir()) {
+                let Some(peer_entry) = Self::sanitize_peer_entry(peer.id, &peer_entry) else {
+                    continue;
+                };
+
                 if let Some(mut local_entry) = self.get_entry(&name).await? {
                     let cmp = self
                         .compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer.id)
@@ -441,13 +440,38 @@ impl<P: PersistenceInterface> EntryManager<P> {
             return Ok(VersionCmp::KeepSelf);
         }
 
+        let Some(peer_entry) = Self::sanitize_peer_entry(peer_id, peer_entry) else {
+            return Ok(VersionCmp::KeepSelf);
+        };
+
         match self.get_entry(&peer_entry.name).await? {
             Some(mut local_entry) => {
-                self.compare_and_resolve_conflict(&mut local_entry, peer_entry, peer_id)
+                self.compare_and_resolve_conflict(&mut local_entry, &peer_entry, peer_id)
                     .await
             }
             None => Ok(VersionCmp::KeepOther),
         }
+    }
+
+    fn sanitize_peer_entry(peer_id: Uuid, entry: &EntryInfo) -> Option<EntryInfo> {
+        let pv = entry.version.get(&peer_id).copied().unwrap_or(0);
+        if pv > MAX_TRUSTED_COUNTER {
+            warn!(
+                entry = %entry.name,
+                peer = %peer_id,
+                counter = pv,
+                "rejecting poisoned peer version counter"
+            );
+            return None;
+        }
+
+        let mut sanitized = entry.clone();
+        sanitized.version = entry
+            .version
+            .get(&peer_id)
+            .map(|pv| HashMap::from([(peer_id, *pv)]))
+            .unwrap_or_default();
+        Some(sanitized)
     }
 
     /// Merges the peer's version counter for **its own axis** into
@@ -682,6 +706,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_entries_to_request_ignores_foreign_axes_before_compare() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let peer = Peer::new(
+            peer_id,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            "peer".to_string(),
+            Uuid::new_v4(),
+            vec![SyncDirectory {
+                name: sync_root.clone(),
+            }],
+        );
+        let name = dir_relative(&sync_root, "notes.txt");
+
+        manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("local-hash".into()),
+                version: HashMap::from([(local_id, 2), (peer_id, 1)]),
+            })
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            version: HashMap::from([(local_id, 99), (peer_id, 1)]),
+        };
+
+        let entries = manager
+            .get_entries_to_request(&peer, HashMap::from([(name, peer_entry)]))
+            .await
+            .unwrap();
+
+        assert!(
+            entries.is_empty(),
+            "foreign local-axis claim must not make peer entry win"
+        );
+    }
+
+    #[tokio::test]
     async fn handle_metadata_ignores_git_peer_entries() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
@@ -901,6 +970,37 @@ mod tests {
         assert!(matches!(cmp, VersionCmp::KeepSelf));
     }
 
+    #[tokio::test]
+    async fn handle_metadata_ignores_foreign_axes_before_compare() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "doc.txt");
+
+        manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("local-hash".into()),
+                version: HashMap::from([(local_id, 2), (peer_id, 1)]),
+            })
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            // This would force KeepOther if compared before sanitizing.
+            version: HashMap::from([(local_id, 99), (peer_id, 1)]),
+        };
+
+        let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
+
+        assert!(matches!(cmp, VersionCmp::KeepSelf));
+    }
+
     /// After a non-conflict handle_metadata, only the peer's own axis
     /// (`peer_entry.version[peer_id]`) is merged into the local vector.
     /// Foreign axes the peer claims to know about are ignored, because
@@ -975,9 +1075,9 @@ mod tests {
             version: HashMap::from([(peer_id, u64::MAX)]),
         };
 
-        // Equal kind + hash + dominated local axis means handle_metadata
-        // would normally try to merge — the poisoned counter must abort
-        // that merge cleanly rather than persist `u64::MAX`.
+        // Equal kind + hash would normally converge metadata, but the
+        // poisoned sender-owned counter must be dropped before compare
+        // or persistence can write `u64::MAX`.
         manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
 
         let stored = manager.get_entry(&name).await.unwrap().unwrap();

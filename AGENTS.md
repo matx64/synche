@@ -86,6 +86,8 @@ Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`a
 
 Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` for accepted Transfer / directory-create entries). When replacing an existing row with a peer entry, preserve the trusted existing version vector and merge only the sender's own inbound axis; never reset the local axis to zero after accepting a transfer. `TcpReceiver` must reject or drain-and-drop poisoned `Transfer` frames before disk writes, since the file bytes are materialized before metadata is persisted. Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
 
+Comparison decisions must use the same sanitized peer view before calling `EntryInfo::compare`. Do not let foreign axes influence `handle_metadata`, handshake request selection, conflict resolution, delete decisions, or transfer requests; sanitize to the sender's own axis first, then persist through the hardened paths above.
+
 ### Peer identity is currently untrusted
 
 `source_id` on the TCP frame is read off the wire and **not** verified — there is no TLS or signature today. The follow-up tracked under issue #32 will replace this with mutual TLS or Noise IK. Until that lands, any code that decides "is this peer allowed to do X" cannot trust `source_id` for cross-peer authorization — only use it for routing.
