@@ -228,18 +228,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// Drops all foreign axes (only `entry.version[peer_id]` is trusted)
     /// and rejects counters above `MAX_TRUSTED_COUNTER` as poisoned. The
     /// same rule that `merge_versions_and_insert` applies on the
-    /// `Equal | KeepSelf` branch, applied at the first-sight Transfer /
+    /// `Equal | KeepSelf` branch, applied at the Transfer /
     /// directory-create boundary so a peer cannot poison foreign axes
-    /// or write `u64::MAX` counters into the DB on initial sync.
+    /// or write `u64::MAX` counters into the DB.
     ///
-    /// Contract: **first-sight callers only.** The persisted vector is
-    /// rebuilt as `{peer_id: pv, local_id: 0}`, which unconditionally
-    /// resets the local axis. Safe for `handle_transfer` /
-    /// `create_received_dir` (the row is new, or its existing local
-    /// counter has already been incorporated into the version
-    /// comparison that decided to accept the peer's copy). Do **not**
-    /// call this on a path where a non-zero local axis still needs to
-    /// be preserved — go through `merge_versions_and_insert` instead.
+    /// If a row already exists, its trusted local vector is preserved
+    /// and only the sender's own axis is merged from the inbound entry.
+    /// This keeps the accepted peer copy from erasing local history,
+    /// which would make later local edits look stale against an older
+    /// peer advertisement.
     ///
     /// Returns `Ok(None)` if the entry was dropped (warn-and-drop),
     /// `Ok(Some(entry))` after a successful persist.
@@ -258,8 +255,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
             );
             return Ok(None);
         }
-        entry.version = HashMap::from([(peer_id, pv)]);
-        entry.version.entry(self.state.local_id()).or_insert(0);
+        let mut version = self
+            .get_entry(&entry.name)
+            .await?
+            .map(|stored| stored.version)
+            .unwrap_or_default();
+        let peer_version = version.entry(peer_id).or_insert(0);
+        *peer_version = (*peer_version).max(pv);
+        version.entry(self.state.local_id()).or_insert(0);
+        entry.version = version;
         trace!(entry = %entry.name, peer = %peer_id, "inserting peer entry");
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(Some(entry))
@@ -981,6 +985,65 @@ mod tests {
         assert!(
             observed < crate::domain::MAX_TRUSTED_COUNTER,
             "poisoned counter must not be persisted; got {observed}"
+        );
+    }
+
+    #[tokio::test]
+    async fn insert_peer_entry_preserves_existing_local_axis() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let third_id = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "shared.txt");
+
+        manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("local-old".into()),
+                version: HashMap::from([(local_id, 5), (peer_id, 2)]),
+            })
+            .await
+            .unwrap();
+
+        let accepted_peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer-copy".into()),
+            version: HashMap::from([(peer_id, 3), (third_id, 99)]),
+        };
+
+        let stored = manager
+            .insert_peer_entry(peer_id, accepted_peer_entry)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(stored.version.get(&local_id), Some(&5));
+        assert_eq!(stored.version.get(&peer_id), Some(&3));
+        assert!(
+            !stored.version.contains_key(&third_id),
+            "foreign axis must not be persisted from peer entry"
+        );
+
+        let locally_modified = manager
+            .entry_modified(stored, Some("local-new".into()))
+            .await
+            .unwrap();
+        let stale_peer_entry = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: Some("peer-copy".into()),
+            version: HashMap::from([(peer_id, 3)]),
+        };
+
+        assert!(
+            matches!(
+                locally_modified.compare(&stale_peer_entry),
+                VersionCmp::KeepSelf
+            ),
+            "local edit after accepting a transfer must not look stale"
         );
     }
 

@@ -84,7 +84,7 @@ Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`a
 
 ### Sanitizing peer-supplied version vectors
 
-Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` on first-sight Transfer / directory-create). `TcpReceiver` must reject or drain-and-drop poisoned `Transfer` frames before disk writes, since the file bytes are materialized before metadata is persisted. Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
+Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` for accepted Transfer / directory-create entries). When replacing an existing row with a peer entry, preserve the trusted existing version vector and merge only the sender's own inbound axis; never reset the local axis to zero after accepting a transfer. `TcpReceiver` must reject or drain-and-drop poisoned `Transfer` frames before disk writes, since the file bytes are materialized before metadata is persisted. Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
 
 ### Peer identity is currently untrusted
 
