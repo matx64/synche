@@ -82,6 +82,10 @@ Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`a
 
 `app/src/infra/network/tcp/chunk.rs` defines three hard caps that are enforced **before** allocating: `MAX_TRANSFER_SIZE` (raw file bytes), `MAX_HANDSHAKE_JSON_SIZE` (handshake JSON), `MAX_ENTRY_JSON_SIZE` (single `EntryInfo` JSON). Anything that decodes a peer-supplied `u32` length must check it against the right cap before `vec![0u8; len]`. Don't add a new variable-length frame without picking (or adding) a cap.
 
+### Sanitizing peer-supplied version vectors
+
+Any path that persists a peer-supplied `EntryInfo` must strip foreign axes and reject counters above `MAX_TRUSTED_COUNTER` first. The hardened paths are `EntryManager::merge_versions_and_insert` (on the `Equal | KeepSelf` branch of `compare_and_resolve_conflict`) and `EntryManager::insert_peer_entry` (used by `TransportReceiver::handle_transfer` and `create_received_dir` on first-sight Transfer / directory-create). Plain `insert_entry` is for trusted local writes only — never call it directly on a peer-supplied entry.
+
 ### Peer identity is currently untrusted
 
 `source_id` on the TCP frame is read off the wire and **not** verified — there is no TLS or signature today. The follow-up tracked under issue #32 will replace this with mutual TLS or Noise IK. Until that lands, any code that decides "is this peer allowed to do X" cannot trust `source_id` for cross-peer authorization — only use it for routing.

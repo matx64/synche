@@ -159,7 +159,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     .await
                     .map_err(io::Error::other)?;
             } else {
-                self.create_received_dir(entry).await?;
+                self.create_received_dir(event.metadata.source_id, entry)
+                    .await?;
             }
         }
         Ok(())
@@ -194,7 +195,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                         .await
                         .map_err(io::Error::other)
                 } else {
-                    self.create_received_dir(peer_entry).await
+                    self.create_received_dir(event.metadata.source_id, peer_entry)
+                        .await
                 }
             }
 
@@ -246,7 +248,13 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             return Ok(());
         }
 
-        let entry = self.entry_manager.insert_entry(received_entry).await?;
+        let Some(entry) = self
+            .entry_manager
+            .insert_peer_entry(event.metadata.source_id, received_entry)
+            .await?
+        else {
+            return Ok(());
+        };
 
         self.broadcast_sync_completed(event.metadata.source_id, &entry);
 
@@ -283,8 +291,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             });
     }
 
-    async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
-        let dir = self.entry_manager.insert_entry(dir).await?;
+    async fn create_received_dir(&self, peer_id: Uuid, dir: EntryInfo) -> io::Result<()> {
+        let Some(dir) = self.entry_manager.insert_peer_entry(peer_id, dir).await? else {
+            return Ok(());
+        };
 
         let path = dir.name.to_canonical(self.state.home_path());
         fs::create_dir_all(path).await?;
@@ -498,6 +508,68 @@ mod tests {
             .await
             .unwrap();
 
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_strips_foreign_axes_from_peer_version_vector() {
+        let (_env, receiver, entry_manager, _send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let third = Uuid::new_v4();
+        let entry = EntryInfo {
+            name: "sync/payload.bin".into(),
+            kind: EntryKind::File,
+            hash: Some("hash".into()),
+            // Peer reports its own axis AND a claim about `third`'s
+            // counter — only the peer's own axis must be persisted.
+            version: HashMap::from([(peer, 3), (third, 99)]),
+        };
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        let stored = entry_manager.get_entry(&entry.name).await.unwrap().unwrap();
+        assert_eq!(stored.version.get(&peer), Some(&3));
+        assert!(
+            !stored.version.contains_key(&third),
+            "foreign axis must not be persisted from Transfer"
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_drops_entry_with_poisoned_peer_counter() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let entry = EntryInfo {
+            name: "sync/payload.bin".into(),
+            kind: EntryKind::File,
+            hash: Some("hash".into()),
+            version: HashMap::from([(peer, u64::MAX)]),
+        };
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none(),
+            "poisoned peer entry must not be persisted"
+        );
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 

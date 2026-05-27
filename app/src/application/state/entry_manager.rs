@@ -223,6 +223,39 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(entry)
     }
 
+    /// Persist a peer-supplied entry after sanitizing its version vector.
+    ///
+    /// Drops all foreign axes (only `entry.version[peer_id]` is trusted)
+    /// and rejects counters above `MAX_TRUSTED_COUNTER` as poisoned. The
+    /// same rule that `merge_versions_and_insert` applies on the
+    /// `Equal | KeepSelf` branch, applied at the first-sight Transfer /
+    /// directory-create boundary so a peer cannot poison foreign axes
+    /// or write `u64::MAX` counters into the DB on initial sync.
+    ///
+    /// Returns `Ok(None)` if the entry was dropped (warn-and-drop),
+    /// `Ok(Some(entry))` after a successful persist.
+    pub async fn insert_peer_entry(
+        &self,
+        peer_id: Uuid,
+        mut entry: EntryInfo,
+    ) -> io::Result<Option<EntryInfo>> {
+        let pv = entry.version.get(&peer_id).copied().unwrap_or(0);
+        if pv > MAX_TRUSTED_COUNTER {
+            warn!(
+                entry = %entry.name,
+                peer = %peer_id,
+                counter = pv,
+                "rejecting poisoned peer version counter on inbound entry"
+            );
+            return Ok(None);
+        }
+        entry.version = HashMap::from([(peer_id, pv)]);
+        entry.version.entry(self.state.local_id()).or_insert(0);
+        trace!(entry = %entry.name, peer = %peer_id, "inserting peer entry");
+        self.db.insert_or_replace_entry(&entry).await?;
+        Ok(Some(entry))
+    }
+
     pub async fn entry_created(
         &self,
         name: &RelativePath,

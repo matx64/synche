@@ -110,6 +110,8 @@ Deleted entries are not removed from the metadata store.  Instead, their `hash` 
 
 When a peer report arrives, only the peer's **own axis** (`peer_entry.version[peer_id]`) is merged into the local vector.  Foreign axes the peer claims to know about are dropped, because an unauthenticated peer can advertise arbitrary values for other devices' counters and poison their meaning.  Our copy of device B's counter only updates when we receive a message directly from B.  Counters above `MAX_TRUSTED_COUNTER` (`u64::MAX / 2`) are rejected as poisoned; the merge is skipped rather than persisted.
 
+The same rule applies on the first-sight Transfer / directory-create path: `TransportReceiver::handle_transfer` and `create_received_dir` go through `EntryManager::insert_peer_entry`, which strips foreign axes and rejects poisoned counters before persisting.  Plain `insert_entry` is reserved for trusted local writes.
+
 Local counter increments (`entry_modified`, `delete_and_update_entry`, `build_db`) use `checked_add`, so an overflow returns an `io::Error` instead of wrapping silently.
 
 ---
