@@ -6,17 +6,18 @@ use crate::{
 };
 use async_stream::try_stream;
 use axum::{
-    Router,
+    Json, Router,
     extract::{Query, State},
     http::StatusCode,
     response::{Sse, sse::Event},
     routing::{get, post},
 };
 use futures_util::stream::Stream;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 #[derive(Clone)]
 struct ApiState<P: PersistenceInterface> {
@@ -37,6 +38,14 @@ struct SetHomePathParams {
     pub path: String,
 }
 
+#[derive(Serialize)]
+struct InfoResponse {
+    pub version: &'static str,
+    pub device_id: Uuid,
+    pub instance_id: Uuid,
+    pub hostname: String,
+}
+
 /// JSON API routes — peer listing, sync-directory management,
 /// `home_path` updates, and the SSE stream of `ServerEvent`s.
 pub fn routes<P: PersistenceInterface>(
@@ -54,11 +63,23 @@ pub fn routes<P: PersistenceInterface>(
         "/api",
         Router::new()
             .route("/events", get(sse_events::<P>))
+            .route("/info", get(info::<P>))
             .route("/add-sync-dir", post(add_sync_dir::<P>))
             .route("/remove-sync-dir", post(remove_sync_dir::<P>))
             .route("/set-home-path", post(set_home_path::<P>))
             .with_state(api_state),
     )
+}
+
+async fn info<P: PersistenceInterface>(
+    State(state): State<Arc<ApiState<P>>>,
+) -> Json<InfoResponse> {
+    Json(InfoResponse {
+        version: env!("CARGO_PKG_VERSION"),
+        device_id: state.state.local_id(),
+        instance_id: state.state.instance_id(),
+        hostname: state.state.hostname().clone(),
+    })
 }
 
 async fn add_sync_dir<P: PersistenceInterface>(
@@ -394,6 +415,23 @@ mod tests {
             StatusCode::BAD_REQUEST,
             "File path should be rejected"
         );
+    }
+
+    #[tokio::test]
+    async fn test_info_returns_version_and_ids() {
+        let (_env, state, pm, em) = create_test_components().await;
+        let api_state = Arc::new(ApiState {
+            state: state.clone(),
+            peer_manager: pm,
+            entry_manager: em,
+        });
+
+        let Json(body) = info(State(api_state)).await;
+
+        assert_eq!(body.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(body.device_id, state.local_id());
+        assert_eq!(body.instance_id, state.instance_id());
+        assert_eq!(&body.hostname, state.hostname());
     }
 
     #[tokio::test]

@@ -229,7 +229,11 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
     #[tracing::instrument(
         name = "synche",
         skip_all,
-        fields(device = %self.state.local_id(), instance = %self.state.instance_id()),
+        fields(
+            device = %self.state.local_id(),
+            instance = %self.state.instance_id(),
+            version = env!("CARGO_PKG_VERSION"),
+        ),
     )]
     async fn _run(&mut self) -> io::Result<()> {
         tokio::select!(

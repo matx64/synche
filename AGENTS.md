@@ -95,6 +95,10 @@ Never construct a production `AppState` from a test (the binary builds it via `S
 
 `gui/index.html` is a single-page UI rendered via `minijinja` and served by axum; static assets in `gui/static/`. The server pushes live updates to the GUI over SSE using `ServerEvent` broadcast through `AppState::sse_sender()`. Variants currently include peer connect/disconnect, sync-directory add/remove, `ServerRestart`, and the per-entry `EntrySyncStarted` / `EntrySyncCompleted` / `EntrySyncFailed` events broadcast from the transport receiver path so the GUI can show live per-directory sync activity.
 
+### App version
+
+The crate version (`env!("CARGO_PKG_VERSION")`, from `app/Cargo.toml`) is the single source of truth and is surfaced at runtime in five places: the startup log line in `main.rs`, the `version` field on the root `synche` tracing span, the GUI footer (via the `version` template variable in `infra/http/gui.rs`), the `X-Synche-Version` response header inserted by the middleware in `infra/http/server.rs`, and the `GET /api/info` endpoint in `infra/http/api.rs`. Never introduce a second source — always read through `env!`.
+
 ### Logging
 
 Subscriber wired in `main.rs` via `utils::logging::init(dirs.log_dir())`. Returns a `LogGuards` that **must outlive `main`** — dropping it discards in-flight log lines from the non-blocking file appender.

@@ -4,6 +4,8 @@ Synche exposes a small HTTP API for managing sync directories and streaming real
 
 All requests use query parameters — there are no JSON request bodies.  Responses carry only an HTTP status code; error details are emitted to the server log.
 
+Every response from the server (GUI, API, SSE, static assets) carries an `X-Synche-Version` header set to the running crate version (e.g. `X-Synche-Version: 0.0.4-alpha`).  This lets scripted health checks read the version without parsing a JSON body.
+
 > **Source:** [`app/src/infra/http/api.rs`](../app/src/infra/http/api.rs) · [`app/src/domain/sse.rs`](../app/src/domain/sse.rs)
 
 ---
@@ -27,6 +29,37 @@ Streams [`ServerEvent`](#server-sent-events) objects to the client as newline-de
 - The broadcast channel has a capacity of **100 events**.  If a client falls behind, it is warned in the log and continues receiving subsequent messages (intermediate events are skipped).
 - When the broadcast channel closes (e.g. after a clean shutdown), the stream ends.
 - A `ServerRestart` event is sent before any in-process restart so the client knows to reconnect.
+
+---
+
+### `GET /api/info` — Runtime identity
+
+Returns a small JSON document describing the running instance.  Useful for monitoring scripts, CLI tooling, and version-aware clients.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **Query params** | none |
+| **Content-Type** | `application/json` |
+| **Status** | `200 OK` |
+
+**Response body:**
+
+```json
+{
+  "version": "0.0.4-alpha",
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "instance_id": "7b3f9c1a-2d4e-4f5a-b6c7-d8e9f0a1b2c3",
+  "hostname": "mymachine"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | Crate version compiled into the binary (`CARGO_PKG_VERSION`) |
+| `device_id` | UUID string | Persistent device identifier (`local_id`) |
+| `instance_id` | UUID string | Regenerated on every process start |
+| `hostname` | string | Local machine hostname (`.local` suffix stripped) |
 
 ---
 
@@ -117,6 +150,7 @@ Renders the Synche single-page UI as an HTML page.  The template receives the cu
 | `peers` | list of peer objects | Currently connected peers |
 | `local_ip` | IP address string | Local network IP address |
 | `home_path` | string | Absolute path of the current home directory |
+| `version` | string | Crate version compiled into the binary (`CARGO_PKG_VERSION`) |
 
 | Status | Meaning |
 |--------|---------|
@@ -292,6 +326,7 @@ name = "Documents"
 | Route | Method | Query params | Status codes |
 |-------|--------|--------------|-------------|
 | `/api/events` | GET | — | 200 (SSE stream) |
+| `/api/info` | GET | — | 200 |
 | `/api/add-sync-dir` | POST | `name` | 201, 409, 500 |
 | `/api/remove-sync-dir` | POST | `name` | 200, 500 |
 | `/api/set-home-path` | POST | `path` | 200, 400, 500 |
