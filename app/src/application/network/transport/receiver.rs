@@ -4,8 +4,8 @@ use crate::{
         persistence::interface::PersistenceInterface,
     },
     domain::{
-        EntryInfo, MutexChannel, Peer, TransportChannelData, TransportData, TransportEvent,
-        VersionCmp,
+        EntryInfo, MutexChannel, Peer, ServerEvent, TransportChannelData, TransportData,
+        TransportEvent, VersionCmp,
     },
     utils::fs::is_git_path,
 };
@@ -13,6 +13,7 @@ use futures::TryFutureExt;
 use std::{net::IpAddr, sync::Arc};
 use tokio::{fs, io, sync::mpsc::Sender};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 /// Inbound side of the transport service.
 ///
@@ -152,6 +153,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         for entry in entries_to_request {
             if entry.is_file() {
+                self.broadcast_sync_started(event.metadata.source_id, &entry);
                 self.send_tx
                     .send(TransportChannelData::Request((peer.addr, entry)))
                     .await
@@ -183,6 +185,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 if peer_entry.is_removed() {
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
+                    self.broadcast_sync_started(event.metadata.source_id, &peer_entry);
                     self.send_tx
                         .send(TransportChannelData::Request((
                             event.metadata.source_ip,
@@ -241,10 +244,31 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         let entry = self.entry_manager.insert_entry(received_entry).await?;
 
+        self.broadcast_sync_completed(event.metadata.source_id, &entry);
+
         self.send_tx
             .send(TransportChannelData::Metadata(entry))
             .await
             .map_err(io::Error::other)
+    }
+
+    fn broadcast_sync_started(&self, peer: Uuid, entry: &EntryInfo) {
+        let _ = self.state.sse_sender().send(ServerEvent::EntrySyncStarted {
+            dir: entry.get_sync_dir(),
+            relative_path: entry.name.clone(),
+            peer,
+        });
+    }
+
+    fn broadcast_sync_completed(&self, peer: Uuid, entry: &EntryInfo) {
+        let _ = self
+            .state
+            .sse_sender()
+            .send(ServerEvent::EntrySyncCompleted {
+                dir: entry.get_sync_dir(),
+                relative_path: entry.name.clone(),
+                peer,
+            });
     }
 
     async fn create_received_dir(&self, dir: EntryInfo) -> io::Result<()> {
@@ -384,5 +408,81 @@ mod tests {
                 .is_none()
         );
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    fn file_entry(name: &str) -> EntryInfo {
+        EntryInfo {
+            name: name.into(),
+            kind: EntryKind::File,
+            hash: Some("hash".to_string()),
+            version: HashMap::from([(Uuid::new_v4(), 1)]),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_emits_sync_completed_after_insert() {
+        let (env, receiver, _entry_manager, _send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let peer = Uuid::new_v4();
+        let entry = file_entry("sync/payload.bin");
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        match sse_rx.try_recv().expect("expected EntrySyncCompleted") {
+            ServerEvent::EntrySyncCompleted {
+                dir,
+                relative_path,
+                peer: emitted_peer,
+            } => {
+                assert_eq!(dir.as_ref() as &str, "sync");
+                assert_eq!(relative_path, entry.name);
+                assert_eq!(emitted_peer, peer);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_metadata_emits_sync_started_when_keep_other_file() {
+        let (env, receiver, _entry_manager, _send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let peer = Uuid::new_v4();
+        // Peer entry has a version on its own device id — nothing locally,
+        // so handle_metadata yields KeepOther and enqueues a Request.
+        let entry = EntryInfo {
+            name: "sync/payload.bin".into(),
+            kind: EntryKind::File,
+            hash: Some("hash".to_string()),
+            version: HashMap::from([(peer, 1)]),
+        };
+
+        let evt = TransportEvent {
+            payload: TransportData::Metadata(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+        };
+        receiver.handle_metadata(evt).await.unwrap();
+
+        match sse_rx.try_recv().expect("expected EntrySyncStarted") {
+            ServerEvent::EntrySyncStarted {
+                dir,
+                relative_path,
+                peer: emitted_peer,
+            } => {
+                assert_eq!(dir.as_ref() as &str, "sync");
+                assert_eq!(relative_path, entry.name);
+                assert_eq!(emitted_peer, peer);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }

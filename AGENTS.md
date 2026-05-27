@@ -93,7 +93,7 @@ Never construct a production `AppState` from a test (the binary builds it via `S
 
 ### Frontend
 
-`gui/index.html` is a single-page UI rendered via `minijinja` and served by axum; static assets in `gui/static/`. The server pushes live updates to the GUI over SSE using `ServerEvent` broadcast through `AppState::sse_sender()`.
+`gui/index.html` is a single-page UI rendered via `minijinja` and served by axum; static assets in `gui/static/`. The server pushes live updates to the GUI over SSE using `ServerEvent` broadcast through `AppState::sse_sender()`. Variants currently include peer connect/disconnect, sync-directory add/remove, `ServerRestart`, and the per-entry `EntrySyncStarted` / `EntrySyncCompleted` / `EntrySyncFailed` events broadcast from the transport receiver path so the GUI can show live per-directory sync activity.
 
 ### Logging
 

@@ -1,7 +1,10 @@
 use crate::{
     application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
-    domain::{EntryInfo, EntryKind, HandshakeData, RelativePath, SyncDirectory, TransportData},
+    domain::{
+        EntryInfo, EntryKind, HandshakeData, RelativePath, ServerEvent, SyncDirectory,
+        TransportData,
+    },
     infra::network::tcp::{
         chunk::{MAX_TRANSFER_SIZE, TRANSFER_CHUNK_SIZE},
         kind::TcpStreamKind,
@@ -44,13 +47,14 @@ impl TcpReceiver {
         &self,
         mut stream: TcpStream,
         kind: TcpStreamKind,
+        source_id: Uuid,
     ) -> TransportResult<TransportData> {
         match kind {
             TcpStreamKind::HandshakeSyn => self.read_handshake(&mut stream, true).await,
             TcpStreamKind::HandshakeAck => self.read_handshake(&mut stream, false).await,
             TcpStreamKind::Metadata => self.read_metadata(&mut stream).await,
             TcpStreamKind::Request => self.read_request(&mut stream).await,
-            TcpStreamKind::Transfer => self.read_transfer(&mut stream).await,
+            TcpStreamKind::Transfer => self.read_transfer(&mut stream, source_id).await,
         }
     }
 
@@ -88,9 +92,30 @@ impl TcpReceiver {
         Ok(TransportData::Request(entry))
     }
 
-    async fn read_transfer(&self, stream: &mut TcpStream) -> TransportResult<TransportData> {
+    async fn read_transfer(
+        &self,
+        stream: &mut TcpStream,
+        source_id: Uuid,
+    ) -> TransportResult<TransportData> {
         let entry = self.read_entry_info(stream).await?;
 
+        // Header parsed — any failure from here on can be attributed to this
+        // specific entry, so emit `EntrySyncFailed` before propagating the
+        // error (the adapter then swallows the error itself).
+        match self.read_transfer_after_header(stream, &entry).await {
+            Ok(()) => Ok(TransportData::Transfer(entry)),
+            Err(err) => {
+                self.broadcast_sync_failed(source_id, &entry, &err);
+                Err(err)
+            }
+        }
+    }
+
+    async fn read_transfer_after_header(
+        &self,
+        stream: &mut TcpStream,
+        entry: &EntryInfo,
+    ) -> TransportResult<()> {
         let mut entry_size_buf = [0u8; 8];
         stream.read_exact(&mut entry_size_buf).await?;
         let entry_size = u64::from_be_bytes(entry_size_buf);
@@ -104,10 +129,10 @@ impl TcpReceiver {
         if is_git_path(&entry.name) {
             // Drain the payload from the wire without writing to disk.
             Self::discard_bytes(stream, entry_size, TRANSFER_CHUNK_SIZE).await?;
-            return Ok(TransportData::Transfer(entry));
+            return Ok(());
         }
 
-        let mut staging = self.create_staging(&entry).await?;
+        let mut staging = self.create_staging(entry).await?;
 
         let computed_hash =
             match Self::stream_to_file(stream, &mut staging.file, entry_size, TRANSFER_CHUNK_SIZE)
@@ -131,9 +156,17 @@ impl TcpReceiver {
             ));
         }
 
-        self.finalise_staging(&entry, staging).await?;
+        self.finalise_staging(entry, staging).await
+    }
 
-        Ok(TransportData::Transfer(entry))
+    fn broadcast_sync_failed(&self, peer: Uuid, entry: &EntryInfo, err: &TransportError) {
+        let TransportError::Failure(reason) = err;
+        let _ = self.state.sse_sender().send(ServerEvent::EntrySyncFailed {
+            dir: entry.name.sync_dir(),
+            relative_path: entry.name.clone(),
+            peer,
+            reason: reason.clone(),
+        });
     }
 
     async fn read_entry_info(&self, stream: &mut TcpStream) -> TransportResult<EntryInfo> {
@@ -447,7 +480,9 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = ok(receiver.read_data(stream, TcpStreamKind::Transfer).await);
+        let data = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
+            .await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));
@@ -463,11 +498,13 @@ mod tests {
     async fn read_transfer_rejects_hash_mismatch_and_cleans_staging() {
         let env = crate::utils::test_support::test_env().await;
         let state = env.state.clone();
+        let mut sse_rx = state.sse_subscribe();
         let root = format!("tcp_chunk_bad_{}", Uuid::new_v4());
         let entry_name = format!("{root}/payload.bin");
         let original_path = state.home_path().join(&entry_name);
         let contents = vec![0xAAu8; 64];
         let entry = file_entry(&entry_name, Some("deadbeef".to_string()));
+        let peer = Uuid::new_v4();
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -480,7 +517,9 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let result = receiver.read_data(stream, TcpStreamKind::Transfer).await;
+        let result = receiver
+            .read_data(stream, TcpStreamKind::Transfer, peer)
+            .await;
         writer.await.unwrap();
 
         match result {
@@ -490,6 +529,20 @@ mod tests {
             Ok(_) => panic!("expected hash-mismatch failure"),
         }
         assert!(!original_path.exists());
+
+        match sse_rx.try_recv().expect("expected EntrySyncFailed") {
+            crate::domain::ServerEvent::EntrySyncFailed {
+                relative_path,
+                peer: emitted_peer,
+                reason,
+                ..
+            } => {
+                assert_eq!(relative_path.as_ref() as &str, entry_name);
+                assert_eq!(emitted_peer, peer);
+                assert!(reason.contains("Hash mismatch"), "reason was: {reason}");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
 
         let root_path = state.home_path().join(&root);
         if root_path.exists() {
@@ -525,7 +578,9 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let result = receiver.read_data(stream, TcpStreamKind::Transfer).await;
+        let result = receiver
+            .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
+            .await;
         writer.await.unwrap();
 
         match result {
@@ -568,7 +623,9 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = ok(receiver.read_data(stream, TcpStreamKind::Transfer).await);
+        let data = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
+            .await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));

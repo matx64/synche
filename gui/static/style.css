@@ -155,6 +155,43 @@ main>section>header {
     }
 }
 
+.dir-activity {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--border-radius);
+    background-color: var(--bg-color);
+    font-size: 0.85rem;
+}
+
+.dir-activity[hidden] {
+    display: none;
+}
+
+.dir-activity-current .sync-active {
+    color: var(--success-color);
+}
+
+.dir-activity-history {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.dir-activity-history .sync-done {
+    color: var(--success-color);
+    opacity: 0.85;
+}
+
+.dir-activity-history .sync-failed {
+    color: var(--disconnected-color);
+}
+
 #add-dir-dialog,
 #remove-dir-dialog,
 #home-path-dialog {
