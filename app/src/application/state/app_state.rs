@@ -129,18 +129,23 @@ impl AppState {
     /// considered unsolicited and dropped before touching `home_path`.
     pub async fn register_pending_request(&self, peer_id: Uuid, name: RelativePath) {
         let mut map = self.pending_requests.lock().await;
-        sweep_stale_requests(&mut map);
-        if map.len() >= MAX_PENDING_REQUESTS
-            && let Some(oldest) = map
-                .iter()
-                .min_by_key(|(_, ts)| **ts)
-                .map(|(k, _)| k.clone())
-        {
-            map.remove(&oldest);
-            warn!(
-                pending = MAX_PENDING_REQUESTS,
-                "pending_requests at soft cap; evicting oldest"
-            );
+        // The hot path during a handshake fan-out is a pure insert.
+        // The TTL sweep and eviction are deferred until the soft cap
+        // is actually pressured.
+        if map.len() >= MAX_PENDING_REQUESTS {
+            sweep_stale_requests(&mut map);
+            if map.len() >= MAX_PENDING_REQUESTS
+                && let Some(oldest) = map
+                    .iter()
+                    .min_by_key(|(_, ts)| **ts)
+                    .map(|(k, _)| k.clone())
+            {
+                map.remove(&oldest);
+                warn!(
+                    pending = MAX_PENDING_REQUESTS,
+                    "pending_requests at soft cap; evicting oldest"
+                );
+            }
         }
         map.insert((peer_id, name), Instant::now());
     }
@@ -608,5 +613,68 @@ mod tests {
 
         assert!(recv1.is_ok(), "First receiver should get event");
         assert!(recv2.is_ok(), "Second receiver should get event");
+    }
+
+    /// `register_pending_request` should pay the O(n) sweep + eviction
+    /// only when the soft cap is actually pressured. Below the cap a
+    /// stale entry survives — `take_pending_request` is responsible
+    /// for rejecting it on consume via the TTL check. Once we push
+    /// the map to the cap, the sweep runs and the stale entry is
+    /// removed.
+    #[tokio::test]
+    async fn register_pending_request_sweeps_only_on_cap() {
+        let env = test_env().await;
+        let state = &env.state;
+        let stale_peer = Uuid::new_v4();
+        let stale_name: RelativePath = "sync/stale.bin".into();
+
+        // Seed a manually-stale entry by reaching past the public API.
+        {
+            let mut map = state.pending_requests.lock().await;
+            map.insert(
+                (stale_peer, stale_name.clone()),
+                Instant::now() - PENDING_REQUEST_TTL - Duration::from_secs(1),
+            );
+        }
+
+        // Below-cap registrations must not sweep, so the stale entry
+        // survives.
+        for i in 0..16 {
+            state
+                .register_pending_request(
+                    Uuid::new_v4(),
+                    RelativePath::from(format!("sync/file-{i}.bin")),
+                )
+                .await;
+        }
+        {
+            let map = state.pending_requests.lock().await;
+            assert!(
+                map.contains_key(&(stale_peer, stale_name.clone())),
+                "stale entry must survive below-cap registrations"
+            );
+        }
+
+        // Push to the soft cap. The next registration trips the sweep
+        // and the stale entry is reaped before any oldest-eviction
+        // would have to choose a victim.
+        {
+            let mut map = state.pending_requests.lock().await;
+            while map.len() < MAX_PENDING_REQUESTS {
+                let peer = Uuid::new_v4();
+                let name: RelativePath = format!("sync/pad-{}.bin", map.len()).into();
+                map.insert((peer, name), Instant::now());
+            }
+        }
+        state
+            .register_pending_request(Uuid::new_v4(), "sync/trigger.bin".into())
+            .await;
+        {
+            let map = state.pending_requests.lock().await;
+            assert!(
+                !map.contains_key(&(stale_peer, stale_name)),
+                "stale entry must be swept once cap is pressured"
+            );
+        }
     }
 }

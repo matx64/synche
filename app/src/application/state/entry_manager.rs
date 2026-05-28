@@ -556,11 +556,13 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// gate. It runs `EntryInfo::compare` (with the peer entry
     /// sanitized to the sender's own axis) and:
     ///
-    /// - on `Equal | KeepOther` or `Conflict → KeepOther`: atomically
-    ///   renames the staging file into the user's tree and persists
-    ///   the sanitized peer metadata via `insert_peer_entry`. For the
-    ///   `Conflict → KeepOther` case, also copies the local file aside
-    ///   as a `_CONFLICT_` artefact first.
+    /// - on `Equal | KeepOther` or `Conflict → KeepOther`: persists the
+    ///   merged metadata (sanitized peer axis grafted onto the existing
+    ///   local vector) **before** renaming the staged file into the
+    ///   user's tree. If the rename fails the DB write is reverted so
+    ///   we never end up with a file on disk and no matching row. For
+    ///   the `Conflict → KeepOther` case, also copies the local file
+    ///   aside as a `_CONFLICT_` artefact first.
     /// - on `KeepSelf` (including `Conflict → KeepSelf`): drops the
     ///   staged bytes, leaves both DB and disk untouched. This is the
     ///   B2-aligned no-merge-on-conflict-keep-self path.
@@ -607,29 +609,86 @@ impl<P: PersistenceInterface> EntryManager<P> {
         match action {
             CommitAction::Drop(reason) => Ok(CommitOutcome::Dropped(reason)),
             CommitAction::Apply => {
-                let target = sanitized.name.to_canonical(self.state.home_path());
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent).await?;
+                // Merge the sanitized peer axis into the local view's
+                // version vector, preserving any pre-existing local
+                // history. Mirrors the bookkeeping in `insert_peer_entry`.
+                let mut version = local_entry
+                    .as_ref()
+                    .map(|e| e.version.clone())
+                    .unwrap_or_default();
+                let pv = sanitized.version.get(&peer_id).copied().unwrap_or(0);
+                let peer_axis = version.entry(peer_id).or_insert(0);
+                *peer_axis = (*peer_axis).max(pv);
+                version.entry(self.state.local_id()).or_insert(0);
+
+                let mut final_entry = sanitized;
+                final_entry.version = version;
+
+                // DB write FIRST. If the user-tree rename then fails,
+                // we revert the DB so we never end up with a file on
+                // disk that has no DB row (which the watcher would
+                // otherwise adopt under the local axis alone).
+                trace!(entry = %final_entry.name, peer = %peer_id, "committing staged transfer");
+                self.db.insert_or_replace_entry(&final_entry).await?;
+
+                let target = final_entry.name.to_canonical(self.state.home_path());
+                if let Some(parent) = target.parent()
+                    && let Err(e) = fs::create_dir_all(parent).await
+                {
+                    self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
+                        .await;
+                    return Err(e);
                 }
 
-                let staging_path = staging
-                    .take_path()
-                    .ok_or_else(|| io::Error::other("staged transfer has no file"))?;
-                match fs::rename(&staging_path, &target).await {
-                    Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                        fs::copy(&staging_path, &target).await?;
-                        fs::remove_file(&staging_path).await?;
+                let staging_path = match staging.take_path() {
+                    Some(p) => p,
+                    None => {
+                        self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
+                            .await;
+                        return Err(io::Error::other("staged transfer has no file"));
                     }
-                    Err(e) => return Err(e),
+                };
+
+                let rename_result = match fs::rename(&staging_path, &target).await {
+                    Ok(_) => Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                        match fs::copy(&staging_path, &target).await {
+                            Ok(_) => fs::remove_file(&staging_path).await,
+                            Err(e) => Err(e),
+                        }
+                    }
+                    Err(e) => Err(e),
+                };
+
+                if let Err(e) = rename_result {
+                    self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
+                        .await;
+                    return Err(e);
                 }
                 // staging's Drop will rmdir the now-empty staging root.
 
-                match self.insert_peer_entry(peer_id, sanitized).await? {
-                    Some(persisted) => Ok(CommitOutcome::Committed(persisted)),
-                    None => Ok(CommitOutcome::Dropped("peer entry rejected post-rename")),
-                }
+                Ok(CommitOutcome::Committed(final_entry))
             }
+        }
+    }
+
+    /// Best-effort revert of a DB write made during a Transfer commit
+    /// when the subsequent rename into `home_path` failed. Restores
+    /// the previous row if one existed, otherwise deletes the row we
+    /// just inserted. A revert failure is logged but does not mask the
+    /// original rename error — the next handshake reconciles via the
+    /// existing `KeepOther` re-request path.
+    async fn revert_commit_db_write(&self, name: &RelativePath, previous: Option<&EntryInfo>) {
+        let result = match previous {
+            Some(prev) => self.db.insert_or_replace_entry(prev).await,
+            None => self.db.delete_entry(name).await,
+        };
+        if let Err(e) = result {
+            warn!(
+                entry = %name,
+                error = %io::Error::from(e),
+                "failed to revert DB row after Transfer commit rename failure"
+            );
         }
     }
 
@@ -1549,5 +1608,111 @@ mod tests {
 
         assert!(!data.entries.contains_key(&git_name));
         assert!(data.entries.contains_key(&normal_name));
+    }
+
+    /// Build a `StagedTransfer` for entry_manager tests. Keeps the
+    /// staging directory under the test's own home so the per-test
+    /// TempDir cleans it up if `Drop` ever misses (it shouldn't).
+    async fn build_staged_transfer(home: &std::path::Path, contents: &[u8]) -> StagedTransfer {
+        let root = home.join(format!(".em-staging-{}", Uuid::new_v4()));
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let path = root.join("payload.bin");
+        tokio::fs::write(&path, contents).await.unwrap();
+        StagedTransfer::new(path, root)
+    }
+
+    /// Issue #33 B1 (post-rename orphan): when the rename into
+    /// `home_path` fails after `commit_staged_transfer` has written
+    /// the DB row, the row must be reverted so we never leave a
+    /// metadata-less file behind (which the watcher would otherwise
+    /// adopt under the local axis). Here there's no prior row, so the
+    /// revert path deletes the row we just inserted.
+    #[tokio::test]
+    async fn commit_reverts_db_when_rename_fails_no_prior_row() {
+        let (env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "blocked.txt");
+
+        // Force rename failure: pre-create a non-empty directory at
+        // the target file path. `fs::rename(file, dir)` fails because
+        // the directory has children.
+        let target = name.to_canonical(env.state.home_path());
+        tokio::fs::create_dir_all(&target).await.unwrap();
+        tokio::fs::write(target.join("nested.bin"), b"blocker")
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer".into()),
+            version: HashMap::from([(peer, 1)]),
+        };
+        let staging = build_staged_transfer(env.home_path(), b"payload").await;
+
+        manager
+            .commit_staged_transfer(peer, peer_entry, staging)
+            .await
+            .expect_err("rename onto non-empty dir must fail");
+
+        assert!(
+            manager.get_entry(&name).await.unwrap().is_none(),
+            "DB row must be deleted after rename failure when no prior row existed"
+        );
+    }
+
+    /// Issue #33 B1 (post-rename orphan): when a row already exists
+    /// and the rename fails after the new row is written, the
+    /// previous row must be restored verbatim so future comparisons
+    /// continue to reflect the on-disk state.
+    #[tokio::test]
+    async fn commit_restores_prior_db_row_when_rename_fails() {
+        let (env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = env.state.local_id();
+        let peer = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "preserved.txt");
+
+        // local_axis = 0 so the sanitized peer vector (which strips
+        // all foreign axes) can cleanly dominate and reach the Apply
+        // branch via KeepOther — otherwise compare returns Conflict
+        // and the deterministic tiebreak may short-circuit the test.
+        let prior = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("local-prior".into()),
+            version: HashMap::from([(local_id, 0), (peer, 2)]),
+        };
+        manager.insert_entry(prior.clone()).await.unwrap();
+
+        // Force rename failure (same trick as above).
+        let target = name.to_canonical(env.state.home_path());
+        tokio::fs::create_dir_all(&target).await.unwrap();
+        tokio::fs::write(target.join("nested.bin"), b"blocker")
+            .await
+            .unwrap();
+
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer-new".into()),
+            version: HashMap::from([(peer, 5)]),
+        };
+        let staging = build_staged_transfer(env.home_path(), b"payload").await;
+
+        manager
+            .commit_staged_transfer(peer, peer_entry, staging)
+            .await
+            .expect_err("rename onto non-empty dir must fail");
+
+        let restored = manager
+            .get_entry(&name)
+            .await
+            .unwrap()
+            .expect("prior row must be restored after rename failure");
+        assert_eq!(restored.hash.as_deref(), Some("local-prior"));
+        assert_eq!(restored.version.get(&local_id), Some(&0));
+        assert_eq!(restored.version.get(&peer), Some(&2));
     }
 }

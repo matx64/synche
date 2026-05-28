@@ -283,6 +283,11 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 entry = %received_entry.name,
                 "dropping unsolicited Transfer"
             );
+            self.broadcast_sync_failed_reason(
+                peer_id,
+                &received_entry.name,
+                "unsolicited transfer",
+            );
             return Ok(());
         }
 
@@ -291,6 +296,11 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 peer = %peer_id,
                 entry = %received_entry.name,
                 "dropping Transfer without staged bytes"
+            );
+            self.broadcast_sync_failed_reason(
+                peer_id,
+                &received_entry.name,
+                "transfer without staged bytes",
             );
             return Ok(());
         };
@@ -658,6 +668,7 @@ mod tests {
     #[tokio::test]
     async fn handle_transfer_drops_unsolicited_transfer() {
         let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
         let peer = Uuid::new_v4();
         let entry = file_entry("sync/payload.bin");
         let staging = make_staged_transfer(&env, b"unsolicited").await;
@@ -690,6 +701,17 @@ mod tests {
             "staging dir must be cleaned up on drop"
         );
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+        // The GUI must see a sync_failed so an earlier `EntrySyncStarted`
+        // does not stay pending forever.
+        match sse_rx.try_recv().expect("expected EntrySyncFailed") {
+            ServerEvent::EntrySyncFailed { reason, .. } => {
+                assert!(
+                    reason.contains("unsolicited"),
+                    "reason was: {reason}"
+                );
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 
     /// Issue #33 B1: when we requested a transfer but locally edited
