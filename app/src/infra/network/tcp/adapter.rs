@@ -143,6 +143,9 @@ mod tests {
         let source_id = Uuid::new_v4();
         let corrupt_entry = file_entry("bad/payload.bin", "deadbeef");
         let metadata_entry = file_entry("ok/payload.bin", "hash");
+        env.state
+            .register_pending_request(source_id, corrupt_entry.name.clone())
+            .await;
 
         let metadata_entry_clone = metadata_entry.clone();
         let writer = tokio::spawn(async move {

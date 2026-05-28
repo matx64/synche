@@ -6,7 +6,7 @@ use crate::{
     utils::dirs::SyncheDirs,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::IpAddr,
     path::PathBuf,
     sync::Arc,
@@ -33,6 +33,14 @@ const PENDING_REQUEST_TTL: Duration = Duration::from_secs(300);
 pub const DEFAULT_HTTP_PORT: u16 = 42880;
 pub const DEFAULT_PRESENCE_PORT: u16 = 42881;
 pub const DEFAULT_TRANSPORT_PORT: u16 = 42882;
+
+type PendingTransferKey = (Uuid, RelativePath);
+
+#[derive(Default)]
+struct PendingTransferRegistry {
+    requests: HashMap<PendingTransferKey, Instant>,
+    claims: HashSet<PendingTransferKey>,
+}
 
 /// Returns the production port assignment. Tests inject their own
 /// `AppPorts { http: 0, ... }` to avoid collisions with a running
@@ -68,11 +76,10 @@ pub struct AppState {
     pub(super) peers: RwLock<HashMap<Uuid, Peer>>,
     pub(super) sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
 
-    /// Outstanding Requests we have sent to peers, indexed by
-    /// `(peer_id, entry_name)`. An inbound Transfer is only allowed to
-    /// commit to `home_path` if a matching entry is present here
-    /// (issue #33 B1). Unsolicited transfers are dropped.
-    pending_requests: Mutex<HashMap<(Uuid, RelativePath), Instant>>,
+    /// Outstanding Requests we have sent to peers, plus one-shot
+    /// claims for Transfers that the TCP adapter has accepted for
+    /// staging but the application has not consumed yet.
+    pending_transfers: Mutex<PendingTransferRegistry>,
 
     /// Per-entry serialization for the in-flight Transfer commit path.
     /// `commit_staged_transfer` acquires the inner mutex across
@@ -118,7 +125,7 @@ impl AppState {
             home_path: config.home_path,
             local_ip: RwLock::new(local_ip),
             sync_dirs,
-            pending_requests: Mutex::new(HashMap::new()),
+            pending_transfers: Mutex::new(PendingTransferRegistry::default()),
             inflight_transfers: Mutex::new(HashMap::new()),
         })
     }
@@ -128,35 +135,71 @@ impl AppState {
     /// Transfer that doesn't match an entry registered here is
     /// considered unsolicited and dropped before touching `home_path`.
     pub async fn register_pending_request(&self, peer_id: Uuid, name: RelativePath) {
-        let mut map = self.pending_requests.lock().await;
+        let mut registry = self.pending_transfers.lock().await;
         // The hot path during a handshake fan-out is a pure insert.
         // The TTL sweep and eviction are deferred until the soft cap
         // is actually pressured.
-        if map.len() >= MAX_PENDING_REQUESTS {
-            sweep_stale_requests(&mut map);
-            if map.len() >= MAX_PENDING_REQUESTS
-                && let Some(oldest) = map
+        if registry.requests.len() >= MAX_PENDING_REQUESTS {
+            sweep_stale_requests(&mut registry.requests);
+            if registry.requests.len() >= MAX_PENDING_REQUESTS
+                && let Some(oldest) = registry
+                    .requests
                     .iter()
                     .min_by_key(|(_, ts)| **ts)
                     .map(|(k, _)| k.clone())
             {
-                map.remove(&oldest);
+                registry.requests.remove(&oldest);
                 warn!(
                     pending = MAX_PENDING_REQUESTS,
                     "pending_requests at soft cap; evicting oldest"
                 );
             }
         }
-        map.insert((peer_id, name), Instant::now());
+        registry.requests.insert((peer_id, name), Instant::now());
+    }
+
+    /// Atomically move a live pending request into a one-shot staging
+    /// claim. The TCP adapter uses this before writing Transfer bytes
+    /// to disk so unsolicited transfers are drained instead of staged.
+    pub async fn claim_pending_request_for_staging(
+        &self,
+        peer_id: Uuid,
+        name: &RelativePath,
+    ) -> bool {
+        let mut registry = self.pending_transfers.lock().await;
+        let key = (peer_id, name.clone());
+
+        if registry.claims.contains(&key) {
+            return false;
+        }
+
+        match registry.requests.remove(&key) {
+            Some(ts) if ts.elapsed() <= PENDING_REQUEST_TTL => {
+                registry.claims.insert(key);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Atomically check-and-remove a pending request. Returns `true` if
-    /// a non-expired entry was present (i.e. the inbound Transfer is
-    /// legitimate); `false` otherwise (drop the staged bytes).
+    /// a non-expired entry was present or the TCP layer already
+    /// preclaimed the request before staging (i.e. the inbound Transfer
+    /// is legitimate); `false` otherwise (drop the staged bytes).
     pub async fn take_pending_request(&self, peer_id: Uuid, name: &RelativePath) -> bool {
-        let mut map = self.pending_requests.lock().await;
+        let mut registry = self.pending_transfers.lock().await;
         let key = (peer_id, name.clone());
-        matches!(map.remove(&key), Some(ts) if ts.elapsed() <= PENDING_REQUEST_TTL)
+        if registry.claims.remove(&key) {
+            return true;
+        }
+        matches!(registry.requests.remove(&key), Some(ts) if ts.elapsed() <= PENDING_REQUEST_TTL)
+    }
+
+    /// Release a TCP pre-stage claim when staging or hash validation
+    /// fails before a `TransportEvent` reaches the application layer.
+    pub async fn release_pending_transfer_claim(&self, peer_id: Uuid, name: &RelativePath) {
+        let mut registry = self.pending_transfers.lock().await;
+        registry.claims.remove(&(peer_id, name.clone()));
     }
 
     /// Acquire (or create) the per-entry mutex guard used to serialize
@@ -351,7 +394,7 @@ impl AppState {
     }
 }
 
-fn sweep_stale_requests(map: &mut HashMap<(Uuid, RelativePath), Instant>) {
+fn sweep_stale_requests(map: &mut HashMap<PendingTransferKey, Instant>) {
     map.retain(|_, ts| ts.elapsed() <= PENDING_REQUEST_TTL);
 }
 
@@ -615,6 +658,75 @@ mod tests {
         assert!(recv2.is_ok(), "Second receiver should get event");
     }
 
+    #[tokio::test]
+    async fn pending_request_claim_is_consumed_once() {
+        let env = test_env().await;
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/payload.bin".into();
+
+        env.state.register_pending_request(peer, name.clone()).await;
+
+        assert!(
+            env.state
+                .claim_pending_request_for_staging(peer, &name)
+                .await,
+            "live pending request should become a staging claim"
+        );
+        assert!(
+            env.state.take_pending_request(peer, &name).await,
+            "application should consume the staging claim"
+        );
+        assert!(
+            !env.state.take_pending_request(peer, &name).await,
+            "staging claim must be one-shot"
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_pending_request_claims_fail() {
+        let env = test_env().await;
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/payload.bin".into();
+
+        env.state.register_pending_request(peer, name.clone()).await;
+        assert!(
+            env.state
+                .claim_pending_request_for_staging(peer, &name)
+                .await
+        );
+        assert!(
+            !env.state
+                .claim_pending_request_for_staging(peer, &name)
+                .await,
+            "a second transfer cannot reuse the same request"
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_pending_request_cannot_be_claimed() {
+        let env = test_env().await;
+        let state = &env.state;
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/stale.bin".into();
+
+        {
+            let mut registry = state.pending_transfers.lock().await;
+            registry.requests.insert(
+                (peer, name.clone()),
+                Instant::now() - PENDING_REQUEST_TTL - Duration::from_secs(1),
+            );
+        }
+
+        assert!(
+            !state.claim_pending_request_for_staging(peer, &name).await,
+            "expired request must not become a staging claim"
+        );
+        assert!(
+            !state.take_pending_request(peer, &name).await,
+            "expired request must not be consumed later"
+        );
+    }
+
     /// `register_pending_request` should pay the O(n) sweep + eviction
     /// only when the soft cap is actually pressured. Below the cap a
     /// stale entry survives — `take_pending_request` is responsible
@@ -630,8 +742,8 @@ mod tests {
 
         // Seed a manually-stale entry by reaching past the public API.
         {
-            let mut map = state.pending_requests.lock().await;
-            map.insert(
+            let mut registry = state.pending_transfers.lock().await;
+            registry.requests.insert(
                 (stale_peer, stale_name.clone()),
                 Instant::now() - PENDING_REQUEST_TTL - Duration::from_secs(1),
             );
@@ -648,9 +760,11 @@ mod tests {
                 .await;
         }
         {
-            let map = state.pending_requests.lock().await;
+            let registry = state.pending_transfers.lock().await;
             assert!(
-                map.contains_key(&(stale_peer, stale_name.clone())),
+                registry
+                    .requests
+                    .contains_key(&(stale_peer, stale_name.clone())),
                 "stale entry must survive below-cap registrations"
             );
         }
@@ -659,20 +773,20 @@ mod tests {
         // and the stale entry is reaped before any oldest-eviction
         // would have to choose a victim.
         {
-            let mut map = state.pending_requests.lock().await;
-            while map.len() < MAX_PENDING_REQUESTS {
+            let mut registry = state.pending_transfers.lock().await;
+            while registry.requests.len() < MAX_PENDING_REQUESTS {
                 let peer = Uuid::new_v4();
-                let name: RelativePath = format!("sync/pad-{}.bin", map.len()).into();
-                map.insert((peer, name), Instant::now());
+                let name: RelativePath = format!("sync/pad-{}.bin", registry.requests.len()).into();
+                registry.requests.insert((peer, name), Instant::now());
             }
         }
         state
             .register_pending_request(Uuid::new_v4(), "sync/trigger.bin".into())
             .await;
         {
-            let map = state.pending_requests.lock().await;
+            let registry = state.pending_transfers.lock().await;
             assert!(
-                !map.contains_key(&(stale_peer, stale_name)),
+                !registry.requests.contains_key(&(stale_peer, stale_name)),
                 "stale entry must be swept once cap is pressured"
             );
         }

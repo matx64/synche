@@ -154,7 +154,15 @@ impl TcpReceiver {
             return Ok(None);
         }
 
-        let mut staging = self.create_staging(entry).await?;
+        let mut staging = match self.create_staging(entry).await {
+            Ok(staging) => staging,
+            Err(e) => {
+                self.state
+                    .release_pending_transfer_claim(source_id, &entry.name)
+                    .await;
+                return Err(e);
+            }
+        };
 
         let computed_hash =
             match Self::stream_to_file(stream, &mut staging.file, entry_size, TRANSFER_CHUNK_SIZE)
@@ -163,6 +171,9 @@ impl TcpReceiver {
                 Ok(h) => h,
                 Err(e) => {
                     let _ = fs::remove_dir_all(&staging.root).await;
+                    self.state
+                        .release_pending_transfer_claim(source_id, &entry.name)
+                        .await;
                     return Err(e);
                 }
             };
@@ -173,12 +184,23 @@ impl TcpReceiver {
             && computed_hash != *hash
         {
             let _ = fs::remove_dir_all(&staging.root).await;
+            self.state
+                .release_pending_transfer_claim(source_id, &entry.name)
+                .await;
             return Err(TransportError::new(
                 "Hash mismatch: data corruption detected",
             ));
         }
 
-        let staged = self.finalise_staging(staging).await?;
+        let staged = match self.finalise_staging(staging).await {
+            Ok(staged) => staged,
+            Err(e) => {
+                self.state
+                    .release_pending_transfer_claim(source_id, &entry.name)
+                    .await;
+                return Err(e);
+            }
+        };
         Ok(Some(staged))
     }
 
@@ -195,6 +217,10 @@ impl TcpReceiver {
             .version
             .get(&source_id)
             .is_some_and(|counter| *counter > MAX_TRUSTED_COUNTER)
+            || !self
+                .state
+                .claim_pending_request_for_staging(source_id, &entry.name)
+                .await
     }
 
     fn broadcast_sync_failed(&self, peer: Uuid, entry: &EntryInfo, err: &TransportError) {
@@ -487,16 +513,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_transfer_stages_bytes_without_writing_to_home() {
-        // Issue #33 B1: the TCP layer must NOT rename staged bytes into
-        // `home_path`. It returns a `StagedTransfer` whose file contains
-        // the verified payload, and the application layer commits later.
+    async fn read_transfer_without_pending_request_drains_without_staging() {
         let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
-        let root = format!("tcp_chunk_ok_{}", Uuid::new_v4());
-        let entry_name = format!("sync/{root}/payload.bin");
+        let peer = Uuid::new_v4();
+        let entry_name = format!("sync/no-pending-{}.bin", Uuid::new_v4());
         let original_path = state.home_path().join(&entry_name);
-        let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
+        let contents = b"valid but unsolicited".to_vec();
         let hash = format!("{:x}", Sha256::digest(&contents));
         let entry = file_entry(&entry_name, Some(hash));
 
@@ -512,7 +535,53 @@ mod tests {
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
         let (data, staging) = ok(receiver
-            .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
+            .read_data(stream, TcpStreamKind::Transfer, peer)
+            .await);
+        writer.await.unwrap();
+
+        assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(
+            staging.is_none(),
+            "unsolicited transfer must be drained without staging"
+        );
+        assert!(!original_path.exists());
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "no pending request or staging claim should remain"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_transfer_stages_bytes_without_writing_to_home() {
+        // Issue #33 B1: the TCP layer must NOT rename staged bytes into
+        // `home_path`. It returns a `StagedTransfer` whose file contains
+        // the verified payload, and the application layer commits later.
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let peer = Uuid::new_v4();
+        let root = format!("tcp_chunk_ok_{}", Uuid::new_v4());
+        let entry_name = format!("sync/{root}/payload.bin");
+        let original_path = state.home_path().join(&entry_name);
+        let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
+        let hash = format!("{:x}", Sha256::digest(&contents));
+        let entry = file_entry(&entry_name, Some(hash));
+        state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entry_clone = entry.clone();
+        let contents_clone = contents.clone();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let (data, staging) = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, peer)
             .await);
         writer.await.unwrap();
 
@@ -526,6 +595,14 @@ mod tests {
         let staged_path = staging.path().expect("staging path present");
         let on_disk = fs::read(staged_path).await.unwrap();
         assert_eq!(on_disk, contents);
+        assert!(
+            state.take_pending_request(peer, &entry.name).await,
+            "TCP pre-stage claim should be left for app-layer consume"
+        );
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "TCP pre-stage claim must be one-shot"
+        );
     }
 
     #[tokio::test]
@@ -539,6 +616,9 @@ mod tests {
         let contents = vec![0xAAu8; 64];
         let entry = file_entry(&entry_name, Some("deadbeef".to_string()));
         let peer = Uuid::new_v4();
+        state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -563,6 +643,10 @@ mod tests {
             Ok(_) => panic!("expected hash-mismatch failure"),
         }
         assert!(!original_path.exists());
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "failed staging must release the pre-stage claim"
+        );
 
         match sse_rx.try_recv().expect("expected EntrySyncFailed") {
             crate::domain::ServerEvent::EntrySyncFailed {

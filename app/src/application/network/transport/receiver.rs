@@ -313,14 +313,23 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         // persist commit.
         let entry_name = received_entry.name.clone();
         let lock = self.state.acquire_inflight_lock(&entry_name).await;
-        let outcome = {
+        let commit_result = {
             let _guard = lock.lock().await;
             self.entry_manager
                 .commit_staged_transfer(peer_id, received_entry, staging)
-                .await?
+                .await
         };
         drop(lock);
         self.state.release_inflight_lock(&entry_name).await;
+        let outcome = match commit_result {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                let reason = format!("commit failed: {err}");
+                error!(peer = %peer_id, entry = %entry_name, error = %err, "failed to commit staged Transfer");
+                self.broadcast_sync_failed_reason(peer_id, &entry_name, &reason);
+                return Ok(());
+            }
+        };
 
         match outcome {
             CommitOutcome::Committed(entry) => {
@@ -956,6 +965,65 @@ mod tests {
         match sse_rx.try_recv().expect("expected EntrySyncFailed") {
             ServerEvent::EntrySyncFailed { reason, .. } => {
                 assert!(reason.contains("local newer"), "reason was: {reason}");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_commit_error_emits_failed_without_stopping_receiver() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let peer = Uuid::new_v4();
+        let entry = file_entry("sync/blocker/payload.bin");
+        let sync_dir = env.home_path().join("sync");
+        let blocker = sync_dir.join("blocker");
+        tokio::fs::create_dir_all(&sync_dir).await.unwrap();
+        tokio::fs::write(&blocker, b"not a directory")
+            .await
+            .unwrap();
+
+        env.state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+        let staging = make_staged_transfer(&env, b"payload").await;
+        let staging_root = staging.path().unwrap().parent().unwrap().to_path_buf();
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+
+        receiver.handle_transfer(evt).await.unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none(),
+            "failed commit must not persist metadata"
+        );
+        assert!(
+            !staging_root.exists(),
+            "staged bytes must be cleaned up after commit failure"
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+
+        match sse_rx.try_recv().expect("expected EntrySyncFailed") {
+            ServerEvent::EntrySyncFailed {
+                relative_path,
+                peer: emitted_peer,
+                reason,
+                ..
+            } => {
+                assert_eq!(relative_path, entry.name);
+                assert_eq!(emitted_peer, peer);
+                assert!(reason.contains("commit failed"), "reason was: {reason}");
             }
             other => panic!("unexpected event: {other:?}"),
         }
