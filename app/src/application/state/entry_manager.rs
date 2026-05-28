@@ -254,8 +254,8 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// and rejects counters above `MAX_TRUSTED_COUNTER` as poisoned. The
     /// same rule that `merge_versions_and_insert` applies on the
     /// `Equal | KeepSelf` branch, applied at the Transfer /
-    /// directory-create boundary so a peer cannot poison foreign axes
-    /// or write `u64::MAX` counters into the DB.
+    /// directory-create / accepted-tombstone boundary so a peer cannot
+    /// poison foreign axes or write `u64::MAX` counters into the DB.
     ///
     /// If a row already exists, its trusted local vector is preserved
     /// and only the sender's own axis is merged from the inbound entry.
@@ -287,6 +287,30 @@ impl<P: PersistenceInterface> EntryManager<P> {
         trace!(entry = %entry.name, peer = %peer_id, "inserting peer entry");
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(Some(entry))
+    }
+
+    /// Persist an accepted peer-supplied tombstone without turning it
+    /// into a local delete.
+    ///
+    /// This is used after `handle_metadata` / handshake reconciliation
+    /// has already decided the peer's removed entry wins. It goes
+    /// through the same sanitizer and version-merge path as other
+    /// accepted peer entries, so an unknown tombstone still becomes
+    /// durable locally and an existing row preserves trusted axes while
+    /// merging only the sender's own counter.
+    pub async fn insert_peer_tombstone(
+        &self,
+        peer_id: Uuid,
+        entry: EntryInfo,
+    ) -> io::Result<Option<EntryInfo>> {
+        if !entry.is_removed() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "peer tombstone entry is not marked removed",
+            ));
+        }
+
+        self.insert_peer_entry(peer_id, entry).await
     }
 
     pub async fn entry_created(
@@ -557,16 +581,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// gate. It runs `EntryInfo::compare` (with the peer entry
     /// sanitized to the sender's own axis) and:
     ///
-    /// - on `Equal | KeepOther` or `Conflict → KeepOther`: persists the
-    ///   merged metadata (sanitized peer axis grafted onto the existing
-    ///   local vector) **before** renaming the staged file into the
-    ///   user's tree. If the rename fails the DB write is reverted so
-    ///   we never end up with a file on disk and no matching row. For
-    ///   the `Conflict → KeepOther` case, also copies the local file
-    ///   aside as a `_CONFLICT_` artefact first. If the staging file
-    ///   lives on a different filesystem, the fallback copies to a
-    ///   temporary sibling in the target directory before the final
-    ///   rename so the user file is not modified by a partial copy.
+    /// - on `Equal | KeepOther` or `Conflict → KeepOther`: renames the
+    ///   staged file into the user's tree, then persists the merged
+    ///   metadata (sanitized peer axis grafted onto the existing local
+    ///   vector). This avoids the DB-new/disk-old crash window. For the
+    ///   `Conflict → KeepOther` case, also copies the local file aside
+    ///   as a `_CONFLICT_` artefact first. If the staging file lives on
+    ///   a different filesystem, the fallback copies to a temporary
+    ///   sibling in the target directory before the final rename so the
+    ///   user file is not modified by a partial copy.
     /// - on `KeepSelf` (including `Conflict → KeepSelf`): drops the
     ///   staged bytes, leaves both DB and disk untouched. This is the
     ///   B2-aligned no-merge-on-conflict-keep-self path.
@@ -628,40 +651,24 @@ impl<P: PersistenceInterface> EntryManager<P> {
                 let mut final_entry = sanitized;
                 final_entry.version = version;
 
-                // DB write FIRST. If the user-tree rename then fails,
-                // we revert the DB so we never end up with a file on
-                // disk that has no DB row (which the watcher would
-                // otherwise adopt under the local axis alone).
                 trace!(entry = %final_entry.name, peer = %peer_id, "committing staged transfer");
-                self.db.insert_or_replace_entry(&final_entry).await?;
 
                 let target = final_entry.name.to_canonical(self.state.home_path());
                 if let Some(parent) = target.parent()
                     && let Err(e) = fs::create_dir_all(parent).await
                 {
-                    self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
-                        .await;
                     return Err(e);
                 }
 
                 let staging_path = match staging.take_path() {
                     Some(p) => p,
-                    None => {
-                        self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
-                            .await;
-                        return Err(io::Error::other("staged transfer has no file"));
-                    }
+                    None => return Err(io::Error::other("staged transfer has no file")),
                 };
 
-                let rename_result = Self::move_staging_to_target(&staging_path, &target).await;
-
-                if let Err(e) = rename_result {
-                    self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
-                        .await;
-                    return Err(e);
-                }
+                Self::move_staging_to_target(&staging_path, &target).await?;
                 // staging's Drop will rmdir the now-empty staging root.
 
+                self.db.insert_or_replace_entry(&final_entry).await?;
                 Ok(CommitOutcome::Committed(final_entry))
             }
         }
@@ -695,26 +702,6 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
 
         result
-    }
-
-    /// Best-effort revert of a DB write made during a Transfer commit
-    /// when the subsequent rename into `home_path` failed. Restores
-    /// the previous row if one existed, otherwise deletes the row we
-    /// just inserted. A revert failure is logged but does not mask the
-    /// original rename error — the next handshake reconciles via the
-    /// existing `KeepOther` re-request path.
-    async fn revert_commit_db_write(&self, name: &RelativePath, previous: Option<&EntryInfo>) {
-        let result = match previous {
-            Some(prev) => self.db.insert_or_replace_entry(prev).await,
-            None => self.db.delete_entry(name).await,
-        };
-        if let Err(e) = result {
-            warn!(
-                entry = %name,
-                error = %io::Error::from(e),
-                "failed to revert DB row after Transfer commit rename failure"
-            );
-        }
     }
 
     pub async fn remove_entry(&self, name: &str) -> io::Result<Option<EntryInfo>> {
@@ -812,11 +799,59 @@ fn bump_local_counter(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::persistence::interface::{PersistenceError, PersistenceResult};
     use crate::infra::persistence::sqlite::SqliteDb;
     use std::fs;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tempfile::TempDir;
     use uuid::Uuid;
+
+    struct FailingInsertDb {
+        entries: tokio::sync::Mutex<HashMap<String, EntryInfo>>,
+        fail_inserts: AtomicBool,
+    }
+
+    impl FailingInsertDb {
+        fn new() -> Self {
+            Self {
+                entries: tokio::sync::Mutex::new(HashMap::new()),
+                fail_inserts: AtomicBool::new(false),
+            }
+        }
+
+        fn fail_inserts(&self) {
+            self.fail_inserts.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PersistenceInterface for FailingInsertDb {
+        async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
+            if self.fail_inserts.load(Ordering::SeqCst) {
+                return Err(PersistenceError::Failure("injected insert failure".into()));
+            }
+
+            self.entries
+                .lock()
+                .await
+                .insert(entry.name.to_string(), entry.clone());
+            Ok(())
+        }
+
+        async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+            Ok(self.entries.lock().await.get(name).cloned())
+        }
+
+        async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
+            Ok(self.entries.lock().await.values().cloned().collect())
+        }
+
+        async fn delete_entry(&self, name: &str) -> PersistenceResult<()> {
+            self.entries.lock().await.remove(name);
+            Ok(())
+        }
+    }
 
     async fn setup() -> (
         crate::utils::test_support::TestEnv,
@@ -1613,6 +1648,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn insert_peer_tombstone_persists_unknown_and_preserves_trusted_axes() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let third_id = Uuid::new_v4();
+
+        let unknown_name = dir_relative(&sync_root, "unknown-delete.txt");
+        let mut unknown = EntryInfo {
+            name: unknown_name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer_id, 4), (third_id, 99)]),
+        };
+        unknown.set_removed_hash();
+
+        let stored_unknown = manager
+            .insert_peer_tombstone(peer_id, unknown)
+            .await
+            .unwrap()
+            .expect("unknown peer tombstone must persist");
+        assert!(stored_unknown.is_removed());
+        assert_eq!(stored_unknown.version.get(&peer_id), Some(&4));
+        assert_eq!(stored_unknown.version.get(&local_id), Some(&0));
+        assert!(
+            !stored_unknown.version.contains_key(&third_id),
+            "foreign axis must not be persisted from peer tombstone"
+        );
+
+        let existing_name = dir_relative(&sync_root, "existing-delete.txt");
+        manager
+            .insert_entry(EntryInfo {
+                name: existing_name.clone(),
+                kind: EntryKind::File,
+                hash: Some("local-live".into()),
+                version: HashMap::from([(local_id, 5), (peer_id, 2)]),
+            })
+            .await
+            .unwrap();
+
+        let mut existing_tombstone = EntryInfo {
+            name: existing_name,
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer_id, 7), (third_id, 123)]),
+        };
+        existing_tombstone.set_removed_hash();
+
+        let stored_existing = manager
+            .insert_peer_tombstone(peer_id, existing_tombstone)
+            .await
+            .unwrap()
+            .expect("existing peer tombstone must persist");
+        assert!(stored_existing.is_removed());
+        assert_eq!(stored_existing.version.get(&local_id), Some(&5));
+        assert_eq!(stored_existing.version.get(&peer_id), Some(&7));
+        assert!(
+            !stored_existing.version.contains_key(&third_id),
+            "foreign axis must not be persisted from peer tombstone"
+        );
+    }
+
+    #[tokio::test]
     async fn get_handshake_data_excludes_stale_git_entries() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
@@ -1691,14 +1789,11 @@ mod tests {
         assert!(!leaked_temp, "failed temp copy must be cleaned up");
     }
 
-    /// Issue #33 B1 (post-rename orphan): when the rename into
-    /// `home_path` fails after `commit_staged_transfer` has written
-    /// the DB row, the row must be reverted so we never leave a
-    /// metadata-less file behind (which the watcher would otherwise
-    /// adopt under the local axis). Here there's no prior row, so the
-    /// revert path deletes the row we just inserted.
+    /// Issue #33 B1: metadata is persisted only after the staged file
+    /// has moved into `home_path`. If the move fails, the DB is still
+    /// untouched. Here there was no prior row, so no row should appear.
     #[tokio::test]
-    async fn commit_reverts_db_when_rename_fails_no_prior_row() {
+    async fn commit_leaves_db_unchanged_when_rename_fails_no_prior_row() {
         let (env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
         let peer = Uuid::new_v4();
@@ -1728,16 +1823,15 @@ mod tests {
 
         assert!(
             manager.get_entry(&name).await.unwrap().is_none(),
-            "DB row must be deleted after rename failure when no prior row existed"
+            "DB row must remain absent after rename failure when no prior row existed"
         );
     }
 
-    /// Issue #33 B1 (post-rename orphan): when a row already exists
-    /// and the rename fails after the new row is written, the
-    /// previous row must be restored verbatim so future comparisons
-    /// continue to reflect the on-disk state.
+    /// Issue #33 B1: when a row already exists and the file move fails,
+    /// the previous row remains untouched because the new metadata has
+    /// not been written yet.
     #[tokio::test]
-    async fn commit_restores_prior_db_row_when_rename_fails() {
+    async fn commit_preserves_prior_db_row_when_rename_fails() {
         let (env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
         let local_id = env.state.local_id();
@@ -1784,5 +1878,39 @@ mod tests {
         assert_eq!(restored.hash.as_deref(), Some("local-prior"));
         assert_eq!(restored.version.get(&local_id), Some(&0));
         assert_eq!(restored.version.get(&peer), Some(&2));
+    }
+
+    #[tokio::test]
+    async fn commit_moves_staged_bytes_before_final_metadata_persist() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let db = FailingInsertDb::new();
+        db.fail_inserts();
+        let manager = EntryManager::new(db, env.state.clone());
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/persist-fails-after-move.txt".into();
+        let payload = b"bytes already moved";
+        let staging = build_staged_transfer(env.home_path(), payload).await;
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            version: HashMap::from([(peer, 1)]),
+        };
+
+        manager
+            .commit_staged_transfer(peer, peer_entry, staging)
+            .await
+            .expect_err("injected DB insert failure must surface");
+
+        let target = env.home_path().join(&*name);
+        assert_eq!(
+            tokio::fs::read(&target).await.unwrap(),
+            payload,
+            "staged bytes must move before final metadata persistence"
+        );
+        assert!(
+            manager.get_entry(&name).await.unwrap().is_none(),
+            "failed final metadata persistence must not leave a DB row"
+        );
     }
 }

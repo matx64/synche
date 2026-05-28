@@ -153,7 +153,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         for entry in entries_to_request {
             if entry.is_removed() {
-                self.remove_entry(&entry.name).await?;
+                self.apply_peer_tombstone(event.metadata.source_id, entry)
+                    .await?;
             } else if entry.is_file() {
                 // Issue #33 B1: register the outstanding request BEFORE
                 // enqueuing it on the wire so the matching Transfer is
@@ -192,7 +193,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         {
             VersionCmp::KeepOther => {
                 if peer_entry.is_removed() {
-                    self.remove_entry(&peer_entry.name).await
+                    self.apply_peer_tombstone(event.metadata.source_id, peer_entry)
+                        .await
                 } else if peer_entry.is_file() {
                     // Issue #33 B1: register the outstanding request so
                     // the matching Transfer is recognized as solicited
@@ -386,9 +388,24 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .map_err(io::Error::other)
     }
 
-    async fn remove_entry(&self, entry_name: &str) -> io::Result<()> {
-        let _ = self.entry_manager.remove_entry(entry_name).await?;
+    async fn apply_peer_tombstone(&self, peer_id: Uuid, entry: EntryInfo) -> io::Result<()> {
+        let Some(entry) = self
+            .entry_manager
+            .insert_peer_tombstone(peer_id, entry)
+            .await?
+        else {
+            return Ok(());
+        };
 
+        self.remove_path_from_disk(&entry.name).await?;
+
+        self.send_tx
+            .send(TransportChannelData::Metadata(entry))
+            .await
+            .map_err(io::Error::other)
+    }
+
+    async fn remove_path_from_disk(&self, entry_name: &RelativePath) -> io::Result<()> {
         let path = self.state.home_path().join(entry_name);
 
         if path.is_dir() {
@@ -603,6 +620,105 @@ mod tests {
             .unwrap()
             .expect("delete must leave a durable tombstone");
         assert!(stored.is_removed());
+        assert_eq!(stored.version.get(&peer), Some(&2));
+        assert_eq!(stored.version.get(&local_id), Some(&0));
+
+        match send_rx.try_recv().expect("expected tombstone metadata") {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, name);
+                assert!(entry.is_removed());
+            }
+            _ => panic!("unexpected outbound message"),
+        }
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_metadata_persists_unknown_peer_tombstone_without_requesting_transfer() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/missing-before-delete.txt".into();
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer, 7)]),
+        };
+        tombstone.set_removed_hash();
+
+        let evt = TransportEvent {
+            payload: TransportData::Metadata(tombstone),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        receiver.handle_metadata(evt).await.unwrap();
+
+        let stored = entry_manager
+            .get_entry(&name)
+            .await
+            .unwrap()
+            .expect("unknown peer tombstone must become durable locally");
+        assert!(stored.is_removed());
+        assert_eq!(stored.version.get(&peer), Some(&7));
+
+        match send_rx.try_recv().expect("expected tombstone metadata") {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, name);
+                assert!(entry.is_removed());
+            }
+            _ => panic!("unexpected outbound message"),
+        }
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_handshake_persists_unknown_peer_tombstone_without_requesting_transfer() {
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/missing-from-handshake.txt".into();
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer, 5)]),
+        };
+        tombstone.set_removed_hash();
+
+        let evt = TransportEvent {
+            payload: TransportData::HandshakeAck(HandshakeData {
+                hostname: "remote".to_string(),
+                instance_id: Uuid::new_v4(),
+                sync_dirs: Vec::new(),
+                entries: HashMap::from([(name.clone(), tombstone)]),
+            }),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        receiver.handle_handshake(evt).await.unwrap();
+
+        let stored = entry_manager
+            .get_entry(&name)
+            .await
+            .unwrap()
+            .expect("unknown handshake tombstone must become durable locally");
+        assert!(stored.is_removed());
+        assert_eq!(stored.version.get(&peer), Some(&5));
+
+        match send_rx.try_recv().expect("expected tombstone metadata") {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, name);
+                assert!(entry.is_removed());
+            }
+            _ => panic!("unexpected outbound message"),
+        }
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
