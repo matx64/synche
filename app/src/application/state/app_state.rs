@@ -5,12 +5,30 @@ use crate::{
     },
     utils::dirs::SyncheDirs,
 };
-use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::{
     fs, io,
-    sync::{RwLock, broadcast},
+    sync::{Mutex, RwLock, broadcast},
 };
+use tracing::warn;
 use uuid::Uuid;
+
+/// Soft cap on the pending-request registry to bound memory in the
+/// face of a misbehaving peer or watcher storm. Honest workloads stay
+/// well under this.
+const MAX_PENDING_REQUESTS: usize = 4096;
+
+/// How long an outstanding request remains valid. Beyond this, the
+/// peer is treated as having dropped the request and a fresh
+/// inbound Transfer for the same (peer, name) is considered
+/// unsolicited.
+const PENDING_REQUEST_TTL: Duration = Duration::from_secs(300);
 
 pub const DEFAULT_HTTP_PORT: u16 = 42880;
 pub const DEFAULT_PRESENCE_PORT: u16 = 42881;
@@ -49,6 +67,18 @@ pub struct AppState {
     sse_broadcast: BroadcastChannel<ServerEvent>,
     pub(super) peers: RwLock<HashMap<Uuid, Peer>>,
     pub(super) sync_dirs: RwLock<HashMap<RelativePath, SyncDirectory>>,
+
+    /// Outstanding Requests we have sent to peers, indexed by
+    /// `(peer_id, entry_name)`. An inbound Transfer is only allowed to
+    /// commit to `home_path` if a matching entry is present here
+    /// (issue #33 B1). Unsolicited transfers are dropped.
+    pending_requests: Mutex<HashMap<(Uuid, RelativePath), Instant>>,
+
+    /// Per-entry serialization for the in-flight Transfer commit path.
+    /// `commit_staged_transfer` acquires the inner mutex across
+    /// compare → rename → persist, so two concurrent Transfers for the
+    /// same entry cannot interleave (issue #33 B1).
+    inflight_transfers: Mutex<HashMap<RelativePath, Arc<Mutex<()>>>>,
 }
 
 impl AppState {
@@ -88,7 +118,67 @@ impl AppState {
             home_path: config.home_path,
             local_ip: RwLock::new(local_ip),
             sync_dirs,
+            pending_requests: Mutex::new(HashMap::new()),
+            inflight_transfers: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Register an outstanding Request that we just sent (or are
+    /// about to send) to `peer_id` for `name`. Any subsequent inbound
+    /// Transfer that doesn't match an entry registered here is
+    /// considered unsolicited and dropped before touching `home_path`.
+    pub async fn register_pending_request(&self, peer_id: Uuid, name: RelativePath) {
+        let mut map = self.pending_requests.lock().await;
+        sweep_stale_requests(&mut map);
+        if map.len() >= MAX_PENDING_REQUESTS
+            && let Some(oldest) = map
+                .iter()
+                .min_by_key(|(_, ts)| **ts)
+                .map(|(k, _)| k.clone())
+        {
+            map.remove(&oldest);
+            warn!(
+                pending = MAX_PENDING_REQUESTS,
+                "pending_requests at soft cap; evicting oldest"
+            );
+        }
+        map.insert((peer_id, name), Instant::now());
+    }
+
+    /// Atomically check-and-remove a pending request. Returns `true` if
+    /// a non-expired entry was present (i.e. the inbound Transfer is
+    /// legitimate); `false` otherwise (drop the staged bytes).
+    pub async fn take_pending_request(&self, peer_id: Uuid, name: &RelativePath) -> bool {
+        let mut map = self.pending_requests.lock().await;
+        let key = (peer_id, name.clone());
+        matches!(map.remove(&key), Some(ts) if ts.elapsed() <= PENDING_REQUEST_TTL)
+    }
+
+    /// Acquire (or create) the per-entry mutex guard used to serialize
+    /// the inbound-Transfer commit path. Caller holds the returned
+    /// `Arc<Mutex<()>>` across compare → rename → persist; a second
+    /// Transfer for the same entry waits on the same lock and observes
+    /// the first commit's effect.
+    pub async fn acquire_inflight_lock(&self, name: &RelativePath) -> Arc<Mutex<()>> {
+        let mut map = self.inflight_transfers.lock().await;
+        if let Some(existing) = map.get(name) {
+            return existing.clone();
+        }
+        let lock = Arc::new(Mutex::new(()));
+        map.insert(name.clone(), lock.clone());
+        lock
+    }
+
+    /// Drop the per-entry mutex from the map once no other task is
+    /// holding it. Run after committing or dropping a Transfer to keep
+    /// the map from accumulating one entry per ever-seen path.
+    pub async fn release_inflight_lock(&self, name: &RelativePath) {
+        let mut map = self.inflight_transfers.lock().await;
+        if let Some(lock) = map.get(name)
+            && Arc::strong_count(lock) <= 1
+        {
+            map.remove(name);
+        }
     }
 
     pub fn dirs(&self) -> &SyncheDirs {
@@ -254,6 +344,10 @@ impl AppState {
         let dirs = self.sync_dirs.read().await;
         dirs.keys().any(|d| path.starts_with_dir(d))
     }
+}
+
+fn sweep_stale_requests(map: &mut HashMap<(Uuid, RelativePath), Instant>) {
+    map.retain(|_, ts| ts.elapsed() <= PENDING_REQUEST_TTL);
 }
 
 #[cfg(test)]

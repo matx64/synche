@@ -1,11 +1,11 @@
 use crate::{
     application::{
         AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
-        persistence::interface::PersistenceInterface,
+        persistence::interface::PersistenceInterface, state::entry_manager::CommitOutcome,
     },
     domain::{
-        EntryInfo, MutexChannel, Peer, ServerEvent, TransportChannelData, TransportData,
-        TransportEvent, VersionCmp,
+        EntryInfo, MutexChannel, Peer, RelativePath, ServerEvent, TransportChannelData,
+        TransportData, TransportEvent, VersionCmp,
     },
     utils::fs::is_git_path,
 };
@@ -153,6 +153,12 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         for entry in entries_to_request {
             if entry.is_file() {
+                // Issue #33 B1: register the outstanding request BEFORE
+                // enqueuing it on the wire so the matching Transfer is
+                // recognized as solicited.
+                self.state
+                    .register_pending_request(peer.id, entry.name.clone())
+                    .await;
                 self.broadcast_sync_started(event.metadata.source_id, &entry);
                 self.send_tx
                     .send(TransportChannelData::Request((peer.addr, entry)))
@@ -186,6 +192,12 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 if peer_entry.is_removed() {
                     self.remove_entry(&peer_entry.name).await
                 } else if peer_entry.is_file() {
+                    // Issue #33 B1: register the outstanding request so
+                    // the matching Transfer is recognized as solicited
+                    // before any bytes hit disk.
+                    self.state
+                        .register_pending_request(event.metadata.source_id, peer_entry.name.clone())
+                        .await;
                     self.broadcast_sync_started(event.metadata.source_id, &peer_entry);
                     self.send_tx
                         .send(TransportChannelData::Request((
@@ -237,31 +249,79 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
     #[tracing::instrument(skip_all, fields(peer = %event.metadata.source_id))]
     async fn handle_transfer(&self, event: TransportEvent) -> io::Result<()> {
-        let received_entry = match event.payload {
+        let TransportEvent {
+            payload,
+            metadata,
+            staging,
+        } = event;
+        let received_entry = match payload {
             TransportData::Transfer(entry) => entry,
             _ => unreachable!(),
         };
+        let peer_id = metadata.source_id;
 
+        // Same scope guards the TCP layer already enforced — defense in
+        // depth at the application boundary. Dropping `staging` here
+        // cleans up the tmp dir via its RAII guard.
         if is_git_path(&received_entry.name)
             || !self.is_in_configured_sync_dir(&received_entry).await
         {
             return Ok(());
         }
 
-        let Some(entry) = self
-            .entry_manager
-            .insert_peer_entry(event.metadata.source_id, received_entry)
-            .await?
-        else {
+        // Issue #33 B1: every Transfer must be backed by an outstanding
+        // Request we sent. Unsolicited transfers are dropped without
+        // touching home_path. `staging` is the RAII handle on the
+        // staged bytes — let it drop on every failure path.
+        if !self
+            .state
+            .take_pending_request(peer_id, &received_entry.name)
+            .await
+        {
+            warn!(
+                peer = %peer_id,
+                entry = %received_entry.name,
+                "dropping unsolicited Transfer"
+            );
+            return Ok(());
+        }
+
+        let Some(staging) = staging else {
+            warn!(
+                peer = %peer_id,
+                entry = %received_entry.name,
+                "dropping Transfer without staged bytes"
+            );
             return Ok(());
         };
 
-        self.broadcast_sync_completed(event.metadata.source_id, &entry);
+        // Per-entry serialization across the compare → rename →
+        // persist commit.
+        let entry_name = received_entry.name.clone();
+        let lock = self.state.acquire_inflight_lock(&entry_name).await;
+        let outcome = {
+            let _guard = lock.lock().await;
+            self.entry_manager
+                .commit_staged_transfer(peer_id, received_entry, staging)
+                .await?
+        };
+        drop(lock);
+        self.state.release_inflight_lock(&entry_name).await;
 
-        self.send_tx
-            .send(TransportChannelData::Metadata(entry))
-            .await
-            .map_err(io::Error::other)
+        match outcome {
+            CommitOutcome::Committed(entry) => {
+                self.broadcast_sync_completed(peer_id, &entry);
+                self.send_tx
+                    .send(TransportChannelData::Metadata(entry))
+                    .await
+                    .map_err(io::Error::other)
+            }
+            CommitOutcome::Dropped(reason) => {
+                warn!(peer = %peer_id, entry = %entry_name, reason, "dropping staged Transfer");
+                self.broadcast_sync_failed_reason(peer_id, &entry_name, reason);
+                Ok(())
+            }
+        }
     }
 
     /// Returns true if `entry`'s top-level component is one of the
@@ -289,6 +349,15 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 relative_path: entry.name.clone(),
                 peer,
             });
+    }
+
+    fn broadcast_sync_failed_reason(&self, peer: Uuid, entry_name: &RelativePath, reason: &str) {
+        let _ = self.state.sse_sender().send(ServerEvent::EntrySyncFailed {
+            dir: entry_name.sync_dir(),
+            relative_path: entry_name.clone(),
+            peer,
+            reason: reason.to_string(),
+        });
     }
 
     async fn create_received_dir(&self, peer_id: Uuid, dir: EntryInfo) -> io::Result<()> {
@@ -346,15 +415,34 @@ mod tests {
     use super::*;
     use crate::{
         application::network::transport::test_support::RecordingTransport,
-        domain::{EntryKind, TransportMetadata},
+        domain::{EntryKind, StagedTransfer, TransportMetadata},
         infra::persistence::sqlite::SqliteDb,
     };
     use std::{
         collections::HashMap,
         net::{IpAddr, Ipv4Addr},
+        path::PathBuf,
     };
     use tokio::sync::mpsc::error::TryRecvError;
     use uuid::Uuid;
+
+    /// Build a `StagedTransfer` containing `contents`. The returned
+    /// guard cleans up the staging dir on drop unless the application
+    /// commits the file out. The staging root is rooted under the
+    /// per-test temp dir to keep concurrent tests isolated.
+    async fn make_staged_transfer(
+        env: &crate::utils::test_support::TestEnv,
+        contents: &[u8],
+    ) -> StagedTransfer {
+        let root: PathBuf = env
+            .home_path()
+            .join(format!(".staging-{}", Uuid::new_v4()))
+            .to_path_buf();
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let path = root.join("payload.bin");
+        tokio::fs::write(&path, contents).await.unwrap();
+        StagedTransfer::new(path, root)
+    }
 
     async fn setup() -> (
         crate::utils::test_support::TestEnv,
@@ -398,6 +486,7 @@ mod tests {
                 source_id: Uuid::new_v4(),
                 source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             },
+            staging: None,
         }
     }
 
@@ -445,11 +534,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_transfer_emits_sync_completed_after_insert() {
+    async fn handle_transfer_emits_sync_completed_after_commit() {
         let (env, receiver, _entry_manager, _send_rx) = setup().await;
         let mut sse_rx = env.state.sse_subscribe();
         let peer = Uuid::new_v4();
         let entry = file_entry("sync/payload.bin");
+        let contents = b"committed bytes";
+
+        env.state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+        let staging = make_staged_transfer(&env, contents).await;
 
         let evt = TransportEvent {
             payload: TransportData::Transfer(entry.clone()),
@@ -457,6 +552,7 @@ mod tests {
                 source_id: peer,
                 source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             },
+            staging: Some(staging),
         };
         receiver.handle_transfer(evt).await.unwrap();
 
@@ -472,6 +568,12 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+        // The committed file must be on disk at home_path with the
+        // staged bytes.
+        let on_disk = tokio::fs::read(env.home_path().join(&*entry.name))
+            .await
+            .unwrap();
+        assert_eq!(on_disk, contents);
     }
 
     #[tokio::test]
@@ -513,7 +615,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_transfer_strips_foreign_axes_from_peer_version_vector() {
-        let (_env, receiver, entry_manager, _send_rx) = setup().await;
+        let (env, receiver, entry_manager, _send_rx) = setup().await;
         let peer = Uuid::new_v4();
         let third = Uuid::new_v4();
         let entry = EntryInfo {
@@ -525,12 +627,18 @@ mod tests {
             version: HashMap::from([(peer, 3), (third, 99)]),
         };
 
+        env.state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+        let staging = make_staged_transfer(&env, b"payload").await;
+
         let evt = TransportEvent {
             payload: TransportData::Transfer(entry.clone()),
             metadata: TransportMetadata {
                 source_id: peer,
                 source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             },
+            staging: Some(staging),
         };
         receiver.handle_transfer(evt).await.unwrap();
 
@@ -542,16 +650,18 @@ mod tests {
         );
     }
 
+    /// Issue #33 B1: an unsolicited Transfer (no matching outstanding
+    /// Request) must be dropped at the application layer before any
+    /// DB write — even if the bytes already made it to staging. The
+    /// poisoned-counter rejection path lives at the TCP layer (see
+    /// `tcp::receiver`); here we cover the orthogonal app-layer guard.
     #[tokio::test]
-    async fn handle_transfer_drops_entry_with_poisoned_peer_counter() {
-        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+    async fn handle_transfer_drops_unsolicited_transfer() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
         let peer = Uuid::new_v4();
-        let entry = EntryInfo {
-            name: "sync/payload.bin".into(),
-            kind: EntryKind::File,
-            hash: Some("hash".into()),
-            version: HashMap::from([(peer, u64::MAX)]),
-        };
+        let entry = file_entry("sync/payload.bin");
+        let staging = make_staged_transfer(&env, b"unsolicited").await;
+        let staging_root = staging.path().unwrap().parent().unwrap().to_path_buf();
 
         let evt = TransportEvent {
             payload: TransportData::Transfer(entry.clone()),
@@ -559,6 +669,7 @@ mod tests {
                 source_id: peer,
                 source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             },
+            staging: Some(staging),
         };
         receiver.handle_transfer(evt).await.unwrap();
 
@@ -568,9 +679,143 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none(),
-            "poisoned peer entry must not be persisted"
+            "unsolicited Transfer must not be persisted"
+        );
+        assert!(
+            !env.home_path().join(&*entry.name).exists(),
+            "unsolicited Transfer must not write to home"
+        );
+        assert!(
+            !staging_root.exists(),
+            "staging dir must be cleaned up on drop"
         );
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    /// Issue #33 B1: when we requested a transfer but locally edited
+    /// the entry since (so the local row strictly dominates the peer's
+    /// vector), the commit path must drop the staged bytes rather than
+    /// overwrite the newer local edit. The pre-fix flow would have
+    /// already renamed the staged bytes into `home_path` from the TCP
+    /// layer before this comparison ever ran.
+    #[tokio::test]
+    async fn handle_transfer_drops_when_local_now_newer() {
+        let (env, receiver, entry_manager, _send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let local_id = env.state.local_id();
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/payload.bin".into();
+
+        // We requested the Transfer when peer was at peer-axis=1.
+        // Before the Transfer arrived, we locally edited on top (local
+        // axis bumped to 5). Our row strictly dominates the peer's
+        // sanitized view ({peer: 1}) on every axis → KeepSelf,
+        // commit_staged_transfer must drop the bytes.
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("local-newer".into()),
+                version: HashMap::from([(local_id, 5), (peer, 1)]),
+            })
+            .await
+            .unwrap();
+        let home_file = env.home_path().join(&*name);
+        tokio::fs::create_dir_all(home_file.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&home_file, b"local-newer").await.unwrap();
+
+        let peer_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("stale-peer".into()),
+            version: HashMap::from([(peer, 1)]),
+        };
+        env.state.register_pending_request(peer, name.clone()).await;
+        let staging = make_staged_transfer(&env, b"stale-peer").await;
+        let staging_root = staging.path().unwrap().parent().unwrap().to_path_buf();
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(peer_entry),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        // Home file is unchanged.
+        assert_eq!(
+            tokio::fs::read(&home_file).await.unwrap(),
+            b"local-newer",
+            "local edit must not be overwritten by stale Transfer"
+        );
+        // Staging cleaned up.
+        assert!(!staging_root.exists());
+        // GUI sees the drop as a sync failure.
+        match sse_rx.try_recv().expect("expected EntrySyncFailed") {
+            ServerEvent::EntrySyncFailed { reason, .. } => {
+                assert!(reason.contains("local newer"), "reason was: {reason}");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    /// Issue #33 B1: a successful commit renames the staged bytes
+    /// atomically into `home_path` and persists the sanitized peer
+    /// metadata.
+    #[tokio::test]
+    async fn handle_transfer_commits_staged_bytes_on_keep_other() {
+        let (env, receiver, entry_manager, _send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+        let entry = file_entry("sync/payload.bin");
+        let contents = b"peer-bytes-committed";
+
+        env.state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+        let staging = make_staged_transfer(&env, contents).await;
+        let staging_root = staging.path().unwrap().parent().unwrap().to_path_buf();
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        let on_disk = tokio::fs::read(env.home_path().join(&*entry.name))
+            .await
+            .unwrap();
+        assert_eq!(on_disk, contents);
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_some(),
+            "committed entry must be persisted"
+        );
+        assert!(!staging_root.exists(), "staging dir cleaned up on commit");
+    }
+
+    /// Issue #33 B1: `register_pending_request` followed by
+    /// `take_pending_request` is the legitimate cycle; a second
+    /// `take_pending_request` with the same key must return false so
+    /// a replayed Transfer cannot resurrect a consumed registration.
+    #[tokio::test]
+    async fn pending_request_is_consumed_on_take() {
+        let env = crate::utils::test_support::test_env().await;
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/payload.bin".into();
+        env.state.register_pending_request(peer, name.clone()).await;
+        assert!(env.state.take_pending_request(peer, &name).await);
+        assert!(!env.state.take_pending_request(peer, &name).await);
     }
 
     #[tokio::test]
@@ -615,6 +860,7 @@ mod tests {
                 source_id: peer,
                 source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             },
+            staging: None,
         };
         receiver.handle_metadata(evt).await.unwrap();
 

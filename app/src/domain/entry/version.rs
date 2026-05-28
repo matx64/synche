@@ -22,6 +22,7 @@ pub const MAX_TRUSTED_COUNTER: u64 = u64::MAX / 2;
 /// `Conflict` is not an error condition — it means the two sides have
 /// concurrent edits and the caller must materialize a conflict file
 /// rather than choose a winner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionCmp {
     /// Same kind and same hash — nothing to do.
     Equal,

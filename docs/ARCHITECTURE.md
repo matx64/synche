@@ -102,6 +102,14 @@ Example: `report_CONFLICT_1716864000_a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6.md`
 
 This naming ensures no data is lost and the conflict file is unambiguously associated with the device that created it.
 
+### Conflict-resolved-as-KeepSelf never merges the peer's axis
+
+When `compare_and_resolve_conflict` sees a `Conflict` and `handle_conflict` returns `KeepSelf` (the local-id tiebreak made us the winner), the peer's axis is **not** merged into the local vector.  Merging would absorb a counter under an axis whose content we never integrated, causing our vector to dominate the peer's on the next exchange — and the peer would then silently overwrite its own edit with no conflict file anywhere (issue #33 B2).  Leaving our vector untouched lets the peer re-detect the conflict from its side and preserve its edit via the existing `KeepOther` conflict-file path.
+
+### Durable tombstones
+
+A local delete persists in the DB as a tombstone (the row's `hash` is set to `REMOVED_HASH` and the local counter bumped) via `EntryManager::delete_and_update_entry`.  Tombstones survive restart — `build_db` keeps any row whose `is_removed()` is true even when no file exists on disk — and propagate to peers via the handshake entry list, so a crash between delete and broadcast, or a late-joining peer, no longer lets a live copy resurrect from a peer that still has it (issue #33 B3).  Tombstone retention/garbage collection is tracked as a follow-up.
+
 ### Deletion sentinel
 
 Deleted entries are not removed from the metadata store.  Instead, their `hash` field is set to the 32-character all-zeros string `"00000000000000000000000000000000"` (`REMOVED_HASH`).  This sentinel allows the version vector to keep propagating the deletion to peers that missed it.
@@ -176,6 +184,17 @@ Both use the short frame (no file bytes):
 `Transfer` frames stream file bytes in **1 MiB chunks** (constant `TRANSFER_CHUNK_SIZE = 1024 * 1024`) with a streaming SHA-256 computed over the bytes actually sent.  The maximum supported transfer size is **16 GiB** (`MAX_TRANSFER_SIZE = 16 * 1024 * 1024 * 1024`).
 
 If the source file shrinks during streaming the remaining bytes are zero-padded so the wire size matches the advertised `S`.  The hash will diverge and the receiver rejects the transfer by hash mismatch.
+
+### Inbound Transfer staging lifecycle
+
+The TCP adapter writes verified `Transfer` bytes to a per-transfer staging directory in the OS temp dir (`/tmp/synche-<uuid>/...`) but does **not** rename them into `home_path` (issue #33 B1).  Instead it hands a `StagedTransfer` RAII guard up to the application layer through `TransportEvent::staging`.  `TransportReceiver::handle_transfer` then runs the four pre-commit checks:
+
+1. The `.git/` and configured-sync-dir guards (already enforced pre-stage at the TCP layer; re-checked here as defense in depth).
+2. The Transfer must match an outstanding `Request` we registered via `AppState::register_pending_request`.  Unsolicited transfers are dropped before any DB write.
+3. The local entry's `EntryInfo::compare` against the sanitized peer view must be `Equal`, `KeepOther`, or `Conflict→KeepOther`.  A `KeepSelf` outcome (the local row dominates or wins the conflict tiebreak) drops the staged bytes.
+4. A per-entry mutex from `AppState::acquire_inflight_lock` serializes the compare → rename → persist commit so two concurrent transfers of the same path cannot interleave.
+
+Only after all four checks pass does `EntryManager::commit_staged_transfer` atomically rename staging → home and persist sanitized peer metadata via `insert_peer_entry`.  On any failure path the `StagedTransfer` guard drops and synchronously `remove_dir_all`s the staging directory.  This eliminates the pre-fix race where a stale Transfer could overwrite a newer local edit before the application layer ever saw it.
 
 ### Inbound payload size caps
 

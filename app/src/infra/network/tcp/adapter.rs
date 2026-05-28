@@ -60,7 +60,7 @@ impl TransportInterface for TcpAdapter {
                 stream.read_exact(&mut kind_buf).await?;
                 let kind = TcpStreamKind::try_from(kind_buf[0])?;
 
-                let payload = self.receiver.read_data(stream, kind, source_id).await?;
+                let (payload, staging) = self.receiver.read_data(stream, kind, source_id).await?;
 
                 Ok(TransportEvent {
                     metadata: TransportMetadata {
@@ -68,6 +68,7 @@ impl TransportInterface for TcpAdapter {
                         source_ip,
                     },
                     payload,
+                    staging,
                 })
             }
             .await;
