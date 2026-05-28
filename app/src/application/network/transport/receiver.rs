@@ -186,16 +186,19 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             return Ok(());
         }
 
+        if peer_entry.is_removed() {
+            return self
+                .apply_peer_tombstone(event.metadata.source_id, peer_entry)
+                .await;
+        }
+
         match self
             .entry_manager
             .handle_metadata(event.metadata.source_id, &peer_entry)
             .await?
         {
             VersionCmp::KeepOther => {
-                if peer_entry.is_removed() {
-                    self.apply_peer_tombstone(event.metadata.source_id, peer_entry)
-                        .await
-                } else if peer_entry.is_file() {
+                if peer_entry.is_file() {
                     // Issue #33 B1: register the outstanding request so
                     // the matching Transfer is recognized as solicited
                     // before any bytes hit disk.
@@ -312,15 +315,13 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         // Per-entry serialization across the compare → rename →
         // persist commit.
         let entry_name = received_entry.name.clone();
-        let lock = self.state.acquire_inflight_lock(&entry_name).await;
-        let commit_result = {
-            let _guard = lock.lock().await;
-            self.entry_manager
-                .commit_staged_transfer(peer_id, received_entry, staging)
-                .await
-        };
-        drop(lock);
-        self.state.release_inflight_lock(&entry_name).await;
+        let commit_result = self
+            .with_inflight_lock(&entry_name, || async move {
+                self.entry_manager
+                    .commit_staged_transfer(peer_id, received_entry, staging)
+                    .await
+            })
+            .await;
         let outcome = match commit_result {
             Ok(outcome) => outcome,
             Err(err) => {
@@ -398,20 +399,37 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     async fn apply_peer_tombstone(&self, peer_id: Uuid, entry: EntryInfo) -> io::Result<()> {
-        let Some(entry) = self
-            .entry_manager
-            .insert_peer_tombstone(peer_id, entry)
-            .await?
-        else {
-            return Ok(());
-        };
+        let entry_name = entry.name.clone();
+        let applied = self
+            .with_inflight_lock(&entry_name, || async move {
+                if !matches!(
+                    self.entry_manager.handle_metadata(peer_id, &entry).await?,
+                    VersionCmp::KeepOther
+                ) {
+                    return Ok::<Option<EntryInfo>, io::Error>(None);
+                }
 
-        self.remove_path_from_disk(&entry.name).await?;
+                let Some(entry) = self
+                    .entry_manager
+                    .insert_peer_tombstone(peer_id, entry)
+                    .await?
+                else {
+                    return Ok::<Option<EntryInfo>, io::Error>(None);
+                };
 
-        self.send_tx
-            .send(TransportChannelData::Metadata(entry))
-            .await
-            .map_err(io::Error::other)
+                self.remove_path_from_disk(&entry.name).await?;
+                Ok::<Option<EntryInfo>, io::Error>(Some(entry))
+            })
+            .await?;
+
+        if let Some(entry) = applied {
+            self.send_tx
+                .send(TransportChannelData::Metadata(entry))
+                .await
+                .map_err(io::Error::other)
+        } else {
+            Ok(())
+        }
     }
 
     async fn remove_path_from_disk(&self, entry_name: &RelativePath) -> io::Result<()> {
@@ -423,6 +441,21 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             fs::remove_file(path).await?;
         }
         Ok(())
+    }
+
+    async fn with_inflight_lock<F, Fut, R>(&self, entry_name: &RelativePath, op: F) -> R
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = R>,
+    {
+        let lock = self.state.acquire_inflight_lock(entry_name).await;
+        let result = {
+            let _guard = lock.lock().await;
+            op().await
+        };
+        drop(lock);
+        self.state.release_inflight_lock(entry_name).await;
+        result
     }
 
     async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
@@ -453,6 +486,7 @@ mod tests {
     use super::*;
     use crate::{
         application::network::transport::test_support::RecordingTransport,
+        application::persistence::interface::PersistenceResult,
         domain::{EntryKind, HandshakeData, StagedTransfer, TransportMetadata},
         infra::persistence::sqlite::SqliteDb,
     };
@@ -460,8 +494,9 @@ mod tests {
         collections::HashMap,
         net::{IpAddr, Ipv4Addr},
         path::PathBuf,
+        time::Duration,
     };
-    use tokio::sync::mpsc::error::TryRecvError;
+    use tokio::sync::{mpsc::error::TryRecvError, oneshot};
     use uuid::Uuid;
 
     /// Build a `StagedTransfer` containing `contents`. The returned
@@ -488,12 +523,23 @@ mod tests {
         Arc<EntryManager<SqliteDb>>,
         tokio::sync::mpsc::Receiver<TransportChannelData>,
     ) {
+        let db = SqliteDb::new(":memory:").await.unwrap();
+        setup_with_db(db).await
+    }
+
+    async fn setup_with_db<P: PersistenceInterface>(
+        db: P,
+    ) -> (
+        crate::utils::test_support::TestEnv,
+        TransportReceiver<RecordingTransport, P>,
+        Arc<EntryManager<P>>,
+        tokio::sync::mpsc::Receiver<TransportChannelData>,
+    ) {
         // Use "sync" as the configured directory so the existing
         // `sync/...` entry paths are inside a configured sync dir
         // (scope guard added for issue #32).
         let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
-        let db = SqliteDb::new(":memory:").await.unwrap();
         let entry_manager = EntryManager::new(db, state.clone());
         let peer_manager = PeerManager::new(state.clone());
         let (send_tx, send_rx) = tokio::sync::mpsc::channel(4);
@@ -568,6 +614,88 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct BlockingDb {
+        inner: Arc<BlockingDbInner>,
+    }
+
+    #[derive(Default)]
+    struct BlockingDbInner {
+        entries: tokio::sync::Mutex<HashMap<String, EntryInfo>>,
+        block: tokio::sync::Mutex<Option<BlockingInsert>>,
+    }
+
+    struct BlockingInsert {
+        name: RelativePath,
+        hash: Option<String>,
+        started: Option<oneshot::Sender<()>>,
+        release: Option<oneshot::Receiver<()>>,
+    }
+
+    impl BlockingDb {
+        async fn block_insert(
+            &self,
+            name: RelativePath,
+            hash: Option<&str>,
+        ) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+            let (started_tx, started_rx) = oneshot::channel();
+            let (release_tx, release_rx) = oneshot::channel();
+            let mut block = self.inner.block.lock().await;
+            *block = Some(BlockingInsert {
+                name,
+                hash: hash.map(str::to_string),
+                started: Some(started_tx),
+                release: Some(release_rx),
+            });
+            (started_rx, release_tx)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PersistenceInterface for BlockingDb {
+        async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
+            let release = {
+                let mut block = self.inner.block.lock().await;
+                if let Some(block) = block.as_mut() {
+                    if block.name == entry.name && block.hash == entry.hash {
+                        if let Some(started) = block.started.take() {
+                            let _ = started.send(());
+                        }
+                        block.release.take()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some(release) = release {
+                let _ = release.await;
+            }
+
+            self.inner
+                .entries
+                .lock()
+                .await
+                .insert(entry.name.to_string(), entry.clone());
+            Ok(())
+        }
+
+        async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
+            Ok(self.inner.entries.lock().await.get(name).cloned())
+        }
+
+        async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
+            Ok(self.inner.entries.lock().await.values().cloned().collect())
+        }
+
+        async fn delete_entry(&self, name: &str) -> PersistenceResult<()> {
+            self.inner.entries.lock().await.remove(name);
+            Ok(())
         }
     }
 
@@ -1068,6 +1196,181 @@ mod tests {
             "committed entry must be persisted"
         );
         assert!(!staging_root.exists(), "staging dir cleaned up on commit");
+    }
+
+    /// Issue #33: an inbound tombstone for the same path as an
+    /// in-flight Transfer must wait for the Transfer commit to finish
+    /// and then compare against the freshly persisted live row. Before
+    /// tombstones shared the per-entry lock, the tombstone could remove
+    /// the file while the older Transfer was paused after rename but
+    /// before metadata persistence, then the Transfer would persist a
+    /// stale live row over the newer delete.
+    #[tokio::test]
+    async fn inbound_tombstone_waits_for_inflight_transfer_and_wins_revalidation() {
+        let db = BlockingDb::default();
+        let (env, receiver, entry_manager, mut send_rx) = setup_with_db(db.clone()).await;
+        let receiver = Arc::new(receiver);
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/race.txt".into();
+        let home_file = env.home_path().join(&*name);
+
+        let live_entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("older-live".into()),
+            version: HashMap::from([(peer, 1)]),
+        };
+        let (insert_started, release_insert) =
+            db.block_insert(name.clone(), Some("older-live")).await;
+
+        env.state.register_pending_request(peer, name.clone()).await;
+        let staging = make_staged_transfer(&env, b"older live bytes").await;
+        let transfer_evt = TransportEvent {
+            payload: TransportData::Transfer(live_entry),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+
+        let transfer_receiver = receiver.clone();
+        let transfer_task =
+            tokio::spawn(async move { transfer_receiver.handle_transfer(transfer_evt).await });
+
+        tokio::time::timeout(Duration::from_secs(1), insert_started)
+            .await
+            .expect("transfer did not reach metadata persistence")
+            .expect("transfer insert signal dropped");
+        assert_eq!(
+            tokio::fs::read(&home_file).await.unwrap(),
+            b"older live bytes",
+            "transfer should be paused after the disk rename"
+        );
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer, 2)]),
+        };
+        tombstone.set_removed_hash();
+        let tombstone_evt = TransportEvent {
+            payload: TransportData::Metadata(tombstone),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        let tombstone_receiver = receiver.clone();
+        let mut tombstone_task =
+            tokio::spawn(async move { tombstone_receiver.handle_metadata(tombstone_evt).await });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut tombstone_task)
+                .await
+                .is_err(),
+            "tombstone must wait for the in-flight transfer lock"
+        );
+
+        release_insert
+            .send(())
+            .expect("transfer insert waiter disappeared");
+        transfer_task.await.unwrap().unwrap();
+        tombstone_task.await.unwrap().unwrap();
+
+        let stored = entry_manager
+            .get_entry(&name)
+            .await
+            .unwrap()
+            .expect("newer tombstone must be durable");
+        assert!(stored.is_removed());
+        assert_eq!(stored.version.get(&peer), Some(&2));
+        assert!(
+            !home_file.exists(),
+            "newer tombstone must remove the older transferred bytes"
+        );
+
+        let mut saw_tombstone_metadata = false;
+        while let Ok(msg) = send_rx.try_recv() {
+            if let TransportChannelData::Metadata(entry) = msg {
+                saw_tombstone_metadata |= entry.name == name && entry.is_removed();
+            }
+        }
+        assert!(
+            saw_tombstone_metadata,
+            "accepted tombstone must be re-broadcast"
+        );
+    }
+
+    #[tokio::test]
+    async fn inbound_tombstone_revalidates_after_waiting_and_drops_when_stale() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let receiver = Arc::new(receiver);
+        let local_id = env.state.local_id();
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/stale-delete.txt".into();
+        let home_file = env.home_path().join(&*name);
+
+        let lock = env.state.acquire_inflight_lock(&name).await;
+        let guard = lock.lock().await;
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer, 2)]),
+        };
+        tombstone.set_removed_hash();
+        let tombstone_evt = TransportEvent {
+            payload: TransportData::Metadata(tombstone),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        let tombstone_receiver = receiver.clone();
+        let mut tombstone_task =
+            tokio::spawn(async move { tombstone_receiver.handle_metadata(tombstone_evt).await });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut tombstone_task)
+                .await
+                .is_err(),
+            "tombstone should be blocked by the existing in-flight lock"
+        );
+
+        tokio::fs::create_dir_all(home_file.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&home_file, b"newer local live bytes")
+            .await
+            .unwrap();
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("newer-local-live".into()),
+                version: HashMap::from([(local_id, 1), (peer, 2)]),
+            })
+            .await
+            .unwrap();
+
+        drop(guard);
+        drop(lock);
+        env.state.release_inflight_lock(&name).await;
+        tombstone_task.await.unwrap().unwrap();
+
+        let stored = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert!(!stored.is_removed());
+        assert_eq!(stored.hash.as_deref(), Some("newer-local-live"));
+        assert_eq!(
+            tokio::fs::read(&home_file).await.unwrap(),
+            b"newer local live bytes"
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
     /// Issue #33 B1: `register_pending_request` followed by

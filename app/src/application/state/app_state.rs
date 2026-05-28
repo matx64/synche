@@ -81,10 +81,12 @@ pub struct AppState {
     /// staging but the application has not consumed yet.
     pending_transfers: Mutex<PendingTransferRegistry>,
 
-    /// Per-entry serialization for the in-flight Transfer commit path.
-    /// `commit_staged_transfer` acquires the inner mutex across
-    /// compare → rename → persist, so two concurrent Transfers for the
-    /// same entry cannot interleave (issue #33 B1).
+    /// Per-entry serialization for inbound Transfer commits and peer
+    /// tombstone application. `commit_staged_transfer` acquires the
+    /// inner mutex across compare → rename → persist, and accepted peer
+    /// tombstones use the same mutex before revalidating and removing
+    /// disk state, so same-path inbound updates cannot interleave
+    /// (issue #33 B1).
     inflight_transfers: Mutex<HashMap<RelativePath, Arc<Mutex<()>>>>,
 }
 
@@ -203,10 +205,10 @@ impl AppState {
     }
 
     /// Acquire (or create) the per-entry mutex guard used to serialize
-    /// the inbound-Transfer commit path. Caller holds the returned
-    /// `Arc<Mutex<()>>` across compare → rename → persist; a second
-    /// Transfer for the same entry waits on the same lock and observes
-    /// the first commit's effect.
+    /// inbound Transfer commits and accepted peer tombstones. Caller
+    /// holds the returned `Arc<Mutex<()>>` across compare plus the disk
+    /// and metadata changes; another inbound update for the same entry
+    /// waits on the same lock and observes the first update's effect.
     pub async fn acquire_inflight_lock(&self, name: &RelativePath) -> Arc<Mutex<()>> {
         let mut map = self.inflight_transfers.lock().await;
         if let Some(existing) = map.get(name) {
@@ -218,8 +220,9 @@ impl AppState {
     }
 
     /// Drop the per-entry mutex from the map once no other task is
-    /// holding it. Run after committing or dropping a Transfer to keep
-    /// the map from accumulating one entry per ever-seen path.
+    /// holding it. Run after committing/dropping a Transfer or applying
+    /// a peer tombstone to keep the map from accumulating one entry per
+    /// ever-seen path.
     pub async fn release_inflight_lock(&self, name: &RelativePath) {
         let mut map = self.inflight_transfers.lock().await;
         if let Some(lock) = map.get(name)
