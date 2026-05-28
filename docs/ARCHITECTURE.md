@@ -102,6 +102,14 @@ Example: `report_CONFLICT_1716864000_a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6.md`
 
 This naming ensures no data is lost and the conflict file is unambiguously associated with the device that created it.
 
+### Conflict-resolved-as-KeepSelf never merges the peer's axis
+
+When `compare_and_resolve_conflict` sees a `Conflict` and `handle_conflict` returns `KeepSelf` (the local-id tiebreak made us the winner), the peer's axis is **not** merged into the local vector.  Merging would absorb a counter under an axis whose content we never integrated, causing our vector to dominate the peer's on the next exchange — and the peer would then silently overwrite its own edit with no conflict file anywhere (issue #33 B2).  Leaving our vector untouched lets the peer re-detect the conflict from its side and preserve its edit via the existing `KeepOther` conflict-file path.
+
+### Durable tombstones
+
+A local delete persists in the DB as a tombstone (the row's `hash` is set to `REMOVED_HASH` and the local counter bumped) via `EntryManager::delete_and_update_entry`.  Accepted peer tombstones persist through `EntryManager::insert_peer_tombstone`, including when no local row exists yet, so a remote delete can become durable without fabricating a local delete counter.  Accepted peer tombstones share the same per-entry inflight lock as `commit_staged_transfer`: the receiver re-runs `handle_metadata` while holding that lock, then persists the tombstone and removes the disk path only if the fresh comparison still returns `KeepOther`.  This prevents an older Transfer paused after rename but before metadata persistence from overwriting a newer tombstone after the tombstone has removed the file.  Tombstones survive restart — `build_db` keeps any row whose `is_removed()` is true even when no file exists on disk — and propagate to peers via the handshake entry list, so a crash between delete and broadcast, or a late-joining peer, no longer lets a live copy resurrect from a peer that still has it (issue #33 B3).  Tombstone retention/garbage collection is tracked as a follow-up.
+
 ### Deletion sentinel
 
 Deleted entries are not removed from the metadata store.  Instead, their `hash` field is set to the 32-character all-zeros string `"00000000000000000000000000000000"` (`REMOVED_HASH`).  This sentinel allows the version vector to keep propagating the deletion to peers that missed it.
@@ -110,7 +118,7 @@ Deleted entries are not removed from the metadata store.  Instead, their `hash` 
 
 When a peer report arrives, only the peer's **own axis** (`peer_entry.version[peer_id]`) is merged into the local vector.  Foreign axes the peer claims to know about are dropped, because an unauthenticated peer can advertise arbitrary values for other devices' counters and poison their meaning.  Our copy of device B's counter only updates when we receive a message directly from B.  Counters above `MAX_TRUSTED_COUNTER` (`u64::MAX / 2`) are rejected as poisoned; the merge is skipped rather than persisted.
 
-The same rule applies on the first-sight Transfer / directory-create path: `TransportReceiver::handle_transfer` and `create_received_dir` go through `EntryManager::insert_peer_entry`, which strips foreign axes and rejects poisoned counters before persisting.  `TcpReceiver` also rejects or drain-and-drops poisoned `Transfer` frames before staging bytes, because the TCP adapter materializes file payloads before metadata persistence.  Plain `insert_entry` is reserved for trusted local writes.
+The same rule applies on the first-sight Transfer / directory-create / tombstone path: `TransportReceiver::handle_transfer`, `create_received_dir`, and accepted peer tombstones go through `EntryManager::insert_peer_entry` / `insert_peer_tombstone`, which strip foreign axes and reject poisoned counters before persisting.  `TcpReceiver` also rejects or drain-and-drops poisoned `Transfer` frames before staging bytes, because the TCP adapter materializes file payloads before metadata persistence.  Before creating a staging file, TCP must also preclaim a matching pending request with `AppState::claim_pending_request_for_staging`; if staging or hash validation fails, it releases that claim because no application event will consume it.  Plain `insert_entry` is reserved for trusted local writes.
 
 Local counter increments (`entry_modified`, `delete_and_update_entry`, `build_db`) use `checked_add`, so an overflow returns an `io::Error` instead of wrapping silently.
 
@@ -177,6 +185,17 @@ Both use the short frame (no file bytes):
 
 If the source file shrinks during streaming the remaining bytes are zero-padded so the wire size matches the advertised `S`.  The hash will diverge and the receiver rejects the transfer by hash mismatch.
 
+### Inbound Transfer staging lifecycle
+
+The TCP adapter writes verified `Transfer` bytes to a per-transfer staging directory in the OS temp dir (`/tmp/synche-<uuid>/...`) but does **not** rename them into `home_path` (issue #33 B1).  After path/sync-dir/counter validation, it first consumes the matching pending request into a one-shot staging claim.  If no live request exists, TCP drains the advertised payload and returns a `Transfer` event with no staging bytes for the application to reject.  For solicited transfers, it hands a `StagedTransfer` RAII guard up to the application layer through `TransportEvent::staging`.  `TransportReceiver::handle_transfer` then runs the four pre-commit checks:
+
+1. The `.git/` and configured-sync-dir guards (already enforced pre-stage at the TCP layer; re-checked here as defense in depth).
+2. The Transfer must match an outstanding `Request` we registered via `AppState::register_pending_request`.  For TCP, `AppState::take_pending_request` consumes the pre-stage claim; for in-memory transports, it may consume the live pending request directly.  Unsolicited transfers are dropped before any DB write.
+3. The local entry's `EntryInfo::compare` against the sanitized peer view must be `Equal`, `KeepOther`, or `Conflict→KeepOther`.  A `KeepSelf` outcome (the local row dominates or wins the conflict tiebreak) drops the staged bytes.
+4. A per-entry mutex from `AppState::acquire_inflight_lock` serializes the compare → rename → persist commit so two concurrent transfers of the same path cannot interleave.  Accepted peer tombstones for that path use the same mutex before revalidating and applying the delete.
+
+Only after all four checks pass does `EntryManager::commit_staged_transfer` atomically rename staging → home and then persist sanitized peer metadata.  Metadata is deliberately written after the final target file is replaced, avoiding a DB-new/disk-old crash state; if metadata persistence fails after the move, startup/watch reconciliation can recover from disk-new/DB-old.  On failure paths before the move, the `StagedTransfer` guard drops and synchronously `remove_dir_all`s the staging directory.  Commit errors are converted into `EntrySyncFailed` events and do not terminate the transport receiver.  This eliminates the pre-fix race where a stale Transfer could overwrite a newer local edit before the application layer ever saw it.
+
 ### Inbound payload size caps
 
 Each variable-length JSON frame has a hard upper bound that is enforced **before** allocating the receive buffer, so a peer that advertises a multi-gigabyte length cannot force an oversized allocation:
@@ -225,8 +244,9 @@ HOME_PATH_CHANGED:<old_path>:<new_path>
 The transport receiver broadcasts per-entry SSE events as files move across the network:
 
 - `EntrySyncStarted` is emitted from `TransportReceiver` at both points where this device enqueues a `Request` (handshake catch-up and the `KeepOther` branch of `handle_metadata`).
-- `EntrySyncCompleted` is emitted after `handle_transfer` calls `insert_entry`.
-- `EntrySyncFailed` is emitted from `TcpReceiver::read_transfer` once the entry header has been parsed; the original `TransportError` is still propagated up so the receive loop logs and skips it as a bad peer message.
+- `EntrySyncCompleted` is emitted after `handle_transfer` commits staged bytes and metadata.
+- `EntrySyncFailed` is emitted from `TcpReceiver::read_transfer` once the entry header has been parsed for corrupt solicited transfers; the original `TransportError` is still propagated up so the receive loop logs and skips it as a bad peer message.
+- `EntrySyncFailed` is also emitted from `TransportReceiver::handle_transfer` when a transfer is unsolicited, lacks staged bytes, loses the local compare, or fails during the commit step.
 
 The GUI renders these into a per-directory activity strip with a rolling history of recent completed/failed entries.  See [API.md](API.md#server-sent-events) for the wire schemas.
 
