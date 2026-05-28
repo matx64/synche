@@ -94,7 +94,7 @@ When `compare_and_resolve_conflict` sees `VersionCmp::Conflict` and `handle_conf
 
 ### Durable tombstones
 
-`EntryManager::delete_and_update_entry` must persist the tombstone via `db.insert_or_replace_entry` (bumped local counter + `REMOVED_HASH`), not call `db.delete_entry`. `build_db`'s "file missing on disk" branch must keep rows for which `entry.is_removed()` is true so a tombstone survives restart and continues propagating to peers via the handshake entry list. Without this, a crash between the row-delete and metadata broadcast — or any late-joining peer — would silently re-sync the deleted file back from a peer that still has the live copy (issue #33 B3). Tombstone GC / retention is a deliberate follow-up.
+`EntryManager::delete_and_update_entry` must persist the tombstone via `db.insert_or_replace_entry` (bumped local counter + `REMOVED_HASH`), not call `db.delete_entry`. `build_db`'s "file missing on disk" branch must keep rows for which `entry.is_removed()` is true so a tombstone survives restart and continues propagating to peers via the handshake entry list. Handshake reconciliation must apply `entry.is_removed()` before checking `entry.is_file()`; tombstones are file entries with the removal sentinel, and must never enqueue a file `Request`. Without this, a crash between the row-delete and metadata broadcast — or any late-joining peer — would silently re-sync the deleted file back from a peer that still has the live copy (issue #33 B3). Tombstone GC / retention is a deliberate follow-up.
 
 ### Pre-rename validation of inbound Transfers
 
@@ -105,7 +105,7 @@ When `compare_and_resolve_conflict` sees `VersionCmp::Conflict` and `handle_conf
 3. `local.compare(sanitized_peer)` must yield `Equal`, `KeepOther`, or `Conflict→KeepOther`. A `KeepSelf` outcome drops the staged bytes; the local edit is preserved.
 4. `AppState::acquire_inflight_lock(name)` serializes concurrent commits of the same path. Always pair it with `release_inflight_lock` when done.
 
-On any failure path the `StagedTransfer` is dropped and its `Drop` impl synchronously cleans up the staging directory. Do not bypass `commit_staged_transfer` to write Transfer bytes directly into `home_path`.
+On any failure path the `StagedTransfer` is dropped and its `Drop` impl synchronously cleans up the staging directory. Do not bypass `commit_staged_transfer` to write Transfer bytes directly into `home_path`. If `fs::rename(staging, target)` reports `CrossesDevices`, copy to a temporary sibling inside the target directory and then rename that temp file to the final target; never copy directly over the user file.
 
 ### Peer identity is currently untrusted
 

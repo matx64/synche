@@ -9,6 +9,7 @@ use crate::{
 };
 use std::{
     collections::{HashMap, VecDeque},
+    path::Path,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -562,7 +563,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
     ///   user's tree. If the rename fails the DB write is reverted so
     ///   we never end up with a file on disk and no matching row. For
     ///   the `Conflict → KeepOther` case, also copies the local file
-    ///   aside as a `_CONFLICT_` artefact first.
+    ///   aside as a `_CONFLICT_` artefact first. If the staging file
+    ///   lives on a different filesystem, the fallback copies to a
+    ///   temporary sibling in the target directory before the final
+    ///   rename so the user file is not modified by a partial copy.
     /// - on `KeepSelf` (including `Conflict → KeepSelf`): drops the
     ///   staged bytes, leaves both DB and disk untouched. This is the
     ///   B2-aligned no-merge-on-conflict-keep-self path.
@@ -649,16 +653,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                     }
                 };
 
-                let rename_result = match fs::rename(&staging_path, &target).await {
-                    Ok(_) => Ok(()),
-                    Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                        match fs::copy(&staging_path, &target).await {
-                            Ok(_) => fs::remove_file(&staging_path).await,
-                            Err(e) => Err(e),
-                        }
-                    }
-                    Err(e) => Err(e),
-                };
+                let rename_result = Self::move_staging_to_target(&staging_path, &target).await;
 
                 if let Err(e) = rename_result {
                     self.revert_commit_db_write(&final_entry.name, local_entry.as_ref())
@@ -670,6 +665,36 @@ impl<P: PersistenceInterface> EntryManager<P> {
                 Ok(CommitOutcome::Committed(final_entry))
             }
         }
+    }
+
+    async fn move_staging_to_target(staging_path: &Path, target: &Path) -> io::Result<()> {
+        match fs::rename(staging_path, target).await {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                Self::copy_staging_to_target_via_temp(staging_path, target).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn copy_staging_to_target_via_temp(staging_path: &Path, target: &Path) -> io::Result<()> {
+        let parent = target
+            .parent()
+            .ok_or_else(|| io::Error::other("transfer target has no parent directory"))?;
+        let temp_target = parent.join(format!(".synche-transfer-{}.tmp", Uuid::new_v4()));
+
+        let result = async {
+            fs::copy(staging_path, &temp_target).await?;
+            fs::rename(&temp_target, target).await?;
+            Ok(())
+        }
+        .await;
+
+        if result.is_err() {
+            let _ = fs::remove_file(&temp_target).await;
+        }
+
+        result
     }
 
     /// Best-effort revert of a DB write made during a Transfer commit
@@ -1619,6 +1644,51 @@ mod tests {
         let path = root.join("payload.bin");
         tokio::fs::write(&path, contents).await.unwrap();
         StagedTransfer::new(path, root)
+    }
+
+    #[tokio::test]
+    async fn copy_staging_to_target_via_temp_replaces_target_after_full_copy() {
+        let env = crate::utils::test_support::test_env().await;
+        let parent = env.home_path().join("sync");
+        tokio::fs::create_dir_all(&parent).await.unwrap();
+        let staging = env.home_path().join("staging.bin");
+        let target = parent.join("payload.bin");
+        tokio::fs::write(&staging, b"new bytes").await.unwrap();
+        tokio::fs::write(&target, b"old bytes").await.unwrap();
+
+        EntryManager::<SqliteDb>::copy_staging_to_target_via_temp(&staging, &target)
+            .await
+            .unwrap();
+
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new bytes");
+        assert!(
+            staging.exists(),
+            "cross-device fallback copies from staging; StagedTransfer drop cleans it"
+        );
+    }
+
+    #[tokio::test]
+    async fn copy_staging_to_target_via_temp_preserves_target_on_copy_failure() {
+        let env = crate::utils::test_support::test_env().await;
+        let parent = env.home_path().join("sync");
+        tokio::fs::create_dir_all(&parent).await.unwrap();
+        let staging = env.home_path().join("missing-staging.bin");
+        let target = parent.join("payload.bin");
+        tokio::fs::write(&target, b"old bytes").await.unwrap();
+
+        EntryManager::<SqliteDb>::copy_staging_to_target_via_temp(&staging, &target)
+            .await
+            .expect_err("missing staging source must fail");
+
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old bytes");
+        let leaked_temp = std::fs::read_dir(&parent).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".synche-transfer-")
+        });
+        assert!(!leaked_temp, "failed temp copy must be cleaned up");
     }
 
     /// Issue #33 B1 (post-rename orphan): when the rename into

@@ -152,7 +152,9 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .await?;
 
         for entry in entries_to_request {
-            if entry.is_file() {
+            if entry.is_removed() {
+                self.remove_entry(&entry.name).await?;
+            } else if entry.is_file() {
                 // Issue #33 B1: register the outstanding request BEFORE
                 // enqueuing it on the wire so the matching Transfer is
                 // recognized as solicited.
@@ -425,7 +427,7 @@ mod tests {
     use super::*;
     use crate::{
         application::network::transport::test_support::RecordingTransport,
-        domain::{EntryKind, StagedTransfer, TransportMetadata},
+        domain::{EntryKind, HandshakeData, StagedTransfer, TransportMetadata},
         infra::persistence::sqlite::SqliteDb,
     };
     use std::{
@@ -541,6 +543,67 @@ mod tests {
             hash: Some("hash".to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_handshake_applies_tombstone_without_requesting_transfer() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/deleted.txt".into();
+        let home_file = env.home_path().join(&*name);
+        tokio::fs::create_dir_all(home_file.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&home_file, b"local live copy")
+            .await
+            .unwrap();
+
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("local-live".to_string()),
+                version: HashMap::from([(local_id, 0)]),
+            })
+            .await
+            .unwrap();
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer, 2)]),
+        };
+        tombstone.set_removed_hash();
+
+        let evt = TransportEvent {
+            payload: TransportData::HandshakeAck(HandshakeData {
+                hostname: "remote".to_string(),
+                instance_id: Uuid::new_v4(),
+                sync_dirs: Vec::new(),
+                entries: HashMap::from([(name.clone(), tombstone)]),
+            }),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        receiver.handle_handshake(evt).await.unwrap();
+
+        assert!(
+            !home_file.exists(),
+            "remote tombstone from handshake must remove the local file"
+        );
+        let stored = entry_manager
+            .get_entry(&name)
+            .await
+            .unwrap()
+            .expect("delete must leave a durable tombstone");
+        assert!(stored.is_removed());
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[tokio::test]
@@ -705,10 +768,7 @@ mod tests {
         // does not stay pending forever.
         match sse_rx.try_recv().expect("expected EntrySyncFailed") {
             ServerEvent::EntrySyncFailed { reason, .. } => {
-                assert!(
-                    reason.contains("unsolicited"),
-                    "reason was: {reason}"
-                );
+                assert!(reason.contains("unsolicited"), "reason was: {reason}");
             }
             other => panic!("unexpected event: {other:?}"),
         }
