@@ -276,6 +276,8 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             return Ok(());
         }
 
+        let _path_gate = self.state.acquire_path_mutation_shared().await;
+
         // Issue #33 B1: every Transfer must be backed by an outstanding
         // Request we sent. Unsolicited transfers are dropped without
         // touching home_path. `staging` is the RAII handle on the
@@ -399,6 +401,24 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
     }
 
     async fn apply_peer_tombstone(&self, peer_id: Uuid, entry: EntryInfo) -> io::Result<()> {
+        let is_dir = !entry.is_file();
+        if is_dir {
+            let _path_gate = self.state.acquire_path_mutation_exclusive().await;
+            self.apply_peer_tombstone_after_path_gate(peer_id, entry, true)
+                .await
+        } else {
+            let _path_gate = self.state.acquire_path_mutation_shared().await;
+            self.apply_peer_tombstone_after_path_gate(peer_id, entry, false)
+                .await
+        }
+    }
+
+    async fn apply_peer_tombstone_after_path_gate(
+        &self,
+        peer_id: Uuid,
+        entry: EntryInfo,
+        is_dir: bool,
+    ) -> io::Result<()> {
         let entry_name = entry.name.clone();
         let applied = self
             .with_inflight_lock(&entry_name, || async move {
@@ -406,7 +426,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     self.entry_manager.handle_metadata(peer_id, &entry).await?,
                     VersionCmp::KeepOther
                 ) {
-                    return Ok::<Option<EntryInfo>, io::Error>(None);
+                    return Ok::<Vec<EntryInfo>, io::Error>(Vec::new());
                 }
 
                 let Some(entry) = self
@@ -414,7 +434,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     .insert_peer_tombstone(peer_id, entry)
                     .await?
                 else {
-                    return Ok::<Option<EntryInfo>, io::Error>(None);
+                    return Ok::<Vec<EntryInfo>, io::Error>(Vec::new());
                 };
 
                 // Issue #40 (B5): the file removal below is a remote write
@@ -422,23 +442,45 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 // local delete. Mark the path while removing it (the
                 // tombstone metadata is already persisted), clearing the
                 // mark unconditionally afterwards since `clear` is async.
+                // The mark is component-aware, so it also covers the
+                // descendant removals below.
                 self.state.mark_remote_write(&entry.name).await;
                 let removal = self.remove_path_from_disk(&entry.name).await;
+
+                // Issue #39 (B4): `remove_path_from_disk` wiped the whole
+                // subtree on disk for a directory tombstone, but only the
+                // named row was tombstoned above. Durably tombstone every
+                // descendant row now — atomically with the disk removal and
+                // under the same inflight lock + remote-write mark — so a
+                // handshake in the window before the peer's per-child
+                // tombstones arrive cannot re-advertise a still-live child.
+                let descendants = if removal.is_ok() && is_dir {
+                    self.state
+                        .cancel_pending_transfers_under_dir(&entry.name)
+                        .await;
+                    self.entry_manager
+                        .tombstone_dir_descendants(&entry.name)
+                        .await
+                } else {
+                    Ok(Vec::new())
+                };
+
                 self.state.clear_remote_write(&entry.name).await;
                 removal?;
 
-                Ok::<Option<EntryInfo>, io::Error>(Some(entry))
+                let mut applied = descendants?;
+                applied.push(entry);
+                Ok::<Vec<EntryInfo>, io::Error>(applied)
             })
             .await?;
 
-        if let Some(entry) = applied {
+        for entry in applied {
             self.send_tx
                 .send(TransportChannelData::Metadata(entry))
                 .await
-                .map_err(io::Error::other)
-        } else {
-            Ok(())
+                .map_err(io::Error::other)?;
         }
+        Ok(())
     }
 
     async fn remove_path_from_disk(&self, entry_name: &RelativePath) -> io::Result<()> {
@@ -866,6 +908,215 @@ mod tests {
             _ => panic!("unexpected outbound message"),
         }
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn apply_peer_tombstone_for_directory_tombstones_descendants() {
+        // Issue #39 (B4): a remote directory tombstone wipes the subtree on
+        // disk via `remove_dir_all`, so its still-live descendant rows must
+        // be durably tombstoned in the same step — otherwise a handshake in
+        // the window before the peer's per-child tombstones arrive could
+        // re-advertise a live child and resurrect it.
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+
+        // Live directory row plus live descendants under it.
+        let dir = EntryInfo {
+            name: "sync/folder".into(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(peer, 1)]),
+        };
+        entry_manager.insert_entry(dir.clone()).await.unwrap();
+
+        let descendants = ["sync/folder/a.txt", "sync/folder/sub/b.txt"];
+        for name in descendants {
+            entry_manager.insert_entry(file_entry(name)).await.unwrap();
+        }
+
+        // Sibling outside the removed directory must survive untouched.
+        let outside = file_entry("sync/keep.txt");
+        entry_manager.insert_entry(outside.clone()).await.unwrap();
+
+        // Peer tombstone for the directory dominates the local row.
+        let mut tombstone = EntryInfo {
+            name: dir.name.clone(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(peer, 2)]),
+        };
+        tombstone.set_removed_hash();
+
+        let evt = TransportEvent {
+            payload: TransportData::Metadata(tombstone),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        receiver.handle_metadata(evt).await.unwrap();
+
+        // Every descendant row is now a durable tombstone.
+        for name in descendants {
+            let stored = entry_manager
+                .get_entry(name)
+                .await
+                .unwrap()
+                .expect("descendant row must survive as a tombstone");
+            assert!(stored.is_removed(), "{name} should be tombstoned");
+        }
+
+        // The directory row itself is tombstoned.
+        let stored_dir = entry_manager
+            .get_entry(&dir.name)
+            .await
+            .unwrap()
+            .expect("directory tombstone must be durable");
+        assert!(stored_dir.is_removed());
+
+        // The outside sibling is untouched.
+        let stored_outside = entry_manager
+            .get_entry(&outside.name)
+            .await
+            .unwrap()
+            .expect("sibling outside the directory must survive");
+        assert!(!stored_outside.is_removed());
+
+        // A tombstone Metadata was broadcast for the directory and each
+        // descendant.
+        let mut broadcast = std::collections::HashSet::new();
+        while let Ok(msg) = send_rx.try_recv() {
+            match msg {
+                TransportChannelData::Metadata(entry) => {
+                    assert!(
+                        entry.is_removed(),
+                        "{} broadcast must be a tombstone",
+                        entry.name
+                    );
+                    broadcast.insert(entry.name.to_string());
+                }
+                _ => panic!("unexpected outbound message"),
+            }
+        }
+        assert_eq!(
+            broadcast,
+            std::collections::HashSet::from([
+                "sync/folder".to_string(),
+                "sync/folder/a.txt".to_string(),
+                "sync/folder/sub/b.txt".to_string(),
+            ]),
+        );
+    }
+
+    #[tokio::test]
+    async fn directory_tombstone_blocks_child_transfer_from_resurrecting_subtree() {
+        // A child Transfer can already be staged by TCP while a directory
+        // tombstone is being applied. It must not commit live bytes after
+        // the parent directory has been durably tombstoned.
+        let db = BlockingDb::default();
+        let (env, receiver, entry_manager, mut send_rx) = setup_with_db(db.clone()).await;
+        let receiver = Arc::new(receiver);
+        let peer = Uuid::new_v4();
+        let dir_name: RelativePath = "sync/folder".into();
+        let child_name: RelativePath = "sync/folder/a.txt".into();
+        let child_file = env.home_path().join(&*child_name);
+
+        let mut dir_tombstone = EntryInfo {
+            name: dir_name.clone(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(peer, 2)]),
+        };
+        dir_tombstone.set_removed_hash();
+
+        let (insert_started, release_insert) = db
+            .block_insert(dir_name.clone(), dir_tombstone.hash.as_deref())
+            .await;
+
+        let tombstone_evt = TransportEvent {
+            payload: TransportData::Metadata(dir_tombstone),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+        let tombstone_receiver = receiver.clone();
+        let tombstone_task =
+            tokio::spawn(async move { tombstone_receiver.handle_metadata(tombstone_evt).await });
+
+        tokio::time::timeout(Duration::from_secs(1), insert_started)
+            .await
+            .expect("directory tombstone did not reach metadata persistence")
+            .expect("directory tombstone insert signal dropped");
+
+        env.state
+            .register_pending_request(peer, child_name.clone())
+            .await;
+        let child_entry = EntryInfo {
+            name: child_name.clone(),
+            kind: EntryKind::File,
+            hash: Some("child-live".into()),
+            version: HashMap::from([(peer, 1)]),
+        };
+        let staging = make_staged_transfer(&env, b"stale child bytes").await;
+        let transfer_evt = TransportEvent {
+            payload: TransportData::Transfer(child_entry),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+        let transfer_receiver = receiver.clone();
+        let mut transfer_task =
+            tokio::spawn(async move { transfer_receiver.handle_transfer(transfer_evt).await });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut transfer_task)
+                .await
+                .is_err(),
+            "child transfer must wait while directory tombstone holds the exclusive path gate"
+        );
+
+        release_insert
+            .send(())
+            .expect("directory tombstone insert waiter disappeared");
+        tombstone_task.await.unwrap().unwrap();
+        transfer_task.await.unwrap().unwrap();
+
+        let stored_dir = entry_manager
+            .get_entry(&dir_name)
+            .await
+            .unwrap()
+            .expect("directory tombstone must be durable");
+        assert!(stored_dir.is_removed());
+        assert!(
+            entry_manager
+                .get_entry(&child_name)
+                .await
+                .unwrap()
+                .is_none(),
+            "stale child transfer must not persist live metadata"
+        );
+        assert!(
+            !child_file.exists(),
+            "stale child transfer must not recreate deleted subtree"
+        );
+
+        let mut saw_dir_tombstone = false;
+        while let Ok(msg) = send_rx.try_recv() {
+            if let TransportChannelData::Metadata(entry) = msg {
+                assert_ne!(
+                    entry.name, child_name,
+                    "stale child transfer must not broadcast live metadata"
+                );
+                saw_dir_tombstone |= entry.name == dir_name && entry.is_removed();
+            }
+        }
+        assert!(saw_dir_tombstone);
     }
 
     #[tokio::test]

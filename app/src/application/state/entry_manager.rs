@@ -630,6 +630,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
             return Ok(CommitOutcome::Dropped("peer entry rejected by sanitizer"));
         };
 
+        if self.has_removed_ancestor_dir(&sanitized.name).await? {
+            return Ok(CommitOutcome::Dropped("ancestor directory tombstoned"));
+        }
+
         // Determine the local view. Equal/KeepOther → commit; KeepSelf
         // → drop. Conflict tiebreaks live in `handle_conflict`.
         let local_entry = self.get_entry(&sanitized.name).await?;
@@ -767,6 +771,47 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
 
         Ok(removed_entries)
+    }
+
+    /// Durably tombstones every descendant row of a directory a peer
+    /// removed.
+    ///
+    /// The remote `remove_dir_all` already wiped the subtree on disk, but
+    /// only the named directory row was tombstoned; without tombstoning the
+    /// descendant rows a handshake in the window before the peer's per-child
+    /// tombstones arrive could re-advertise a still-live child and resurrect
+    /// it (issue #39 / B4). Descendants the peer did not send have no peer
+    /// vector to preserve, so — like the local `remove_dir` path — we author
+    /// a local tombstone (bump local axis + `REMOVED_HASH`) via
+    /// `delete_and_update_entry`. `starts_with_dir` is inclusive of the dir
+    /// path itself, so the name guard excludes the already-tombstoned
+    /// directory row.
+    pub async fn tombstone_dir_descendants(
+        &self,
+        dir: &RelativePath,
+    ) -> io::Result<Vec<EntryInfo>> {
+        let mut tombstoned = Vec::new();
+        for entry in self.db.list_all_entries().await? {
+            if &entry.name != dir && entry.name.starts_with_dir(dir) && !entry.is_removed() {
+                tombstoned.push(self.delete_and_update_entry(entry).await?);
+            }
+        }
+        Ok(tombstoned)
+    }
+
+    pub async fn has_removed_ancestor_dir(&self, name: &RelativePath) -> io::Result<bool> {
+        let components = name.split('/').collect::<Vec<_>>();
+        for i in 1..components.len() {
+            let ancestor: RelativePath = components[..i].join("/").into();
+            if let Some(entry) = self.get_entry(&ancestor).await?
+                && !entry.is_file()
+                && entry.is_removed()
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     /// Removes metadata for entries under a sync directory without creating
@@ -2077,6 +2122,52 @@ mod tests {
         assert_eq!(restored.hash.as_deref(), Some("local-prior"));
         assert_eq!(restored.version.get(&local_id), Some(&0));
         assert_eq!(restored.version.get(&peer), Some(&2));
+    }
+
+    #[tokio::test]
+    async fn commit_drops_transfer_under_removed_ancestor_directory() {
+        let (env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = env.state.local_id();
+        let peer = Uuid::new_v4();
+        let dir_name = dir_relative(&sync_root, "deleted");
+        let child_name = dir_relative(&sync_root, "deleted/late-child.txt");
+        let payload = b"stale child bytes";
+
+        let mut dir_tombstone = EntryInfo {
+            name: dir_name,
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(local_id, 1)]),
+        };
+        dir_tombstone.set_removed_hash();
+        manager.insert_entry(dir_tombstone).await.unwrap();
+
+        let staging = build_staged_transfer(env.home_path(), payload).await;
+        let peer_entry = EntryInfo {
+            name: child_name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer-child".into()),
+            version: HashMap::from([(peer, 9)]),
+        };
+
+        let outcome = manager
+            .commit_staged_transfer(peer, peer_entry, staging)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            outcome,
+            CommitOutcome::Dropped("ancestor directory tombstoned")
+        ));
+        assert!(
+            manager.get_entry(&child_name).await.unwrap().is_none(),
+            "transfer under a removed directory must not persist metadata"
+        );
+        assert!(
+            !child_name.to_canonical(env.state.home_path()).exists(),
+            "transfer under a removed directory must not recreate the subtree"
+        );
     }
 
     #[tokio::test]
