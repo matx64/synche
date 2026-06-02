@@ -472,20 +472,42 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let ext = path.extension().unwrap_or_default().to_string_lossy();
 
-        let now = SystemTime::now()
+        // Issue #41 (B6): millisecond resolution plus a fresh random
+        // component per attempt makes filename collisions practically
+        // impossible even for two conflicts in the same second from the
+        // same peer, and `create_new` guarantees we never truncate an
+        // existing conflict copy — the conflict-recovery path must not
+        // itself lose data.
+        let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
+            .as_millis();
+        let device = self.state.local_id();
 
-        let new_path = path.with_file_name(format!(
-            "{}_CONFLICT_{}_{}.{}",
-            stem,
-            now,
-            self.state.local_id(),
-            ext
-        ));
+        loop {
+            let rand = &Uuid::new_v4().simple().to_string()[..8];
+            let file_name = if ext.is_empty() {
+                format!("{stem}_CONFLICT_{now_ms}_{device}_{rand}")
+            } else {
+                format!("{stem}_CONFLICT_{now_ms}_{device}_{rand}.{ext}")
+            };
+            let new_path = path.with_file_name(file_name);
 
-        fs::copy(path, new_path).await?;
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&new_path)
+                .await
+            {
+                Ok(mut dest) => {
+                    let mut src = fs::File::open(&path).await?;
+                    io::copy(&mut src, &mut dest).await?;
+                    break;
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
 
         Ok(VersionCmp::KeepOther)
     }
@@ -1130,6 +1152,58 @@ mod tests {
         assert!(
             siblings.iter().any(|n| n.contains("_CONFLICT_")),
             "expected a _CONFLICT_ file in {sync_dir:?}, found: {siblings:?}",
+        );
+    }
+
+    // Issue #41 (B6): two conflicts for the same file in quick
+    // succession must each produce a distinct conflict copy — the
+    // second must never truncate the first.
+    #[tokio::test]
+    async fn handle_conflict_back_to_back_does_not_overwrite_prior_conflict_copy() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        // peer_id < any real Uuid::new_v4 so local must give way both times.
+        let peer_id = Uuid::nil();
+
+        let rel: RelativePath = dir_relative(&sync_root, "report.md");
+        let absolute = rel.to_canonical(manager.state.home_path());
+
+        let mut local = EntryInfo {
+            name: rel.clone(),
+            kind: EntryKind::File,
+            hash: Some("local-hash".into()),
+            version: HashMap::from([(manager.state.local_id(), 1)]),
+        };
+        let peer = EntryInfo {
+            name: rel,
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            version: HashMap::from([(peer_id, 1)]),
+        };
+
+        fs::write(&absolute, b"v1").unwrap();
+        manager
+            .handle_conflict(&mut local, &peer, peer_id)
+            .await
+            .unwrap();
+
+        fs::write(&absolute, b"v2").unwrap();
+        manager
+            .handle_conflict(&mut local, &peer, peer_id)
+            .await
+            .unwrap();
+
+        let conflict_contents: std::collections::HashSet<String> = fs::read_dir(&sync_dir)
+            .unwrap()
+            .map(|e| e.unwrap())
+            .filter(|e| e.file_name().to_string_lossy().contains("_CONFLICT_"))
+            .map(|e| fs::read_to_string(e.path()).unwrap())
+            .collect();
+
+        assert_eq!(
+            conflict_contents,
+            std::collections::HashSet::from(["v1".to_string(), "v2".to_string()]),
+            "both conflict copies must survive; found: {conflict_contents:?}",
         );
     }
 

@@ -95,12 +95,12 @@ The comparison iterates over the union of all device keys in both vectors.  If l
 **Conflict file naming:**
 
 ```
-<stem>_CONFLICT_<unix_epoch_seconds>_<device_uuid>.<ext>
+<stem>_CONFLICT_<unix_epoch_millis>_<device_uuid>_<random>.<ext>
 ```
 
-Example: `report_CONFLICT_1716864000_a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6.md`
+Example: `report_CONFLICT_1716864000123_a1b2c3d4-e5f6-47g8-h9i0-j1k2l3m4n5o6_9f3c1ab7.md`
 
-This naming ensures no data is lost and the conflict file is unambiguously associated with the device that created it.
+The copy is written with `create_new` (never truncating an existing file) and retried with a fresh random suffix on the rare name collision.  Millisecond resolution plus the random component means two conflicts for the same file within the same second from the same peer no longer collide, so the conflict-recovery path itself cannot lose data (issue #41 B6).  The device UUID keeps the copy unambiguously associated with the device that created it.
 
 ### Conflict-resolved-as-KeepSelf never merges the peer's axis
 

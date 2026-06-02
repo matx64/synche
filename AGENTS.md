@@ -66,6 +66,8 @@ TCP transport receive errors after a connection is accepted are treated as bad p
 
 `VersionVector = HashMap<Uuid, u64>` keyed by device `local_id` (`app/src/domain/entry/version.rs`). Comparing two versions yields `VersionCmp::{Equal, KeepSelf, KeepOther, Conflict}` — concurrent edits produce `Conflict` (which the system materializes as a conflict file) rather than overwriting. Anything that mutates `EntryInfo` or decides which side wins must go through this comparison.
 
+`EntryManager::handle_conflict` writes the losing local file aside as `<stem>_CONFLICT_<unix_ms>_<device_uuid>_<random>.<ext>` and **must** use `fs::OpenOptions::create_new(true)` (never `fs::copy`, which truncates), retrying with a fresh random suffix on `AlreadyExists`. Millisecond resolution alone is not collision-proof — the per-attempt random component is what guarantees two conflicts for the same file in the same second from the same peer don't overwrite each other; the conflict-recovery path itself must not lose data (issue #41 B6). Conflict copies still re-enter sync and propagate to peers like any other new file.
+
 ### Permanent exclusions
 
 Permanent path exclusions must be enforced at every boundary where entries can enter or leave sync: filesystem scans, watcher events, handshakes, metadata handling, request handling, transfer handling, and disk writes. Use `utils::fs::is_git_path` as the shared predicate for `.git/` path exclusion. It matches an exact `.git` path component only, so `.gitignore`, `.gitattributes`, `.github/`, and `foo.git/` remain syncable.
