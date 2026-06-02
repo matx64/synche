@@ -88,6 +88,15 @@ pub struct AppState {
     /// disk state, so same-path inbound updates cannot interleave
     /// (issue #33 B1).
     inflight_transfers: Mutex<HashMap<RelativePath, Arc<Mutex<()>>>>,
+
+    /// Paths the synchronizer is currently mutating on disk on behalf of
+    /// a peer (a Transfer commit's move→persist window, or a peer
+    /// tombstone's file removal). The file watcher skips events for
+    /// these paths so a remote write does not masquerade as a local edit
+    /// or delete and broadcast a spurious `Metadata` (issue #40 / B5).
+    /// A plain `HashSet` is sufficient because the per-entry inflight
+    /// lock already serializes same-path remote writes.
+    remote_writes: Mutex<HashSet<RelativePath>>,
 }
 
 impl AppState {
@@ -129,6 +138,7 @@ impl AppState {
             sync_dirs,
             pending_transfers: Mutex::new(PendingTransferRegistry::default()),
             inflight_transfers: Mutex::new(HashMap::new()),
+            remote_writes: Mutex::new(HashSet::new()),
         })
     }
 
@@ -230,6 +240,28 @@ impl AppState {
         {
             map.remove(name);
         }
+    }
+
+    /// Mark `name` as being written on disk by the synchronizer on
+    /// behalf of a peer. The watcher skips events for marked paths
+    /// (issue #40 / B5). Pair every `mark` with a `clear`, including on
+    /// error paths — `clear` is async so it cannot run from a `Drop`.
+    pub async fn mark_remote_write(&self, name: &RelativePath) {
+        self.remote_writes.lock().await.insert(name.clone());
+    }
+
+    /// Clear the remote-write mark for `name` once the synchronizer has
+    /// finished mutating it on disk (after the metadata persist for a
+    /// Transfer commit, or after the file removal for a tombstone).
+    pub async fn clear_remote_write(&self, name: &RelativePath) {
+        self.remote_writes.lock().await.remove(name);
+    }
+
+    /// Returns `true` while the synchronizer is mid-write on `name`. The
+    /// watcher uses this to suppress its own self-triggered event before
+    /// the metadata persist makes the on-disk hash match the stored row.
+    pub async fn is_remote_write_in_progress(&self, name: &RelativePath) -> bool {
+        self.remote_writes.lock().await.contains(name)
     }
 
     pub fn dirs(&self) -> &SyncheDirs {
@@ -659,6 +691,24 @@ mod tests {
 
         assert!(recv1.is_ok(), "First receiver should get event");
         assert!(recv2.is_ok(), "Second receiver should get event");
+    }
+
+    #[tokio::test]
+    async fn remote_write_mark_round_trip() {
+        let env = test_env().await;
+        let name: RelativePath = "sync/payload.bin".into();
+
+        assert!(!env.state.is_remote_write_in_progress(&name).await);
+        env.state.mark_remote_write(&name).await;
+        assert!(
+            env.state.is_remote_write_in_progress(&name).await,
+            "mark must be observable"
+        );
+        env.state.clear_remote_write(&name).await;
+        assert!(
+            !env.state.is_remote_write_in_progress(&name).await,
+            "clear must remove the mark"
+        );
     }
 
     #[tokio::test]

@@ -124,6 +124,14 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
     #[tracing::instrument(skip_all, fields(path = %path.relative))]
     async fn handle_entry_create_or_modify(&self, path: WatcherEventPath) -> io::Result<()> {
+        // Issue #40 (B5): skip events the synchronizer itself triggered
+        // while committing a peer Transfer. Without this guard a watcher
+        // event in the move→persist window sees the stale DB hash and
+        // broadcasts a spurious local-edit Metadata for a remote write.
+        if self.state.is_remote_write_in_progress(&path.relative).await {
+            return Ok(());
+        }
+
         match self.entry_manager.get_entry(&path.relative).await? {
             None => self.handle_entry_create(path).await,
 
@@ -187,6 +195,14 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
     #[tracing::instrument(skip_all, fields(path = %path.relative))]
     async fn handle_entry_remove(&self, path: WatcherEventPath) -> io::Result<()> {
+        // Issue #40 (B5): skip the removal the synchronizer itself
+        // triggered while applying a peer tombstone. Without this guard
+        // the watcher re-bumps the local counter and re-broadcasts the
+        // tombstone as a local delete.
+        if self.state.is_remote_write_in_progress(&path.relative).await {
+            return Ok(());
+        }
+
         if let Some(removed) = self.entry_manager.remove_entry(&path.relative).await? {
             if !removed.is_file() {
                 let removed_entries = self.entry_manager.remove_dir(&path.relative).await?;
@@ -318,5 +334,162 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         info!("Resync triggered with {} peer(s)", peer_count);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        domain::CanonicalPath, infra::persistence::sqlite::SqliteDb,
+        utils::test_support::test_env_with_dirs,
+    };
+    use std::collections::HashMap;
+    use tokio::sync::mpsc;
+
+    /// Minimal adapter: the tests drive the `handle_*` methods directly,
+    /// so the event streams are never polled.
+    struct NoopWatcher;
+
+    impl FileWatcherInterface for NoopWatcher {
+        fn new(_state: Arc<AppState>) -> Self {
+            NoopWatcher
+        }
+        async fn watch_home(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        async fn watch_config(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        async fn next_home_event(&self) -> io::Result<Option<HomeWatcherEvent>> {
+            Ok(None)
+        }
+        async fn next_config_event(&self) -> io::Result<Option<crate::domain::ConfigWatcherEvent>> {
+            Ok(None)
+        }
+    }
+
+    async fn setup() -> (
+        crate::utils::test_support::TestEnv,
+        FileWatcher<NoopWatcher, SqliteDb>,
+        Arc<EntryManager<SqliteDb>>,
+        mpsc::Receiver<TransportChannelData>,
+    ) {
+        let env = test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let db = SqliteDb::new(":memory:").await.unwrap();
+        let entry_manager = EntryManager::new(db, state.clone());
+        let peer_manager = PeerManager::new(state.clone());
+        let (sender_tx, sender_rx) = mpsc::channel(8);
+        let watcher = FileWatcher::new(
+            NoopWatcher::new(state.clone()),
+            state,
+            peer_manager,
+            entry_manager.clone(),
+            sender_tx,
+        );
+        (env, watcher, entry_manager, sender_rx)
+    }
+
+    /// Issue #40 (B5): while a path is marked remote-write-in-progress,
+    /// a watcher modify event for it must be a no-op — no local counter
+    /// bump, no outbound Metadata. Clearing the mark restores normal
+    /// behavior.
+    #[tokio::test]
+    async fn modify_event_is_skipped_while_remote_write_in_progress() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let name: RelativePath = "sync/payload.bin".into();
+
+        let sync_dir = env.home_path().join("sync");
+        tokio::fs::create_dir_all(&sync_dir).await.unwrap();
+        let file = sync_dir.join("payload.bin");
+        tokio::fs::write(&file, b"new on-disk bytes").await.unwrap();
+
+        // DB row with a hash that differs from disk, so an unguarded
+        // modify event would bump the counter and broadcast.
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("stale-db-hash".into()),
+                version: HashMap::from([(local_id, 3)]),
+            })
+            .await
+            .unwrap();
+
+        let path = WatcherEventPath {
+            relative: name.clone(),
+            canonical: CanonicalPath::from_absolute(&file),
+        };
+
+        env.state.mark_remote_write(&name).await;
+        watcher
+            .handle_entry_create_or_modify(path.clone())
+            .await
+            .unwrap();
+
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "marked path must not broadcast Metadata"
+        );
+        let stored = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert_eq!(
+            stored.version.get(&local_id),
+            Some(&3),
+            "local counter must not be bumped for a remote write"
+        );
+        assert_eq!(stored.hash.as_deref(), Some("stale-db-hash"));
+
+        // Once the mark is cleared, the same event is handled normally.
+        env.state.clear_remote_write(&name).await;
+        watcher.handle_entry_create_or_modify(path).await.unwrap();
+
+        match sender_rx.try_recv().expect("expected Metadata after clear") {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, name);
+                assert_eq!(entry.version.get(&local_id), Some(&4));
+            }
+            _ => panic!("unexpected outbound message"),
+        }
+    }
+
+    /// Issue #40 (B5): a watcher remove event for a path the
+    /// synchronizer is removing (peer tombstone) must be skipped so it
+    /// does not re-bump the local counter and re-broadcast a tombstone.
+    #[tokio::test]
+    async fn remove_event_is_skipped_while_remote_write_in_progress() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let name: RelativePath = "sync/gone.txt".into();
+
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("hash".into()),
+                version: HashMap::from([(local_id, 1)]),
+            })
+            .await
+            .unwrap();
+
+        let path = WatcherEventPath {
+            relative: name.clone(),
+            canonical: CanonicalPath::from_absolute(env.home_path().join("sync/gone.txt")),
+        };
+
+        env.state.mark_remote_write(&name).await;
+        watcher.handle_entry_remove(path).await.unwrap();
+
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "marked path must not broadcast a tombstone"
+        );
+        let stored = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert!(
+            !stored.is_removed(),
+            "marked remove must not turn the entry into a local tombstone"
+        );
+        assert_eq!(stored.version.get(&local_id), Some(&1));
     }
 }

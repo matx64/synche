@@ -676,21 +676,34 @@ impl<P: PersistenceInterface> EntryManager<P> {
                 trace!(entry = %final_entry.name, peer = %peer_id, "committing staged transfer");
 
                 let target = final_entry.name.to_canonical(self.state.home_path());
-                if let Some(parent) = target.parent()
-                    && let Err(e) = fs::create_dir_all(parent).await
-                {
-                    return Err(e);
+
+                // Issue #40 (B5): mark the path as remote-write-in-progress
+                // before the move and clear it only after the metadata is
+                // persisted, so a watcher event in the move→persist window
+                // does not see the stale DB hash and broadcast a spurious
+                // local-edit Metadata. `clear` is async, so capture the
+                // result and clear unconditionally rather than relying on a
+                // `Drop` impl.
+                self.state.mark_remote_write(&final_entry.name).await;
+                let result = async {
+                    if let Some(parent) = target.parent() {
+                        fs::create_dir_all(parent).await?;
+                    }
+
+                    let staging_path = staging
+                        .take_path()
+                        .ok_or_else(|| io::Error::other("staged transfer has no file"))?;
+
+                    Self::move_staging_to_target(&staging_path, &target).await?;
+                    // staging's Drop will rmdir the now-empty staging root.
+
+                    self.db.insert_or_replace_entry(&final_entry).await?;
+                    Ok::<(), io::Error>(())
                 }
+                .await;
+                self.state.clear_remote_write(&final_entry.name).await;
 
-                let staging_path = match staging.take_path() {
-                    Some(p) => p,
-                    None => return Err(io::Error::other("staged transfer has no file")),
-                };
-
-                Self::move_staging_to_target(&staging_path, &target).await?;
-                // staging's Drop will rmdir the now-empty staging root.
-
-                self.db.insert_or_replace_entry(&final_entry).await?;
+                result?;
                 Ok(CommitOutcome::Committed(final_entry))
             }
         }

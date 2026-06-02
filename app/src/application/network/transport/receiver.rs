@@ -417,7 +417,16 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     return Ok::<Option<EntryInfo>, io::Error>(None);
                 };
 
-                self.remove_path_from_disk(&entry.name).await?;
+                // Issue #40 (B5): the file removal below is a remote write
+                // the watcher would otherwise pick up and re-broadcast as a
+                // local delete. Mark the path while removing it (the
+                // tombstone metadata is already persisted), clearing the
+                // mark unconditionally afterwards since `clear` is async.
+                self.state.mark_remote_write(&entry.name).await;
+                let removal = self.remove_path_from_disk(&entry.name).await;
+                self.state.clear_remote_write(&entry.name).await;
+                removal?;
+
                 Ok::<Option<EntryInfo>, io::Error>(Some(entry))
             })
             .await?;
@@ -1301,6 +1310,77 @@ mod tests {
         assert!(
             saw_tombstone_metadata,
             "accepted tombstone must be re-broadcast"
+        );
+    }
+
+    /// Issue #40 (B5): while `commit_staged_transfer` is mid-commit (the
+    /// staged bytes are already renamed into `home_path` but the merged
+    /// metadata is not yet persisted), the path must be marked
+    /// remote-write-in-progress so a racing watcher event is suppressed.
+    /// The mark must be cleared once the commit completes.
+    #[tokio::test]
+    async fn commit_marks_remote_write_across_move_to_persist_window() {
+        let db = BlockingDb::default();
+        let (env, receiver, _entry_manager, _send_rx) = setup_with_db(db.clone()).await;
+        let receiver = Arc::new(receiver);
+        let peer = Uuid::new_v4();
+        let name: RelativePath = "sync/payload.bin".into();
+        let home_file = env.home_path().join(&*name);
+
+        let entry = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("peer-hash".into()),
+            version: HashMap::from([(peer, 1)]),
+        };
+        // Block the metadata insert so the commit pauses after the disk
+        // move but before persisting.
+        let (insert_started, release_insert) =
+            db.block_insert(name.clone(), Some("peer-hash")).await;
+
+        env.state.register_pending_request(peer, name.clone()).await;
+        let staging = make_staged_transfer(&env, b"peer bytes").await;
+        let transfer_evt = TransportEvent {
+            payload: TransportData::Transfer(entry),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+
+        assert!(
+            !env.state.is_remote_write_in_progress(&name).await,
+            "no mark before commit starts"
+        );
+
+        let transfer_receiver = receiver.clone();
+        let transfer_task =
+            tokio::spawn(async move { transfer_receiver.handle_transfer(transfer_evt).await });
+
+        tokio::time::timeout(Duration::from_secs(1), insert_started)
+            .await
+            .expect("transfer did not reach metadata persistence")
+            .expect("transfer insert signal dropped");
+
+        // Paused after the rename: file is on disk, metadata not yet
+        // persisted, and the path is marked so the watcher would skip it.
+        assert_eq!(
+            tokio::fs::read(&home_file).await.unwrap(),
+            b"peer bytes",
+            "staged bytes should be moved into place before persist"
+        );
+        assert!(
+            env.state.is_remote_write_in_progress(&name).await,
+            "path must be marked across the move->persist window"
+        );
+
+        release_insert.send(()).expect("insert waiter disappeared");
+        transfer_task.await.unwrap().unwrap();
+
+        assert!(
+            !env.state.is_remote_write_in_progress(&name).await,
+            "mark must be cleared once the commit completes"
         );
     }
 
