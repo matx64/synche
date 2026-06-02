@@ -65,6 +65,10 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
     async fn recv_adapter_home_events(&self) -> io::Result<()> {
         while let Some(event) = self.adapter.next_home_event().await? {
             let path = event.path();
+            if self.state.is_remote_write_in_progress(&path.relative).await {
+                continue;
+            }
+
             if !self
                 .entry_manager
                 .is_ignored(&path.canonical, &path.relative)
@@ -344,7 +348,11 @@ mod tests {
         domain::CanonicalPath, infra::persistence::sqlite::SqliteDb,
         utils::test_support::test_env_with_dirs,
     };
-    use std::collections::HashMap;
+    use std::{
+        collections::{HashMap, VecDeque},
+        sync::Mutex,
+        time::Duration,
+    };
     use tokio::sync::mpsc;
 
     /// Minimal adapter: the tests drive the `handle_*` methods directly,
@@ -363,6 +371,36 @@ mod tests {
         }
         async fn next_home_event(&self) -> io::Result<Option<HomeWatcherEvent>> {
             Ok(None)
+        }
+        async fn next_config_event(&self) -> io::Result<Option<crate::domain::ConfigWatcherEvent>> {
+            Ok(None)
+        }
+    }
+
+    struct QueueWatcher {
+        home_events: Mutex<VecDeque<HomeWatcherEvent>>,
+    }
+
+    impl QueueWatcher {
+        fn with_home_events(events: Vec<HomeWatcherEvent>) -> Self {
+            Self {
+                home_events: Mutex::new(events.into()),
+            }
+        }
+    }
+
+    impl FileWatcherInterface for QueueWatcher {
+        fn new(_state: Arc<AppState>) -> Self {
+            Self::with_home_events(Vec::new())
+        }
+        async fn watch_home(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        async fn watch_config(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        async fn next_home_event(&self) -> io::Result<Option<HomeWatcherEvent>> {
+            Ok(self.home_events.lock().unwrap().pop_front())
         }
         async fn next_config_event(&self) -> io::Result<Option<crate::domain::ConfigWatcherEvent>> {
             Ok(None)
@@ -491,5 +529,74 @@ mod tests {
             "marked remove must not turn the entry into a local tombstone"
         );
         assert_eq!(stored.version.get(&local_id), Some(&1));
+    }
+
+    /// Issue #40 (B5): suppression must happen before the event enters
+    /// the debounce buffer. Otherwise the remote-write mark can be
+    /// cleared before the debounced event is handled, reintroducing the
+    /// stale-DB race.
+    #[tokio::test]
+    async fn adapter_event_is_dropped_before_debounce_while_remote_write_in_progress() {
+        let env = test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let db = SqliteDb::new(":memory:").await.unwrap();
+        let entry_manager = EntryManager::new(db, state.clone());
+        let peer_manager = PeerManager::new(state.clone());
+        let (sender_tx, mut sender_rx) = mpsc::channel(8);
+
+        let name: RelativePath = "sync/payload.bin".into();
+        let local_id = state.local_id();
+        let sync_dir = env.home_path().join("sync");
+        tokio::fs::create_dir_all(&sync_dir).await.unwrap();
+        let file = sync_dir.join("payload.bin");
+        tokio::fs::write(&file, b"remote bytes").await.unwrap();
+
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: name.clone(),
+                kind: EntryKind::File,
+                hash: Some("stale-db-hash".into()),
+                version: HashMap::from([(local_id, 7)]),
+            })
+            .await
+            .unwrap();
+
+        let path = WatcherEventPath {
+            relative: name.clone(),
+            canonical: CanonicalPath::from_absolute(&file),
+        };
+        let watcher = Arc::new(FileWatcher::new(
+            QueueWatcher::with_home_events(vec![HomeWatcherEvent::EntryCreateOrModify(path)]),
+            state.clone(),
+            peer_manager,
+            entry_manager.clone(),
+            sender_tx,
+        ));
+
+        state.mark_remote_write(&name).await;
+        watcher.recv_adapter_home_events().await.unwrap();
+        state.clear_remote_write(&name).await;
+
+        let buffer_watcher = watcher.clone();
+        let buffer_task = tokio::spawn(async move { buffer_watcher.buffer.run().await });
+
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(1200),
+                watcher.buffer.next_home_event()
+            )
+            .await
+            .is_err(),
+            "marked adapter event must not survive in debounce buffer"
+        );
+        buffer_task.abort();
+
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "dropped adapter event must not broadcast Metadata"
+        );
+        let stored = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert_eq!(stored.version.get(&local_id), Some(&7));
+        assert_eq!(stored.hash.as_deref(), Some("stale-db-hash"));
     }
 }
