@@ -532,6 +532,90 @@ mod tests {
         assert_eq!(stored.version.get(&local_id), Some(&1));
     }
 
+    /// Issue #40 (B5): committing a nested remote file may create
+    /// missing parent directories before the file move. Platform watcher
+    /// events for those parent directories must be suppressed by the
+    /// leaf-file remote-write mark, or `handle_create_dir` can scan and
+    /// broadcast the remote file as a local creation before metadata is
+    /// persisted.
+    #[tokio::test]
+    async fn parent_dir_event_is_skipped_while_nested_remote_file_write_in_progress() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let file_name: RelativePath = "sync/a/b/payload.bin".into();
+        let parent_name: RelativePath = "sync/a/b".into();
+        let parent_dir = env.home_path().join(&*parent_name);
+        let file = env.home_path().join(&*file_name);
+
+        tokio::fs::create_dir_all(&parent_dir).await.unwrap();
+        tokio::fs::write(&file, b"remote bytes").await.unwrap();
+
+        let path = WatcherEventPath {
+            relative: parent_name.clone(),
+            canonical: CanonicalPath::from_absolute(&parent_dir),
+        };
+
+        env.state.mark_remote_write(&file_name).await;
+        watcher.handle_entry_create_or_modify(path).await.unwrap();
+
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "parent directory event for a nested remote write must not broadcast"
+        );
+        assert!(
+            entry_manager
+                .get_entry(&parent_name)
+                .await
+                .unwrap()
+                .is_none(),
+            "parent directory must not be inserted as a local create"
+        );
+        assert!(
+            entry_manager.get_entry(&file_name).await.unwrap().is_none(),
+            "remote file must not be inserted as a local create"
+        );
+    }
+
+    /// Issue #40 (B5): applying a peer tombstone for a directory can
+    /// produce watcher remove events for tracked descendants. The
+    /// directory's remote-write mark must suppress those child events so
+    /// they do not become fresh local tombstones.
+    #[tokio::test]
+    async fn child_remove_event_is_skipped_while_remote_directory_tombstone_in_progress() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let dir_name: RelativePath = "sync/gone-dir".into();
+        let child_name: RelativePath = "sync/gone-dir/child.txt".into();
+
+        entry_manager
+            .insert_entry(EntryInfo {
+                name: child_name.clone(),
+                kind: EntryKind::File,
+                hash: Some("hash".into()),
+                version: HashMap::from([(local_id, 2)]),
+            })
+            .await
+            .unwrap();
+
+        let path = WatcherEventPath {
+            relative: child_name.clone(),
+            canonical: CanonicalPath::from_absolute(env.home_path().join(&*child_name)),
+        };
+
+        env.state.mark_remote_write(&dir_name).await;
+        watcher.handle_entry_remove(path).await.unwrap();
+
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "child remove event for a remote directory tombstone must not broadcast"
+        );
+        let stored = entry_manager.get_entry(&child_name).await.unwrap().unwrap();
+        assert!(
+            !stored.is_removed(),
+            "child remove must not turn the entry into a local tombstone"
+        );
+        assert_eq!(stored.version.get(&local_id), Some(&2));
+    }
+
     /// Issue #40 (B5): the platform watcher can deliver the remove event
     /// after `apply_peer_tombstone` has already cleared the remote-write
     /// mark. If the row is already a tombstone, that late event must be a

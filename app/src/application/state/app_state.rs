@@ -257,11 +257,18 @@ impl AppState {
         self.remote_writes.lock().await.remove(name);
     }
 
-    /// Returns `true` while the synchronizer is mid-write on `name`. The
-    /// watcher uses this to suppress its own self-triggered event before
-    /// the metadata persist makes the on-disk hash match the stored row.
+    /// Returns `true` while the synchronizer is mid-write on `name`, or
+    /// while `name` is an ancestor/descendant of a marked path. The
+    /// watcher uses this to suppress self-triggered events before the
+    /// metadata persist makes the on-disk hash match the stored row, and
+    /// to suppress parent-directory create events and child remove events
+    /// produced by the same remote write.
     pub async fn is_remote_write_in_progress(&self, name: &RelativePath) -> bool {
-        self.remote_writes.lock().await.contains(name)
+        self.remote_writes
+            .lock()
+            .await
+            .iter()
+            .any(|marked| name.starts_with_dir(marked) || marked.starts_with_dir(name))
     }
 
     pub fn dirs(&self) -> &SyncheDirs {
