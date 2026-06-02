@@ -406,15 +406,17 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     self.entry_manager.handle_metadata(peer_id, &entry).await?,
                     VersionCmp::KeepOther
                 ) {
-                    return Ok::<Option<EntryInfo>, io::Error>(None);
+                    return Ok::<Vec<EntryInfo>, io::Error>(Vec::new());
                 }
+
+                let is_dir = !entry.is_file();
 
                 let Some(entry) = self
                     .entry_manager
                     .insert_peer_tombstone(peer_id, entry)
                     .await?
                 else {
-                    return Ok::<Option<EntryInfo>, io::Error>(None);
+                    return Ok::<Vec<EntryInfo>, io::Error>(Vec::new());
                 };
 
                 // Issue #40 (B5): the file removal below is a remote write
@@ -422,23 +424,42 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 // local delete. Mark the path while removing it (the
                 // tombstone metadata is already persisted), clearing the
                 // mark unconditionally afterwards since `clear` is async.
+                // The mark is component-aware, so it also covers the
+                // descendant removals below.
                 self.state.mark_remote_write(&entry.name).await;
                 let removal = self.remove_path_from_disk(&entry.name).await;
+
+                // Issue #39 (B4): `remove_path_from_disk` wiped the whole
+                // subtree on disk for a directory tombstone, but only the
+                // named row was tombstoned above. Durably tombstone every
+                // descendant row now — atomically with the disk removal and
+                // under the same inflight lock + remote-write mark — so a
+                // handshake in the window before the peer's per-child
+                // tombstones arrive cannot re-advertise a still-live child.
+                let descendants = if removal.is_ok() && is_dir {
+                    self.entry_manager
+                        .tombstone_dir_descendants(&entry.name)
+                        .await
+                } else {
+                    Ok(Vec::new())
+                };
+
                 self.state.clear_remote_write(&entry.name).await;
                 removal?;
 
-                Ok::<Option<EntryInfo>, io::Error>(Some(entry))
+                let mut applied = descendants?;
+                applied.push(entry);
+                Ok::<Vec<EntryInfo>, io::Error>(applied)
             })
             .await?;
 
-        if let Some(entry) = applied {
+        for entry in applied {
             self.send_tx
                 .send(TransportChannelData::Metadata(entry))
                 .await
-                .map_err(io::Error::other)
-        } else {
-            Ok(())
+                .map_err(io::Error::other)?;
         }
+        Ok(())
     }
 
     async fn remove_path_from_disk(&self, entry_name: &RelativePath) -> io::Result<()> {
@@ -866,6 +887,106 @@ mod tests {
             _ => panic!("unexpected outbound message"),
         }
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn apply_peer_tombstone_for_directory_tombstones_descendants() {
+        // Issue #39 (B4): a remote directory tombstone wipes the subtree on
+        // disk via `remove_dir_all`, so its still-live descendant rows must
+        // be durably tombstoned in the same step — otherwise a handshake in
+        // the window before the peer's per-child tombstones arrive could
+        // re-advertise a live child and resurrect it.
+        let (_env, receiver, entry_manager, mut send_rx) = setup().await;
+        let peer = Uuid::new_v4();
+
+        // Live directory row plus live descendants under it.
+        let dir = EntryInfo {
+            name: "sync/folder".into(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(peer, 1)]),
+        };
+        entry_manager.insert_entry(dir.clone()).await.unwrap();
+
+        let descendants = ["sync/folder/a.txt", "sync/folder/sub/b.txt"];
+        for name in descendants {
+            entry_manager.insert_entry(file_entry(name)).await.unwrap();
+        }
+
+        // Sibling outside the removed directory must survive untouched.
+        let outside = file_entry("sync/keep.txt");
+        entry_manager.insert_entry(outside.clone()).await.unwrap();
+
+        // Peer tombstone for the directory dominates the local row.
+        let mut tombstone = EntryInfo {
+            name: dir.name.clone(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(peer, 2)]),
+        };
+        tombstone.set_removed_hash();
+
+        let evt = TransportEvent {
+            payload: TransportData::Metadata(tombstone),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        receiver.handle_metadata(evt).await.unwrap();
+
+        // Every descendant row is now a durable tombstone.
+        for name in descendants {
+            let stored = entry_manager
+                .get_entry(name)
+                .await
+                .unwrap()
+                .expect("descendant row must survive as a tombstone");
+            assert!(stored.is_removed(), "{name} should be tombstoned");
+        }
+
+        // The directory row itself is tombstoned.
+        let stored_dir = entry_manager
+            .get_entry(&dir.name)
+            .await
+            .unwrap()
+            .expect("directory tombstone must be durable");
+        assert!(stored_dir.is_removed());
+
+        // The outside sibling is untouched.
+        let stored_outside = entry_manager
+            .get_entry(&outside.name)
+            .await
+            .unwrap()
+            .expect("sibling outside the directory must survive");
+        assert!(!stored_outside.is_removed());
+
+        // A tombstone Metadata was broadcast for the directory and each
+        // descendant.
+        let mut broadcast = std::collections::HashSet::new();
+        while let Ok(msg) = send_rx.try_recv() {
+            match msg {
+                TransportChannelData::Metadata(entry) => {
+                    assert!(
+                        entry.is_removed(),
+                        "{} broadcast must be a tombstone",
+                        entry.name
+                    );
+                    broadcast.insert(entry.name.to_string());
+                }
+                _ => panic!("unexpected outbound message"),
+            }
+        }
+        assert_eq!(
+            broadcast,
+            std::collections::HashSet::from([
+                "sync/folder".to_string(),
+                "sync/folder/a.txt".to_string(),
+                "sync/folder/sub/b.txt".to_string(),
+            ]),
+        );
     }
 
     #[tokio::test]

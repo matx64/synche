@@ -769,6 +769,32 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(removed_entries)
     }
 
+    /// Durably tombstones every descendant row of a directory a peer
+    /// removed.
+    ///
+    /// The remote `remove_dir_all` already wiped the subtree on disk, but
+    /// only the named directory row was tombstoned; without tombstoning the
+    /// descendant rows a handshake in the window before the peer's per-child
+    /// tombstones arrive could re-advertise a still-live child and resurrect
+    /// it (issue #39 / B4). Descendants the peer did not send have no peer
+    /// vector to preserve, so — like the local `remove_dir` path — we author
+    /// a local tombstone (bump local axis + `REMOVED_HASH`) via
+    /// `delete_and_update_entry`. `starts_with_dir` is inclusive of the dir
+    /// path itself, so the name guard excludes the already-tombstoned
+    /// directory row.
+    pub async fn tombstone_dir_descendants(
+        &self,
+        dir: &RelativePath,
+    ) -> io::Result<Vec<EntryInfo>> {
+        let mut tombstoned = Vec::new();
+        for entry in self.db.list_all_entries().await? {
+            if &entry.name != dir && entry.name.starts_with_dir(dir) && !entry.is_removed() {
+                tombstoned.push(self.delete_and_update_entry(entry).await?);
+            }
+        }
+        Ok(tombstoned)
+    }
+
     /// Removes metadata for entries under a sync directory without creating
     /// tombstones.
     ///
