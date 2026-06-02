@@ -81,6 +81,13 @@ pub struct AppState {
     /// staging but the application has not consumed yet.
     pending_transfers: Mutex<PendingTransferRegistry>,
 
+    /// Coarse gate for inbound path mutations. File transfers and file
+    /// tombstones take a shared guard before their exact per-entry lock;
+    /// directory tombstones take an exclusive guard while removing and
+    /// tombstoning the subtree so child transfers cannot race behind
+    /// the directory delete.
+    path_mutations: RwLock<()>,
+
     /// Per-entry serialization for inbound Transfer commits and peer
     /// tombstone application. `commit_staged_transfer` acquires the
     /// inner mutex across compare → rename → persist, and accepted peer
@@ -137,6 +144,7 @@ impl AppState {
             local_ip: RwLock::new(local_ip),
             sync_dirs,
             pending_transfers: Mutex::new(PendingTransferRegistry::default()),
+            path_mutations: RwLock::new(()),
             inflight_transfers: Mutex::new(HashMap::new()),
             remote_writes: Mutex::new(HashSet::new()),
         })
@@ -212,6 +220,28 @@ impl AppState {
     pub async fn release_pending_transfer_claim(&self, peer_id: Uuid, name: &RelativePath) {
         let mut registry = self.pending_transfers.lock().await;
         registry.claims.remove(&(peer_id, name.clone()));
+    }
+
+    /// Drop outstanding transfer requests and staging claims under a
+    /// directory that has just been accepted as deleted. This keeps old
+    /// in-flight requests from needlessly staging bytes that the
+    /// application will reject under the ancestor tombstone check.
+    pub async fn cancel_pending_transfers_under_dir(&self, dir: &RelativePath) {
+        let mut registry = self.pending_transfers.lock().await;
+        registry
+            .requests
+            .retain(|(_, name), _| !name.starts_with_dir(dir));
+        registry
+            .claims
+            .retain(|(_, name)| !name.starts_with_dir(dir));
+    }
+
+    pub async fn acquire_path_mutation_shared(&self) -> tokio::sync::RwLockReadGuard<'_, ()> {
+        self.path_mutations.read().await
+    }
+
+    pub async fn acquire_path_mutation_exclusive(&self) -> tokio::sync::RwLockWriteGuard<'_, ()> {
+        self.path_mutations.write().await
     }
 
     /// Acquire (or create) the per-entry mutex guard used to serialize
