@@ -354,6 +354,7 @@ mod tests {
         time::Duration,
     };
     use tokio::sync::mpsc;
+    use uuid::Uuid;
 
     /// Minimal adapter: the tests drive the `handle_*` methods directly,
     /// so the event streams are never polled.
@@ -529,6 +530,50 @@ mod tests {
             "marked remove must not turn the entry into a local tombstone"
         );
         assert_eq!(stored.version.get(&local_id), Some(&1));
+    }
+
+    /// Issue #40 (B5): the platform watcher can deliver the remove event
+    /// after `apply_peer_tombstone` has already cleared the remote-write
+    /// mark. If the row is already a tombstone, that late event must be a
+    /// no-op rather than rebroadcasting the delete as a local tombstone.
+    #[tokio::test]
+    async fn late_remove_event_for_existing_tombstone_is_noop_after_mark_cleared() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let peer_id = Uuid::new_v4();
+        let name: RelativePath = "sync/already-gone.txt".into();
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer_id, 5)]),
+        };
+        tombstone.set_removed_hash();
+        let stored_before = entry_manager
+            .insert_peer_tombstone(peer_id, tombstone)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let path = WatcherEventPath {
+            relative: name.clone(),
+            canonical: CanonicalPath::from_absolute(env.home_path().join("sync/already-gone.txt")),
+        };
+
+        env.state.mark_remote_write(&name).await;
+        env.state.clear_remote_write(&name).await;
+        watcher.handle_entry_remove(path).await.unwrap();
+
+        assert!(
+            sender_rx.try_recv().is_err(),
+            "late remove for an existing tombstone must not broadcast"
+        );
+        let stored_after = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert!(stored_after.is_removed());
+        assert_eq!(stored_after.version, stored_before.version);
+        assert_eq!(stored_after.version.get(&local_id), Some(&0));
+        assert_eq!(stored_after.version.get(&peer_id), Some(&5));
     }
 
     /// Issue #40 (B5): suppression must happen before the event enters

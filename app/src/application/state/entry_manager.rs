@@ -741,6 +741,12 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     pub async fn remove_entry(&self, name: &str) -> io::Result<Option<EntryInfo>> {
         if let Some(entry) = self.get_entry(name).await? {
+            // A delayed watcher remove event for a peer-applied tombstone
+            // must not turn that tombstone into a fresh local delete.
+            if entry.is_removed() {
+                return Ok(None);
+            }
+
             let updated = self.delete_and_update_entry(entry).await?;
             Ok(Some(updated))
         } else {
@@ -1709,6 +1715,36 @@ mod tests {
             .await
             .unwrap()
             .expect("tombstone must be persisted in DB");
+        assert!(stored.is_removed());
+        assert_eq!(stored.version.get(&local_id), Some(&2));
+    }
+
+    /// Issue #40 (B5): a delayed watcher remove event can arrive after
+    /// a peer tombstone has already been persisted and unmarked. That
+    /// duplicate remove must be a no-op so it does not bump our local
+    /// axis and re-advertise the peer delete as a local tombstone.
+    #[tokio::test]
+    async fn remove_entry_does_not_rebump_existing_tombstone() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let name = dir_relative(&sync_root, "already-gone.txt");
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(local_id, 2)]),
+        };
+        tombstone.set_removed_hash();
+        manager.insert_entry(tombstone).await.unwrap();
+
+        assert!(
+            manager.remove_entry(&name).await.unwrap().is_none(),
+            "existing tombstone remove must be ignored"
+        );
+
+        let stored = manager.get_entry(&name).await.unwrap().unwrap();
         assert!(stored.is_removed());
         assert_eq!(stored.version.get(&local_id), Some(&2));
     }
