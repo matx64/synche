@@ -226,7 +226,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     pub async fn remove_sync_dir(&self, name: &RelativePath) -> io::Result<bool> {
         if self.state.sync_dirs.write().await.remove(name).is_some() {
-            self.remove_dir(name).await?;
+            self.purge_entries_under_dir(name).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -726,6 +726,23 @@ impl<P: PersistenceInterface> EntryManager<P> {
         }
 
         Ok(removed_entries)
+    }
+
+    /// Removes metadata for entries under a sync directory without creating
+    /// tombstones.
+    ///
+    /// This is used when the local user unshares a sync directory. Unsharing
+    /// means "stop tracking this directory here"; it must not advertise
+    /// deletions to peers. Real filesystem removals still go through
+    /// `remove_entry` / `remove_dir`, which persist durable tombstones.
+    async fn purge_entries_under_dir(&self, removed: &RelativePath) -> io::Result<()> {
+        for entry in self.db.list_all_entries().await? {
+            if entry.name.starts_with_dir(removed) {
+                self.db.delete_entry(&entry.name).await?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Marks an entry as deleted and persists the tombstone.
@@ -1419,8 +1436,67 @@ mod tests {
         assert_eq!(removed.len(), 3);
         for e in &removed {
             assert!(e.is_removed(), "{} should carry tombstone hash", e.name);
+            let stored = manager
+                .get_entry(&e.name)
+                .await
+                .unwrap()
+                .expect("real directory deletes must persist tombstones");
+            assert!(stored.is_removed(), "{} should persist tombstone", e.name);
         }
         assert!(manager.get_entry(&outside).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn remove_sync_dir_purges_metadata_without_advertising_tombstones() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let peer_id = Uuid::new_v4();
+
+        let live = dir_relative(&sync_root, "a.txt");
+        let nested = dir_relative(&sync_root, "sub/b.txt");
+        let deleted = dir_relative(&sync_root, "deleted.txt");
+        let outside: RelativePath = "Other Folder/keep.txt".into();
+
+        manager
+            .insert_entry(entry(live.clone(), Some("live"), peer_id))
+            .await
+            .unwrap();
+        manager
+            .insert_entry(entry(nested.clone(), Some("nested"), peer_id))
+            .await
+            .unwrap();
+        let mut tombstone = entry(deleted.clone(), Some("deleted"), peer_id);
+        tombstone.set_removed_hash();
+        manager.insert_entry(tombstone).await.unwrap();
+        manager
+            .insert_entry(entry(outside.clone(), Some("outside"), peer_id))
+            .await
+            .unwrap();
+
+        assert!(manager.remove_sync_dir(&sync_root).await.unwrap());
+
+        for name in [&live, &nested, &deleted] {
+            assert!(
+                manager.get_entry(name).await.unwrap().is_none(),
+                "unshared sync dir metadata must be purged for {name}"
+            );
+        }
+        assert!(
+            manager.get_entry(&outside).await.unwrap().is_some(),
+            "purge must not touch sibling metadata"
+        );
+
+        let data = manager.get_handshake_data().await.unwrap();
+        for name in [&live, &nested, &deleted] {
+            assert!(
+                !data.entries.contains_key(name),
+                "unshared sync dir entry must not be advertised: {name}"
+            );
+        }
+        assert!(
+            data.sync_dirs.iter().all(|dir| dir.name != sync_root),
+            "unshared sync dir must not be advertised as configured"
+        );
     }
 
     /// Issue #33 B2: on a true concurrent-edit conflict resolved by the
