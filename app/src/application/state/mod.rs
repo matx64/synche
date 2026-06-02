@@ -1,5 +1,5 @@
 mod app_state;
-mod entry_manager;
+pub mod entry_manager;
 mod ignore;
 mod peer_manager;
 

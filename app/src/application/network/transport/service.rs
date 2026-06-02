@@ -123,6 +123,7 @@ mod tests {
                 source_id,
                 source_ip,
             },
+            staging: None,
         }
     }
 
@@ -133,6 +134,7 @@ mod tests {
                 source_id,
                 source_ip,
             },
+            staging: None,
         }
     }
 

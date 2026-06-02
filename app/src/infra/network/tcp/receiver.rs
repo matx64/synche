@@ -3,7 +3,7 @@ use crate::{
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{
         EntryInfo, EntryKind, HandshakeData, MAX_TRUSTED_COUNTER, RelativePath, ServerEvent,
-        SyncDirectory, TransportData,
+        StagedTransfer, SyncDirectory, TransportData,
     },
     infra::network::tcp::{
         chunk::{
@@ -25,11 +25,14 @@ use uuid::Uuid;
 /// Inbound side of the TCP wire format.
 ///
 /// Decodes a `TcpStreamKind`-tagged payload back into a
-/// `TransportData`. For bulk transfers, the bytes are written to a
-/// per-transfer staging file in the OS temp directory and only moved
-/// to their final location after the streamed SHA-256 matches the
-/// advertised hash and safety validation passes; corrupt or unsafe
-/// transfers are dropped without touching the user's home tree.
+/// `TransportData`. For bulk transfers, the bytes are streamed into a
+/// per-transfer staging file in the OS temp directory, verified
+/// against the advertised SHA-256, and returned to the adapter
+/// alongside the parsed `EntryInfo` so the application layer can
+/// run its pre-commit checks (outstanding-request, local compare,
+/// per-entry serialization) BEFORE renaming into `home_path` —
+/// issue #33 B1. Corrupt, oversized, or unsafe transfers are dropped
+/// in this layer without ever staging.
 pub struct TcpReceiver {
     state: Arc<AppState>,
 }
@@ -50,12 +53,16 @@ impl TcpReceiver {
         mut stream: TcpStream,
         kind: TcpStreamKind,
         source_id: Uuid,
-    ) -> TransportResult<TransportData> {
+    ) -> TransportResult<(TransportData, Option<StagedTransfer>)> {
         match kind {
-            TcpStreamKind::HandshakeSyn => self.read_handshake(&mut stream, true).await,
-            TcpStreamKind::HandshakeAck => self.read_handshake(&mut stream, false).await,
-            TcpStreamKind::Metadata => self.read_metadata(&mut stream).await,
-            TcpStreamKind::Request => self.read_request(&mut stream).await,
+            TcpStreamKind::HandshakeSyn => {
+                Ok((self.read_handshake(&mut stream, true).await?, None))
+            }
+            TcpStreamKind::HandshakeAck => {
+                Ok((self.read_handshake(&mut stream, false).await?, None))
+            }
+            TcpStreamKind::Metadata => Ok((self.read_metadata(&mut stream).await?, None)),
+            TcpStreamKind::Request => Ok((self.read_request(&mut stream).await?, None)),
             TcpStreamKind::Transfer => self.read_transfer(&mut stream, source_id).await,
         }
     }
@@ -104,7 +111,7 @@ impl TcpReceiver {
         &self,
         stream: &mut TcpStream,
         source_id: Uuid,
-    ) -> TransportResult<TransportData> {
+    ) -> TransportResult<(TransportData, Option<StagedTransfer>)> {
         let entry = self.read_entry_info(stream).await?;
 
         // Header parsed — any failure from here on can be attributed to this
@@ -114,7 +121,7 @@ impl TcpReceiver {
             .read_transfer_after_header(stream, &entry, source_id)
             .await
         {
-            Ok(()) => Ok(TransportData::Transfer(entry)),
+            Ok(staging) => Ok((TransportData::Transfer(entry), staging)),
             Err(err) => {
                 self.broadcast_sync_failed(source_id, &entry, &err);
                 Err(err)
@@ -127,7 +134,7 @@ impl TcpReceiver {
         stream: &mut TcpStream,
         entry: &EntryInfo,
         source_id: Uuid,
-    ) -> TransportResult<()> {
+    ) -> TransportResult<Option<StagedTransfer>> {
         let mut entry_size_buf = [0u8; 8];
         stream.read_exact(&mut entry_size_buf).await?;
         let entry_size = u64::from_be_bytes(entry_size_buf);
@@ -144,10 +151,18 @@ impl TcpReceiver {
         {
             // Drain the payload from the wire without writing to disk.
             Self::discard_bytes(stream, entry_size, TRANSFER_CHUNK_SIZE).await?;
-            return Ok(());
+            return Ok(None);
         }
 
-        let mut staging = self.create_staging(entry).await?;
+        let mut staging = match self.create_staging(entry).await {
+            Ok(staging) => staging,
+            Err(e) => {
+                self.state
+                    .release_pending_transfer_claim(source_id, &entry.name)
+                    .await;
+                return Err(e);
+            }
+        };
 
         let computed_hash =
             match Self::stream_to_file(stream, &mut staging.file, entry_size, TRANSFER_CHUNK_SIZE)
@@ -156,6 +171,9 @@ impl TcpReceiver {
                 Ok(h) => h,
                 Err(e) => {
                     let _ = fs::remove_dir_all(&staging.root).await;
+                    self.state
+                        .release_pending_transfer_claim(source_id, &entry.name)
+                        .await;
                     return Err(e);
                 }
             };
@@ -166,12 +184,24 @@ impl TcpReceiver {
             && computed_hash != *hash
         {
             let _ = fs::remove_dir_all(&staging.root).await;
+            self.state
+                .release_pending_transfer_claim(source_id, &entry.name)
+                .await;
             return Err(TransportError::new(
                 "Hash mismatch: data corruption detected",
             ));
         }
 
-        self.finalise_staging(entry, staging).await
+        let staged = match self.finalise_staging(staging).await {
+            Ok(staged) => staged,
+            Err(e) => {
+                self.state
+                    .release_pending_transfer_claim(source_id, &entry.name)
+                    .await;
+                return Err(e);
+            }
+        };
+        Ok(Some(staged))
     }
 
     async fn should_drop_transfer_before_disk_write(
@@ -187,6 +217,10 @@ impl TcpReceiver {
             .version
             .get(&source_id)
             .is_some_and(|counter| *counter > MAX_TRUSTED_COUNTER)
+            || !self
+                .state
+                .claim_pending_request_for_staging(source_id, &entry.name)
+                .await
     }
 
     fn broadcast_sync_failed(&self, peer: Uuid, entry: &EntryInfo, err: &TransportError) {
@@ -268,32 +302,16 @@ impl TcpReceiver {
         })
     }
 
-    async fn finalise_staging(
-        &self,
-        entry: &EntryInfo,
-        mut staging: Staging,
-    ) -> TransportResult<()> {
+    /// Flushes the staging file, drops the handle, and hands a
+    /// `StagedTransfer` back to the caller. Renaming into `home_path`
+    /// is deliberately deferred to the application layer so the four
+    /// pre-commit checks (issue #33 B1) can run before the user's
+    /// tree changes. The returned `StagedTransfer` owns the staging
+    /// directory and cleans it up on drop if no caller commits it.
+    async fn finalise_staging(&self, mut staging: Staging) -> TransportResult<StagedTransfer> {
         staging.file.flush().await?;
         drop(staging.file);
-
-        let original_path = entry.name.to_canonical(self.state.home_path());
-        if let Some(parent) = original_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-
-        match fs::rename(&staging.tmp_path, &original_path).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                fs::copy(&staging.tmp_path, &original_path).await?;
-                fs::remove_file(&staging.tmp_path).await?;
-            }
-            Err(e) => {
-                let _ = fs::remove_dir_all(&staging.root).await;
-                return Err(e.into());
-            }
-        }
-        let _ = fs::remove_dir_all(&staging.root).await;
-        Ok(())
+        Ok(StagedTransfer::new(staging.tmp_path, staging.root))
     }
 
     /// Stream exactly `total` bytes from `reader` into `writer` in `chunk_size`
@@ -495,13 +513,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_transfer_streams_file_to_home_and_validates_hash() {
+    async fn read_transfer_without_pending_request_drains_without_staging() {
         let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
-        let root = format!("tcp_chunk_ok_{}", Uuid::new_v4());
-        let entry_name = format!("sync/{root}/payload.bin");
+        let peer = Uuid::new_v4();
+        let entry_name = format!("sync/no-pending-{}.bin", Uuid::new_v4());
         let original_path = state.home_path().join(&entry_name);
-        let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
+        let contents = b"valid but unsolicited".to_vec();
         let hash = format!("{:x}", Sha256::digest(&contents));
         let entry = file_entry(&entry_name, Some(hash));
 
@@ -516,18 +534,75 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = ok(receiver
-            .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
+        let (data, staging) = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, peer)
             .await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));
-        assert!(original_path.exists());
-        let on_disk = fs::read(&original_path).await.unwrap();
-        assert_eq!(on_disk, contents);
+        assert!(
+            staging.is_none(),
+            "unsolicited transfer must be drained without staging"
+        );
+        assert!(!original_path.exists());
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "no pending request or staging claim should remain"
+        );
+    }
 
-        let root_path = state.home_path().join(format!("sync/{root}"));
-        fs::remove_dir_all(root_path).await.unwrap();
+    #[tokio::test]
+    async fn read_transfer_stages_bytes_without_writing_to_home() {
+        // Issue #33 B1: the TCP layer must NOT rename staged bytes into
+        // `home_path`. It returns a `StagedTransfer` whose file contains
+        // the verified payload, and the application layer commits later.
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let peer = Uuid::new_v4();
+        let root = format!("tcp_chunk_ok_{}", Uuid::new_v4());
+        let entry_name = format!("sync/{root}/payload.bin");
+        let original_path = state.home_path().join(&entry_name);
+        let contents: Vec<u8> = (0..200u32).map(|i| (i % 256) as u8).collect();
+        let hash = format!("{:x}", Sha256::digest(&contents));
+        let entry = file_entry(&entry_name, Some(hash));
+        state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entry_clone = entry.clone();
+        let contents_clone = contents.clone();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let (data, staging) = ok(receiver
+            .read_data(stream, TcpStreamKind::Transfer, peer)
+            .await);
+        writer.await.unwrap();
+
+        assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(
+            !original_path.exists(),
+            "TCP layer must not write to home before app-layer commit"
+        );
+
+        let staging = staging.expect("Transfer must return a StagedTransfer");
+        let staged_path = staging.path().expect("staging path present");
+        let on_disk = fs::read(staged_path).await.unwrap();
+        assert_eq!(on_disk, contents);
+        assert!(
+            state.take_pending_request(peer, &entry.name).await,
+            "TCP pre-stage claim should be left for app-layer consume"
+        );
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "TCP pre-stage claim must be one-shot"
+        );
     }
 
     #[tokio::test]
@@ -541,6 +616,9 @@ mod tests {
         let contents = vec![0xAAu8; 64];
         let entry = file_entry(&entry_name, Some("deadbeef".to_string()));
         let peer = Uuid::new_v4();
+        state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -565,6 +643,10 @@ mod tests {
             Ok(_) => panic!("expected hash-mismatch failure"),
         }
         assert!(!original_path.exists());
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "failed staging must release the pre-stage claim"
+        );
 
         match sse_rx.try_recv().expect("expected EntrySyncFailed") {
             crate::domain::ServerEvent::EntrySyncFailed {
@@ -659,12 +741,13 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = ok(receiver
+        let (data, staging) = ok(receiver
             .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
             .await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(staging.is_none(), "git path must be dropped before staging");
         assert!(!original_path.exists());
 
         let root_path = state.home_path().join(&root);
@@ -694,12 +777,16 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = ok(receiver
+        let (data, staging) = ok(receiver
             .read_data(stream, TcpStreamKind::Transfer, Uuid::new_v4())
             .await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(
+            staging.is_none(),
+            "transfer outside configured sync dir must be dropped before staging"
+        );
         assert!(!original_path.exists());
         assert!(!state.home_path().join("other").exists());
     }
@@ -736,12 +823,16 @@ mod tests {
 
         let (stream, _) = listener.accept().await.unwrap();
         let receiver = TcpReceiver::new(state.clone());
-        let data = ok(receiver
+        let (data, staging) = ok(receiver
             .read_data(stream, TcpStreamKind::Transfer, peer)
             .await);
         writer.await.unwrap();
 
         assert!(matches!(data, TransportData::Transfer(_)));
+        assert!(
+            staging.is_none(),
+            "poisoned peer counter must be rejected before staging"
+        );
         assert_eq!(fs::read(&original_path).await.unwrap(), b"original");
     }
 
