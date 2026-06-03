@@ -2,8 +2,8 @@ use crate::{
     application::AppState,
     application::network::transport::interface::{TransportError, TransportResult},
     domain::{
-        EntryInfo, EntryKind, HandshakeData, MAX_TRUSTED_COUNTER, RelativePath, ServerEvent,
-        StagedTransfer, SyncDirectory, TransportData,
+        EntryInfo, HandshakeData, MAX_TRUSTED_COUNTER, RelativePath, ServerEvent, StagedTransfer,
+        SyncDirectory, TransportData,
     },
     infra::network::tcp::{
         chunk::{
@@ -179,8 +179,6 @@ impl TcpReceiver {
             };
 
         if let Some(hash) = &entry.hash
-            && !entry.is_removed()
-            && matches!(entry.kind, EntryKind::File)
             && computed_hash != *hash
         {
             let _ = fs::remove_dir_all(&staging.root).await;
@@ -210,6 +208,10 @@ impl TcpReceiver {
         source_id: Uuid,
     ) -> bool {
         if is_git_path(&entry.name) || !self.state.contains_sync_dir(&entry.get_sync_dir()).await {
+            return true;
+        }
+
+        if !entry.is_live_file() {
             return true;
         }
 
@@ -366,6 +368,7 @@ impl TcpReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::EntryKind;
     use std::collections::HashMap;
     use std::io::Cursor;
     use tokio::{
@@ -550,6 +553,55 @@ mod tests {
             !state.take_pending_request(peer, &entry.name).await,
             "no pending request or staging claim should remain"
         );
+    }
+
+    #[tokio::test]
+    async fn read_transfer_rejects_invalid_entries_before_staging_without_consuming_pending() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let peer = Uuid::new_v4();
+
+        let mut tombstone = file_entry("sync/deleted-transfer.bin", None);
+        tombstone.mark_removed();
+        let hashless_file = file_entry("sync/hashless-transfer.bin", None);
+
+        for entry in [tombstone, hashless_file] {
+            let original_path = state.home_path().join(&*entry.name);
+            let contents = b"invalid transfer bytes".to_vec();
+            state
+                .register_pending_request(peer, entry.name.clone())
+                .await;
+
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let entry_clone = entry.clone();
+            let contents_clone = contents.clone();
+            let writer = tokio::spawn(async move {
+                let mut stream = TcpStream::connect(addr).await.unwrap();
+                write_transfer_to_stream(&mut stream, &entry_clone, &contents_clone).await;
+            });
+
+            let (stream, _) = listener.accept().await.unwrap();
+            let receiver = TcpReceiver::new(state.clone());
+            let (data, staging) = ok(receiver
+                .read_data(stream, TcpStreamKind::Transfer, peer)
+                .await);
+            writer.await.unwrap();
+
+            assert!(matches!(data, TransportData::Transfer(_)));
+            assert!(
+                staging.is_none(),
+                "invalid Transfer entry must be drained without staging"
+            );
+            assert!(
+                !original_path.exists(),
+                "invalid Transfer entry must not write to home"
+            );
+            assert!(
+                state.take_pending_request(peer, &entry.name).await,
+                "invalid Transfer entry must not consume the pending request"
+            );
+        }
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 use crate::domain::{RelativePath, VersionCmp, VersionVector};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -10,13 +10,12 @@ use uuid::Uuid;
 /// (with `hash` cleared to `None`) so the deletion keeps propagating to
 /// peers — see `mark_removed`. `version` is the `VersionVector` that
 /// drives conflict resolution; see `VersionCmp`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EntryInfo {
     pub name: RelativePath,
     pub kind: EntryKind,
     pub hash: Option<String>,
     pub version: VersionVector,
-    #[serde(default)]
     pub deleted: bool,
 }
 
@@ -70,6 +69,11 @@ impl EntryInfo {
         matches!(self.kind, EntryKind::File)
     }
 
+    /// Returns `true` only for entries that are valid Transfer payloads.
+    pub fn is_live_file(&self) -> bool {
+        self.is_file() && !self.is_removed() && self.hash.is_some()
+    }
+
     pub fn get_sync_dir(&self) -> RelativePath {
         self.name.sync_dir()
     }
@@ -88,6 +92,39 @@ impl EntryInfo {
         self.deleted
     }
 }
+
+impl<'de> Deserialize<'de> for EntryInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct WireEntryInfo {
+            name: RelativePath,
+            kind: EntryKind,
+            hash: Option<String>,
+            version: VersionVector,
+            #[serde(default)]
+            deleted: bool,
+        }
+
+        let wire = WireEntryInfo::deserialize(deserializer)?;
+        let legacy_tombstone = matches!(wire.hash.as_deref(), Some(LEGACY_REMOVED_HASH));
+        let deleted = wire.deleted || legacy_tombstone;
+
+        Ok(Self {
+            name: wire.name,
+            kind: wire.kind,
+            hash: if deleted { None } else { wire.hash },
+            version: wire.version,
+            deleted,
+        })
+    }
+}
+
+/// Legacy tombstone sentinel from before issue #42. Kept only for inbound
+/// compatibility with older peers that still send tombstones as a hash.
+const LEGACY_REMOVED_HASH: &str = "00000000000000000000000000000000";
 
 #[cfg(test)]
 mod tests {
@@ -124,6 +161,20 @@ mod tests {
         assert!(entry.is_removed());
         assert!(entry.deleted);
         assert_eq!(entry.hash, None);
+    }
+
+    #[test]
+    fn only_live_files_are_valid_transfer_payloads() {
+        let live_file = file("a.txt", Some("abc"));
+        let hashless_file = file("a.txt", None);
+        let live_dir = dir("d");
+        let mut tombstone = file("gone.txt", Some("abc"));
+        tombstone.mark_removed();
+
+        assert!(live_file.is_live_file());
+        assert!(!hashless_file.is_live_file());
+        assert!(!live_dir.is_live_file());
+        assert!(!tombstone.is_live_file());
     }
 
     #[test]
@@ -168,5 +219,14 @@ mod tests {
         let decoded: EntryInfo = serde_json::from_str(json).unwrap();
 
         assert!(!decoded.is_removed());
+    }
+
+    #[test]
+    fn legacy_removed_hash_deserializes_as_tombstone() {
+        let json = r#"{"name":"a.txt","kind":"File","hash":"00000000000000000000000000000000","version":{}}"#;
+        let decoded: EntryInfo = serde_json::from_str(json).unwrap();
+
+        assert!(decoded.is_removed());
+        assert_eq!(decoded.hash, None);
     }
 }

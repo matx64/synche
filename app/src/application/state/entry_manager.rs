@@ -651,6 +651,10 @@ impl<P: PersistenceInterface> EntryManager<P> {
             return Ok(CommitOutcome::Dropped("peer entry rejected by sanitizer"));
         };
 
+        if !sanitized.is_live_file() {
+            return Ok(CommitOutcome::Dropped("invalid transfer entry"));
+        }
+
         if self.has_removed_ancestor_dir(&sanitized.name).await? {
             return Ok(CommitOutcome::Dropped("ancestor directory tombstoned"));
         }
@@ -2293,6 +2297,58 @@ mod tests {
         assert!(
             !child_name.to_canonical(env.state.home_path()).exists(),
             "transfer under a removed directory must not recreate the subtree"
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_drops_tombstone_transfer_without_touching_disk_or_db() {
+        let (env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = env.state.local_id();
+        let peer = Uuid::new_v4();
+        let name = dir_relative(&sync_root, "payload.bin");
+        let target = name.to_canonical(env.state.home_path());
+        tokio::fs::create_dir_all(target.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&target, b"local bytes").await.unwrap();
+
+        let prior = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: Some("local-hash".into()),
+            version: HashMap::from([(local_id, 1)]),
+            deleted: false,
+        };
+        manager.insert_entry(prior.clone()).await.unwrap();
+
+        let staging = build_staged_transfer(env.home_path(), b"tombstone bytes").await;
+        let staging_root = staging.path().unwrap().parent().unwrap().to_path_buf();
+        let mut peer_tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(peer, 3)]),
+            deleted: false,
+        };
+        peer_tombstone.mark_removed();
+
+        let outcome = manager
+            .commit_staged_transfer(peer, peer_tombstone, staging)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            outcome,
+            CommitOutcome::Dropped("invalid transfer entry")
+        ));
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"local bytes");
+        let stored = manager.get_entry(&name).await.unwrap().unwrap();
+        assert!(!stored.is_removed());
+        assert_eq!(stored.hash.as_deref(), Some("local-hash"));
+        assert!(
+            !staging_root.exists(),
+            "invalid Transfer staging dir must be cleaned up on drop"
         );
     }
 
