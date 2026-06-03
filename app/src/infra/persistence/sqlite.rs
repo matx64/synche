@@ -56,7 +56,9 @@ impl SqliteDb {
     /// the column is missing, add it, then promote every legacy sentinel
     /// row to an explicit tombstone (`deleted = 1`) and clear the now-defunct
     /// sentinel from `hash`, so existing deletions survive the upgrade and
-    /// keep propagating to peers.
+    /// keep propagating to peers. The promotion runs even when the column is
+    /// already present, allowing startup to finish a migration that crashed
+    /// after `ALTER TABLE`.
     async fn migrate_deleted_column(pool: &Pool<Sqlite>) -> Result<(), Error> {
         let columns = sqlx::query("PRAGMA table_info(entries)")
             .fetch_all(pool)
@@ -66,19 +68,17 @@ impl SqliteDb {
             .filter_map(|row| row.try_get::<String, _>("name").ok())
             .any(|name| name == "deleted");
 
-        if has_deleted {
-            return Ok(());
+        if !has_deleted {
+            pool.execute("ALTER TABLE entries ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+                .await?;
         }
-
-        pool.execute("ALTER TABLE entries ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
-            .await?;
 
         sqlx::query("UPDATE entries SET deleted = 1 WHERE hash = ?")
             .bind(LEGACY_REMOVED_HASH)
             .execute(pool)
             .await?;
 
-        pool.execute("UPDATE entries SET hash = NULL WHERE deleted = 1")
+        pool.execute("UPDATE entries SET hash = NULL WHERE deleted != 0")
             .await?;
 
         Ok(())
@@ -513,6 +513,93 @@ mod tests {
             "legacy sentinel must become a tombstone"
         );
         assert_eq!(tombstone.hash, None, "legacy sentinel hash must be cleared");
+
+        let live = db.get_entry("dir/live.txt").await.unwrap().unwrap();
+        assert!(!live.is_removed());
+        assert_eq!(live.hash, Some("abc123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_migration_finishes_when_deleted_column_already_exists() {
+        // If a previous startup crashed after adding the `deleted` column but
+        // before promoting/clearing legacy sentinel rows, opening the DB again
+        // must complete those data fixes instead of returning early.
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("partial_legacy.db");
+
+        let legacy_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+
+        legacy_pool
+            .execute(
+                "CREATE TABLE entries (
+                    name TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    hash TEXT,
+                    version TEXT NOT NULL,
+                    deleted INTEGER NOT NULL DEFAULT 0
+                )",
+            )
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/gone-after-alter.txt")
+        .bind("F")
+        .bind(LEGACY_REMOVED_HASH)
+        .bind("{}")
+        .bind(0_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/dirty-deleted.txt")
+        .bind("F")
+        .bind("stale-hash")
+        .bind("{}")
+        .bind(1_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/live.txt")
+        .bind("F")
+        .bind("abc123")
+        .bind("{}")
+        .bind(0_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        legacy_pool.close().await;
+
+        let db = SqliteDb::new(&db_path).await.unwrap();
+
+        let promoted = db
+            .get_entry("dir/gone-after-alter.txt")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(promoted.is_removed());
+        assert_eq!(promoted.hash, None);
+
+        let cleared = db
+            .get_entry("dir/dirty-deleted.txt")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(cleared.is_removed());
+        assert_eq!(cleared.hash, None);
 
         let live = db.get_entry("dir/live.txt").await.unwrap().unwrap();
         assert!(!live.is_removed());

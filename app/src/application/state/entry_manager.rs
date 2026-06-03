@@ -173,7 +173,11 @@ impl<P: PersistenceInterface> EntryManager<P> {
             }
 
             match filesystem_entries.get(name) {
-                Some(fs_entry) if fs_entry.hash != entry.hash => {
+                Some(fs_entry)
+                    if entry.is_removed()
+                        || fs_entry.kind != entry.kind
+                        || fs_entry.hash != entry.hash =>
+                {
                     bump_local_counter(&mut entry.version, self.state.local_id())?;
 
                     self.db
@@ -322,6 +326,18 @@ impl<P: PersistenceInterface> EntryManager<P> {
         kind: EntryKind,
         hash: Option<String>,
     ) -> io::Result<EntryInfo> {
+        if let Some(mut entry) = self.get_entry(name).await? {
+            if entry.kind != kind || entry.hash != hash || entry.is_removed() {
+                entry.kind = kind;
+                entry.hash = hash;
+                entry.deleted = false;
+                bump_local_counter(&mut entry.version, self.state.local_id())?;
+                self.db.insert_or_replace_entry(&entry).await?;
+            }
+
+            return Ok(entry);
+        }
+
         self.insert_entry(EntryInfo {
             name: name.to_owned(),
             kind,
@@ -338,6 +354,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         hash: Option<String>,
     ) -> io::Result<EntryInfo> {
         entry.hash = hash;
+        entry.deleted = false;
         bump_local_counter(&mut entry.version, self.state.local_id())?;
 
         self.db.insert_or_replace_entry(&entry).await?;
@@ -1157,6 +1174,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn entry_modified_restores_tombstoned_file() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let name = dir_relative(&sync_root, "restored.txt");
+
+        let mut tombstone = EntryInfo {
+            name,
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(local_id, 4)]),
+            deleted: false,
+        };
+        tombstone.mark_removed();
+
+        let restored = manager
+            .entry_modified(tombstone, Some("live-again".into()))
+            .await
+            .unwrap();
+
+        assert_eq!(restored.version.get(&local_id), Some(&5));
+        assert_eq!(restored.hash.as_deref(), Some("live-again"));
+        assert!(!restored.is_removed());
+    }
+
+    #[tokio::test]
     async fn compare_and_resolve_conflict_keeps_self_when_local_id_lower_than_peer() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
         let sync_root = add_sync_dir(&manager, &sync_dir).await;
@@ -1896,6 +1939,42 @@ mod tests {
 
         let stored = manager.get_entry(&name).await.unwrap().unwrap();
         assert_eq!(stored.hash.as_deref(), Some("live-again"));
+        assert!(!stored.is_removed());
+        assert_eq!(stored.version.get(&local_id), Some(&2));
+    }
+
+    #[tokio::test]
+    async fn build_db_resurrects_directory_over_tombstone_when_present() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+        let name = dir_relative(&sync_root, "restored-dir");
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(local_id, 1)]),
+            deleted: false,
+        };
+        tombstone.mark_removed();
+        manager.insert_entry(tombstone).await.unwrap();
+
+        let live_dir = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(local_id, 0)]),
+            deleted: false,
+        };
+        manager
+            .build_db(HashMap::from([(name.clone(), live_dir)]))
+            .await
+            .unwrap();
+
+        let stored = manager.get_entry(&name).await.unwrap().unwrap();
+        assert_eq!(stored.kind, EntryKind::Directory);
+        assert_eq!(stored.hash, None);
         assert!(!stored.is_removed());
         assert_eq!(stored.version.get(&local_id), Some(&2));
     }

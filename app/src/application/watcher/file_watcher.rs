@@ -139,6 +139,8 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         match self.entry_manager.get_entry(&path.relative).await? {
             None => self.handle_entry_create(path).await,
 
+            Some(entry) if entry.is_removed() => self.handle_entry_create(path).await,
+
             Some(entry) if path.is_file() && entry.is_file() => {
                 self.handle_modify_file(path, entry).await
             }
@@ -175,10 +177,11 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
         let dir_entries = self.entry_manager.build_dir(path.canonical).await?;
 
         for (relative, info) in dir_entries {
-            self.entry_manager
+            let entry = self
+                .entry_manager
                 .entry_created(&relative, info.kind.clone(), info.hash.clone())
                 .await?;
-            self.send_metadata(info).await;
+            self.send_metadata(entry).await;
         }
         Ok(())
     }
@@ -489,6 +492,99 @@ mod tests {
             TransportChannelData::Metadata(entry) => {
                 assert_eq!(entry.name, name);
                 assert_eq!(entry.version.get(&local_id), Some(&4));
+            }
+            _ => panic!("unexpected outbound message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_event_restores_tombstoned_file_as_live_metadata() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let name: RelativePath = "sync/restored.txt".into();
+
+        let sync_dir = env.home_path().join("sync");
+        tokio::fs::create_dir_all(&sync_dir).await.unwrap();
+        let file = sync_dir.join("restored.txt");
+        tokio::fs::write(&file, b"live again").await.unwrap();
+        let canonical = CanonicalPath::from_absolute(&file);
+        let expected_hash = compute_hash(&canonical).await.unwrap();
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::File,
+            hash: None,
+            version: HashMap::from([(local_id, 4)]),
+            deleted: false,
+        };
+        tombstone.mark_removed();
+        entry_manager.insert_entry(tombstone).await.unwrap();
+
+        let path = WatcherEventPath {
+            relative: name.clone(),
+            canonical,
+        };
+        watcher.handle_entry_create_or_modify(path).await.unwrap();
+
+        let stored = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert!(!stored.is_removed());
+        assert_eq!(stored.hash.as_deref(), Some(expected_hash.as_str()));
+        assert_eq!(stored.version.get(&local_id), Some(&5));
+
+        match sender_rx
+            .try_recv()
+            .expect("expected live Metadata for restored file")
+        {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, name);
+                assert!(!entry.is_removed());
+                assert_eq!(entry.hash.as_deref(), Some(expected_hash.as_str()));
+                assert_eq!(entry.version.get(&local_id), Some(&5));
+            }
+            _ => panic!("unexpected outbound message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_event_restores_tombstoned_directory_as_live_metadata() {
+        let (env, watcher, entry_manager, mut sender_rx) = setup().await;
+        let local_id = env.state.local_id();
+        let name: RelativePath = "sync/restored-dir".into();
+
+        let dir = env.home_path().join("sync/restored-dir");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let mut tombstone = EntryInfo {
+            name: name.clone(),
+            kind: EntryKind::Directory,
+            hash: None,
+            version: HashMap::from([(local_id, 7)]),
+            deleted: false,
+        };
+        tombstone.mark_removed();
+        entry_manager.insert_entry(tombstone).await.unwrap();
+
+        let path = WatcherEventPath {
+            relative: name.clone(),
+            canonical: CanonicalPath::from_absolute(&dir),
+        };
+        watcher.handle_entry_create_or_modify(path).await.unwrap();
+
+        let stored = entry_manager.get_entry(&name).await.unwrap().unwrap();
+        assert_eq!(stored.kind, EntryKind::Directory);
+        assert_eq!(stored.hash, None);
+        assert!(!stored.is_removed());
+        assert_eq!(stored.version.get(&local_id), Some(&8));
+
+        match sender_rx
+            .try_recv()
+            .expect("expected live Metadata for restored directory")
+        {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, name);
+                assert_eq!(entry.kind, EntryKind::Directory);
+                assert!(!entry.is_removed());
+                assert_eq!(entry.version.get(&local_id), Some(&8));
             }
             _ => panic!("unexpected outbound message"),
         }
