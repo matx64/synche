@@ -1,5 +1,5 @@
 use crate::domain::{RelativePath, VersionCmp, VersionVector};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -10,7 +10,7 @@ use uuid::Uuid;
 /// (with `hash` cleared to `None`) so the deletion keeps propagating to
 /// peers — see `mark_removed`. `version` is the `VersionVector` that
 /// drives conflict resolution; see `VersionCmp`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct EntryInfo {
     pub name: RelativePath,
     pub kind: EntryKind,
@@ -93,6 +93,35 @@ impl EntryInfo {
     }
 }
 
+impl Serialize for EntryInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct WireEntryInfo<'a> {
+            name: &'a RelativePath,
+            kind: &'a EntryKind,
+            hash: Option<&'a str>,
+            version: &'a VersionVector,
+            deleted: bool,
+        }
+
+        WireEntryInfo {
+            name: &self.name,
+            kind: &self.kind,
+            hash: if self.deleted {
+                Some(LEGACY_REMOVED_HASH)
+            } else {
+                self.hash.as_deref()
+            },
+            version: &self.version,
+            deleted: self.deleted,
+        }
+        .serialize(serializer)
+    }
+}
+
 impl<'de> Deserialize<'de> for EntryInfo {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -122,8 +151,9 @@ impl<'de> Deserialize<'de> for EntryInfo {
     }
 }
 
-/// Legacy tombstone sentinel from before issue #42. Kept only for inbound
-/// compatibility with older peers that still send tombstones as a hash.
+/// Legacy tombstone sentinel from before issue #42. Kept for mixed-version
+/// wire compatibility and SQLite migration only; runtime/persisted tombstones
+/// are represented by `deleted = true` with `hash = None`.
 const LEGACY_REMOVED_HASH: &str = "00000000000000000000000000000000";
 
 #[cfg(test)]
@@ -209,6 +239,31 @@ mod tests {
 
         assert!(decoded.is_removed());
         assert_eq!(decoded.hash, None);
+    }
+
+    #[test]
+    fn tombstone_serializes_legacy_hash_for_mixed_version_peers() {
+        let mut entry = file("a.txt", Some("abc"));
+        entry.mark_removed();
+
+        let value = serde_json::to_value(&entry).unwrap();
+
+        assert_eq!(value["deleted"], true);
+        assert_eq!(value["hash"], LEGACY_REMOVED_HASH);
+        assert_eq!(
+            entry.hash, None,
+            "serialization must not mutate runtime hash"
+        );
+    }
+
+    #[test]
+    fn live_entry_serializes_real_hash_without_deleted_flag_set() {
+        let entry = file("a.txt", Some("abc"));
+
+        let value = serde_json::to_value(&entry).unwrap();
+
+        assert_eq!(value["deleted"], false);
+        assert_eq!(value["hash"], "abc");
     }
 
     #[test]
