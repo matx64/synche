@@ -39,14 +39,56 @@ impl SqliteDb {
                 name TEXT PRIMARY KEY,
                 kind TEXT NOT NULL,
                 hash TEXT,
-                version TEXT NOT NULL
+                version TEXT NOT NULL,
+                deleted INTEGER NOT NULL DEFAULT 0
             )",
         )
         .await?;
 
+        Self::migrate_deleted_column(&pool).await?;
+
         Ok(Self { pool })
     }
+
+    /// One-time migration off the legacy `REMOVED_HASH` tombstone sentinel
+    /// (issue #42). Older databases encoded a tombstone by stamping the
+    /// `hash` column with a 32-zero string and have no `deleted` column. If
+    /// the column is missing, add it, then promote every legacy sentinel
+    /// row to an explicit tombstone (`deleted = 1`) and clear the now-defunct
+    /// sentinel from `hash`, so existing deletions survive the upgrade and
+    /// keep propagating to peers. The promotion runs even when the column is
+    /// already present, allowing startup to finish a migration that crashed
+    /// after `ALTER TABLE`.
+    async fn migrate_deleted_column(pool: &Pool<Sqlite>) -> Result<(), Error> {
+        let columns = sqlx::query("PRAGMA table_info(entries)")
+            .fetch_all(pool)
+            .await?;
+        let has_deleted = columns
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("name").ok())
+            .any(|name| name == "deleted");
+
+        if !has_deleted {
+            pool.execute("ALTER TABLE entries ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+                .await?;
+        }
+
+        sqlx::query("UPDATE entries SET deleted = 1 WHERE hash = ?")
+            .bind(LEGACY_REMOVED_HASH)
+            .execute(pool)
+            .await?;
+
+        pool.execute("UPDATE entries SET hash = NULL WHERE deleted != 0")
+            .await?;
+
+        Ok(())
+    }
 }
+
+/// Legacy tombstone sentinel from before issue #42. Used **only** by the
+/// one-time `deleted`-column migration to recognize pre-upgrade tombstones;
+/// it must never re-enter the live hash path.
+const LEGACY_REMOVED_HASH: &str = "00000000000000000000000000000000";
 
 #[async_trait::async_trait]
 impl PersistenceInterface for SqliteDb {
@@ -54,13 +96,14 @@ impl PersistenceInterface for SqliteDb {
         let version_json = serde_json::to_string(&entry.version)?;
 
         sqlx::query(
-            "INSERT OR REPLACE INTO entries (name, kind, hash, version)
-                VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO entries (name, kind, hash, version, deleted)
+                VALUES (?, ?, ?, ?, ?)",
         )
         .bind(&*entry.name)
         .bind(entry.kind.to_string())
         .bind(entry.hash.clone())
         .bind(version_json)
+        .bind(entry.deleted as i64)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -105,6 +148,7 @@ impl FromRow<'_, SqliteRow> for EntryInfo {
     fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
         let name: String = row.try_get("name")?;
         let hash: Option<String> = row.try_get("hash")?;
+        let deleted: i64 = row.try_get("deleted")?;
 
         let version_json: String = row.try_get("version")?;
         let version =
@@ -126,6 +170,7 @@ impl FromRow<'_, SqliteRow> for EntryInfo {
             kind,
             version,
             hash,
+            deleted: deleted != 0,
         })
     }
 }
@@ -164,6 +209,7 @@ mod tests {
             kind,
             hash,
             version,
+            deleted: false,
         }
     }
 
@@ -322,6 +368,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: version.clone(),
+            deleted: false,
         };
 
         db.insert_or_replace_entry(&entry).await.unwrap();
@@ -387,11 +434,175 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::new(),
+            deleted: false,
         };
 
         db.insert_or_replace_entry(&entry).await.unwrap();
 
         let retrieved = db.get_entry("test.txt").await.unwrap().unwrap();
         assert_eq!(retrieved.version.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_tombstone_round_trips() {
+        let db = create_test_db().await;
+
+        let mut entry = create_test_entry("dir/gone.txt", EntryKind::File, Some("abc".to_string()));
+        entry.mark_removed();
+        db.insert_or_replace_entry(&entry).await.unwrap();
+
+        let retrieved = db.get_entry("dir/gone.txt").await.unwrap().unwrap();
+        assert!(retrieved.is_removed());
+        assert!(retrieved.deleted);
+        assert_eq!(retrieved.hash, None);
+    }
+
+    #[tokio::test]
+    async fn test_migrates_legacy_removed_hash_to_deleted_flag() {
+        // A database written before issue #42 has no `deleted` column and
+        // encodes tombstones with the all-zeros sentinel in `hash`. Opening
+        // it through `SqliteDb::new` must add the column, promote the
+        // sentinel row to an explicit tombstone, and clear the hash.
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("legacy.db");
+
+        let legacy_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+
+        legacy_pool
+            .execute(
+                "CREATE TABLE entries (
+                    name TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    hash TEXT,
+                    version TEXT NOT NULL
+                )",
+            )
+            .await
+            .unwrap();
+
+        // One legacy tombstone (sentinel hash) and one live file.
+        sqlx::query("INSERT INTO entries (name, kind, hash, version) VALUES (?, ?, ?, ?)")
+            .bind("dir/gone.txt")
+            .bind("F")
+            .bind(LEGACY_REMOVED_HASH)
+            .bind("{}")
+            .execute(&legacy_pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO entries (name, kind, hash, version) VALUES (?, ?, ?, ?)")
+            .bind("dir/live.txt")
+            .bind("F")
+            .bind("abc123")
+            .bind("{}")
+            .execute(&legacy_pool)
+            .await
+            .unwrap();
+        legacy_pool.close().await;
+
+        let db = SqliteDb::new(&db_path).await.unwrap();
+
+        let tombstone = db.get_entry("dir/gone.txt").await.unwrap().unwrap();
+        assert!(
+            tombstone.is_removed(),
+            "legacy sentinel must become a tombstone"
+        );
+        assert_eq!(tombstone.hash, None, "legacy sentinel hash must be cleared");
+
+        let live = db.get_entry("dir/live.txt").await.unwrap().unwrap();
+        assert!(!live.is_removed());
+        assert_eq!(live.hash, Some("abc123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_migration_finishes_when_deleted_column_already_exists() {
+        // If a previous startup crashed after adding the `deleted` column but
+        // before promoting/clearing legacy sentinel rows, opening the DB again
+        // must complete those data fixes instead of returning early.
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("partial_legacy.db");
+
+        let legacy_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+
+        legacy_pool
+            .execute(
+                "CREATE TABLE entries (
+                    name TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    hash TEXT,
+                    version TEXT NOT NULL,
+                    deleted INTEGER NOT NULL DEFAULT 0
+                )",
+            )
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/gone-after-alter.txt")
+        .bind("F")
+        .bind(LEGACY_REMOVED_HASH)
+        .bind("{}")
+        .bind(0_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/dirty-deleted.txt")
+        .bind("F")
+        .bind("stale-hash")
+        .bind("{}")
+        .bind(1_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/live.txt")
+        .bind("F")
+        .bind("abc123")
+        .bind("{}")
+        .bind(0_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        legacy_pool.close().await;
+
+        let db = SqliteDb::new(&db_path).await.unwrap();
+
+        let promoted = db
+            .get_entry("dir/gone-after-alter.txt")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(promoted.is_removed());
+        assert_eq!(promoted.hash, None);
+
+        let cleared = db
+            .get_entry("dir/dirty-deleted.txt")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(cleared.is_removed());
+        assert_eq!(cleared.hash, None);
+
+        let live = db.get_entry("dir/live.txt").await.unwrap().unwrap();
+        assert!(!live.is_removed());
+        assert_eq!(live.hash, Some("abc123".to_string()));
     }
 }

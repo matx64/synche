@@ -4,8 +4,8 @@ use crate::{
         persistence::interface::PersistenceInterface, state::entry_manager::CommitOutcome,
     },
     domain::{
-        EntryInfo, MutexChannel, Peer, RelativePath, ServerEvent, TransportChannelData,
-        TransportData, TransportEvent, VersionCmp,
+        EntryInfo, MAX_TRUSTED_COUNTER, MutexChannel, Peer, RelativePath, ServerEvent,
+        TransportChannelData, TransportData, TransportEvent, VersionCmp,
     },
     utils::fs::is_git_path,
 };
@@ -273,6 +273,38 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         if is_git_path(&received_entry.name)
             || !self.is_in_configured_sync_dir(&received_entry).await
         {
+            return Ok(());
+        }
+
+        if !received_entry.is_live_file() {
+            warn!(
+                peer = %peer_id,
+                entry = %received_entry.name,
+                "dropping invalid Transfer entry"
+            );
+            self.broadcast_sync_failed_reason(
+                peer_id,
+                &received_entry.name,
+                "invalid transfer entry",
+            );
+            return Ok(());
+        }
+
+        if received_entry
+            .version
+            .get(&peer_id)
+            .is_some_and(|counter| *counter > MAX_TRUSTED_COUNTER)
+        {
+            warn!(
+                peer = %peer_id,
+                entry = %received_entry.name,
+                "dropping poisoned Transfer entry"
+            );
+            self.broadcast_sync_failed_reason(
+                peer_id,
+                &received_entry.name,
+                "peer entry rejected by sanitizer",
+            );
             return Ok(());
         }
 
@@ -611,6 +643,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 
@@ -665,6 +698,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 
@@ -770,6 +804,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-live".to_string()),
                 version: HashMap::from([(local_id, 0)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -779,8 +814,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::HandshakeAck(HandshakeData {
@@ -831,8 +867,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 7)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
@@ -873,8 +910,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 5)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::HandshakeAck(HandshakeData {
@@ -926,6 +964,7 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         entry_manager.insert_entry(dir.clone()).await.unwrap();
 
@@ -944,8 +983,9 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
@@ -1028,8 +1068,9 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        dir_tombstone.set_removed_hash();
+        dir_tombstone.mark_removed();
 
         let (insert_started, release_insert) = db
             .block_insert(dir_name.clone(), dir_tombstone.hash.as_deref())
@@ -1060,6 +1101,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("child-live".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         let staging = make_staged_transfer(&env, b"stale child bytes").await;
         let transfer_evt = TransportEvent {
@@ -1211,6 +1253,7 @@ mod tests {
             // Peer reports its own axis AND a claim about `third`'s
             // counter — only the peer's own axis must be persisted.
             version: HashMap::from([(peer, 3), (third, 99)]),
+            deleted: false,
         };
 
         env.state
@@ -1287,6 +1330,110 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn handle_transfer_rejects_tombstone_without_consuming_pending_request() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let peer = Uuid::new_v4();
+        let mut entry = file_entry("sync/deleted-transfer.bin");
+        entry.mark_removed();
+        env.state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+        let staging = make_staged_transfer(&env, b"tombstone bytes").await;
+        let staging_root = staging.path().unwrap().parent().unwrap().to_path_buf();
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: Some(staging),
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none(),
+            "invalid Transfer must not be persisted"
+        );
+        assert!(
+            !env.home_path().join(&*entry.name).exists(),
+            "invalid Transfer must not write to home"
+        );
+        assert!(
+            !staging_root.exists(),
+            "invalid Transfer staging dir must be cleaned up on drop"
+        );
+        assert!(
+            env.state.take_pending_request(peer, &entry.name).await,
+            "invalid Transfer must not consume the pending request"
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+        match sse_rx.try_recv().expect("expected EntrySyncFailed") {
+            ServerEvent::EntrySyncFailed { reason, .. } => {
+                assert!(
+                    reason.contains("invalid transfer entry"),
+                    "reason was: {reason}"
+                );
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_transfer_rejects_poisoned_counter_without_consuming_pending_request() {
+        let (env, receiver, entry_manager, mut send_rx) = setup().await;
+        let mut sse_rx = env.state.sse_subscribe();
+        let peer = Uuid::new_v4();
+        let mut entry = file_entry("sync/poisoned-transfer.bin");
+        entry.version = HashMap::from([(peer, MAX_TRUSTED_COUNTER + 1)]);
+        env.state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+
+        let evt = TransportEvent {
+            payload: TransportData::Transfer(entry.clone()),
+            metadata: TransportMetadata {
+                source_id: peer,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+        receiver.handle_transfer(evt).await.unwrap();
+
+        assert!(
+            entry_manager
+                .get_entry(&entry.name)
+                .await
+                .unwrap()
+                .is_none(),
+            "poisoned Transfer must not be persisted"
+        );
+        assert!(
+            !env.home_path().join(&*entry.name).exists(),
+            "poisoned Transfer must not write to home"
+        );
+        assert!(
+            env.state.take_pending_request(peer, &entry.name).await,
+            "poisoned Transfer must not consume the pending request"
+        );
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+        match sse_rx.try_recv().expect("expected EntrySyncFailed") {
+            ServerEvent::EntrySyncFailed { reason, .. } => {
+                assert!(
+                    reason.contains("peer entry rejected by sanitizer"),
+                    "reason was: {reason}"
+                );
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
     /// Issue #33 B1: when we requested a transfer but locally edited
     /// the entry since (so the local row strictly dominates the peer's
     /// vector), the commit path must drop the staged bytes rather than
@@ -1312,6 +1459,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-newer".into()),
                 version: HashMap::from([(local_id, 5), (peer, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1326,6 +1474,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("stale-peer".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         env.state.register_pending_request(peer, name.clone()).await;
         let staging = make_staged_transfer(&env, b"stale-peer").await;
@@ -1479,6 +1628,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("older-live".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         let (insert_started, release_insert) =
             db.block_insert(name.clone(), Some("older-live")).await;
@@ -1513,8 +1663,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         let tombstone_evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
             metadata: TransportMetadata {
@@ -1583,6 +1734,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         // Block the metadata insert so the commit pauses after the disk
         // move but before persisting.
@@ -1652,8 +1804,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         let tombstone_evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
             metadata: TransportMetadata {
@@ -1685,6 +1838,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("newer-local-live".into()),
                 version: HashMap::from([(local_id, 1), (peer, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1752,6 +1906,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
 
         let evt = TransportEvent {
