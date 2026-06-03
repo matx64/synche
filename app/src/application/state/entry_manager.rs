@@ -128,6 +128,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                         kind: EntryKind::File,
                         hash: Some(compute_hash(&canonical).await?),
                         version: HashMap::from([(self.state.local_id(), 0)]),
+                        deleted: false,
                     },
                 );
             } else if canonical.is_dir() {
@@ -138,6 +139,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                         kind: EntryKind::Directory,
                         hash: None,
                         version: HashMap::from([(self.state.local_id(), 0)]),
+                        deleted: false,
                     },
                 );
 
@@ -180,6 +182,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                             version: entry.version.clone(),
                             kind: fs_entry.kind.clone(),
                             hash: fs_entry.hash.clone(),
+                            deleted: false,
                         })
                         .await?;
                 }
@@ -324,6 +327,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             kind,
             hash,
             version: HashMap::from([(self.state.local_id(), 0)]),
+            deleted: false,
         })
         .await
     }
@@ -782,7 +786,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// tombstones arrive could re-advertise a still-live child and resurrect
     /// it (issue #39 / B4). Descendants the peer did not send have no peer
     /// vector to preserve, so — like the local `remove_dir` path — we author
-    /// a local tombstone (bump local axis + `REMOVED_HASH`) via
+    /// a local tombstone (bump local axis + set the `deleted` flag) via
     /// `delete_and_update_entry`. `starts_with_dir` is inclusive of the dir
     /// path itself, so the name guard excludes the already-tombstoned
     /// directory row.
@@ -833,15 +837,15 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     /// Marks an entry as deleted and persists the tombstone.
     ///
-    /// The row is kept in the DB with `REMOVED_HASH` and a bumped local
-    /// counter so the deletion is durable across restarts and propagates
+    /// The row is kept in the DB with the `deleted` flag set and a bumped
+    /// local counter so the deletion is durable across restarts and propagates
     /// to peers via the handshake entry list. A plain `delete_entry`
     /// would lose the tombstone the moment we crash or a late-joining
     /// peer connects, letting the file silently resurrect from any peer
     /// that still has the live copy. (issue #33 finding B3)
     pub async fn delete_and_update_entry(&self, mut entry: EntryInfo) -> io::Result<EntryInfo> {
         bump_local_counter(&mut entry.version, self.state.local_id())?;
-        entry.set_removed_hash();
+        entry.mark_removed();
 
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(entry)
@@ -994,6 +998,7 @@ mod tests {
             kind: EntryKind::File,
             hash: hash.map(str::to_string),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         }
     }
 
@@ -1080,6 +1085,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-hash".into()),
                 version: HashMap::from([(local_id, 2), (peer_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1089,6 +1095,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(local_id, 99), (peer_id, 1)]),
+            deleted: false,
         };
 
         let entries = manager
@@ -1135,6 +1142,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("v1".into()),
                 version: HashMap::from([(local_id, 3)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1162,12 +1170,14 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("local-hash".into()),
             version: HashMap::from([(local_id, 1)]),
+            deleted: false,
         };
         let peer = EntryInfo {
             name,
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
 
         let cmp = manager
@@ -1194,12 +1204,14 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("local-hash".into()),
             version: HashMap::from([(manager.state.local_id(), 1)]),
+            deleted: false,
         };
         let peer = EntryInfo {
             name: rel,
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
 
         let cmp = manager
@@ -1237,12 +1249,14 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("local-hash".into()),
             version: HashMap::from([(manager.state.local_id(), 1)]),
+            deleted: false,
         };
         let peer = EntryInfo {
             name: rel,
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
 
         fs::write(&absolute, b"v1").unwrap();
@@ -1283,14 +1297,16 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(manager.state.local_id(), 1)]),
+            deleted: false,
         };
-        local.set_removed_hash();
+        local.mark_removed();
 
         let peer = EntryInfo {
             name,
             kind: EntryKind::File,
             hash: Some("live-peer".into()),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
 
         let cmp = manager
@@ -1312,14 +1328,16 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("live-local".into()),
             version: HashMap::from([(manager.state.local_id(), 1)]),
+            deleted: false,
         };
         let mut peer = EntryInfo {
             name,
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
-        peer.set_removed_hash();
+        peer.mark_removed();
 
         let cmp = manager
             .handle_conflict(&mut local, &peer, peer_id)
@@ -1359,6 +1377,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("new-local".into()),
                 version: HashMap::from([(local_id, 5), (peer_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1368,6 +1387,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("old-peer".into()),
             version: HashMap::from([(local_id, 3), (peer_id, 1)]),
+            deleted: false,
         };
 
         let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
@@ -1388,6 +1408,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-hash".into()),
                 version: HashMap::from([(local_id, 2), (peer_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1398,6 +1419,7 @@ mod tests {
             hash: Some("peer-hash".into()),
             // This would force KeepOther if compared before sanitizing.
             version: HashMap::from([(local_id, 99), (peer_id, 1)]),
+            deleted: false,
         };
 
         let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
@@ -1425,6 +1447,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("same-hash".into()),
                 version: HashMap::from([(local_id, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1434,6 +1457,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("same-hash".into()),
             version: HashMap::from([(local_id, 1), (peer_id, 4), (third_id, 7)]),
+            deleted: false,
         };
 
         let cmp = manager.handle_metadata(peer_id, &peer_entry).await.unwrap();
@@ -1468,6 +1492,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("same-hash".into()),
                 version: HashMap::from([(local_id, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1477,6 +1502,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("same-hash".into()),
             version: HashMap::from([(peer_id, u64::MAX)]),
+            deleted: false,
         };
 
         // Equal kind + hash would normally converge metadata, but the
@@ -1507,6 +1533,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-old".into()),
                 version: HashMap::from([(local_id, 5), (peer_id, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1516,6 +1543,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-copy".into()),
             version: HashMap::from([(peer_id, 3), (third_id, 99)]),
+            deleted: false,
         };
 
         let stored = manager
@@ -1540,6 +1568,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-copy".into()),
             version: HashMap::from([(peer_id, 3)]),
+            deleted: false,
         };
 
         assert!(
@@ -1604,7 +1633,7 @@ mod tests {
             .await
             .unwrap();
         let mut tombstone = entry(deleted.clone(), Some("deleted"), peer_id);
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         manager.insert_entry(tombstone).await.unwrap();
         manager
             .insert_entry(entry(outside.clone(), Some("outside"), peer_id))
@@ -1660,6 +1689,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-edit".into()),
                 version: HashMap::from([(local_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1670,6 +1700,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-edit".into()),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
 
         let cmp = manager
@@ -1707,6 +1738,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("same".into()),
                 version: HashMap::from([(local_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1717,6 +1749,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("same".into()),
             version: HashMap::from([(peer_id, 4)]),
+            deleted: false,
         };
 
         let cmp = manager
@@ -1747,6 +1780,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("live".into()),
                 version: HashMap::from([(local_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1780,8 +1814,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(local_id, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         manager.insert_entry(tombstone).await.unwrap();
 
         assert!(
@@ -1810,8 +1845,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(local_id, 3)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         manager.insert_entry(tombstone.clone()).await.unwrap();
 
         manager.build_db(HashMap::new()).await.unwrap();
@@ -1841,8 +1877,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(local_id, 1)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         manager.insert_entry(tombstone).await.unwrap();
 
         let live = EntryInfo {
@@ -1850,6 +1887,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("live-again".into()),
             version: HashMap::from([(local_id, 0)]),
+            deleted: false,
         };
         manager
             .build_db(HashMap::from([(name.clone(), live)]))
@@ -1878,6 +1916,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("was-live".into()),
                 version: HashMap::from([(local_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1905,8 +1944,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer_id, 4), (third_id, 99)]),
+            deleted: false,
         };
-        unknown.set_removed_hash();
+        unknown.mark_removed();
 
         let stored_unknown = manager
             .insert_peer_tombstone(peer_id, unknown)
@@ -1928,6 +1968,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-live".into()),
                 version: HashMap::from([(local_id, 5), (peer_id, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1937,8 +1978,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer_id, 7), (third_id, 123)]),
+            deleted: false,
         };
-        existing_tombstone.set_removed_hash();
+        existing_tombstone.mark_removed();
 
         let stored_existing = manager
             .insert_peer_tombstone(peer_id, existing_tombstone)
@@ -2057,6 +2099,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         let staging = build_staged_transfer(env.home_path(), b"payload").await;
 
@@ -2091,6 +2134,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("local-prior".into()),
             version: HashMap::from([(local_id, 0), (peer, 2)]),
+            deleted: false,
         };
         manager.insert_entry(prior.clone()).await.unwrap();
 
@@ -2106,6 +2150,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-new".into()),
             version: HashMap::from([(peer, 5)]),
+            deleted: false,
         };
         let staging = build_staged_transfer(env.home_path(), b"payload").await;
 
@@ -2139,8 +2184,9 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(local_id, 1)]),
+            deleted: false,
         };
-        dir_tombstone.set_removed_hash();
+        dir_tombstone.mark_removed();
         manager.insert_entry(dir_tombstone).await.unwrap();
 
         let staging = build_staged_transfer(env.home_path(), payload).await;
@@ -2149,6 +2195,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-child".into()),
             version: HashMap::from([(peer, 9)]),
+            deleted: false,
         };
 
         let outcome = manager
@@ -2185,6 +2232,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
 
         manager

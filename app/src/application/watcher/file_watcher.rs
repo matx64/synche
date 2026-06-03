@@ -453,6 +453,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("stale-db-hash".into()),
                 version: HashMap::from([(local_id, 3)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -508,6 +509,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("hash".into()),
                 version: HashMap::from([(local_id, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -592,6 +594,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("hash".into()),
                 version: HashMap::from([(local_id, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -632,8 +635,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer_id, 5)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         let stored_before = entry_manager
             .insert_peer_tombstone(peer_id, tombstone)
             .await
@@ -686,6 +690,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("stale-db-hash".into()),
                 version: HashMap::from([(local_id, 7)]),
+                deleted: false,
             })
             .await
             .unwrap();

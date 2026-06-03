@@ -132,6 +132,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some(hash.to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 

@@ -280,6 +280,7 @@ mod tests {
             kind: crate::domain::EntryKind::File,
             hash: Some("h".into()),
             version: HashMap::new(),
+            deleted: false,
         };
 
         let recipients = pm.get_peers_to_send_metadata(&entry).await;

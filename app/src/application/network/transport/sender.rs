@@ -281,6 +281,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("h".into()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 

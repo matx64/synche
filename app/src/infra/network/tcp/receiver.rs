@@ -388,6 +388,7 @@ mod tests {
             kind: EntryKind::File,
             hash,
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 
@@ -810,6 +811,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some(hash),
             version: HashMap::from([(peer, u64::MAX)]),
+            deleted: false,
         };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

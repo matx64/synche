@@ -611,6 +611,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 
@@ -665,6 +666,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(Uuid::new_v4(), 1)]),
+            deleted: false,
         }
     }
 
@@ -770,6 +772,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-live".to_string()),
                 version: HashMap::from([(local_id, 0)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -779,8 +782,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::HandshakeAck(HandshakeData {
@@ -831,8 +835,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 7)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
@@ -873,8 +878,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 5)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::HandshakeAck(HandshakeData {
@@ -926,6 +932,7 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         entry_manager.insert_entry(dir.clone()).await.unwrap();
 
@@ -944,8 +951,9 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
 
         let evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
@@ -1028,8 +1036,9 @@ mod tests {
             kind: EntryKind::Directory,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        dir_tombstone.set_removed_hash();
+        dir_tombstone.mark_removed();
 
         let (insert_started, release_insert) = db
             .block_insert(dir_name.clone(), dir_tombstone.hash.as_deref())
@@ -1060,6 +1069,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("child-live".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         let staging = make_staged_transfer(&env, b"stale child bytes").await;
         let transfer_evt = TransportEvent {
@@ -1211,6 +1221,7 @@ mod tests {
             // Peer reports its own axis AND a claim about `third`'s
             // counter — only the peer's own axis must be persisted.
             version: HashMap::from([(peer, 3), (third, 99)]),
+            deleted: false,
         };
 
         env.state
@@ -1312,6 +1323,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("local-newer".into()),
                 version: HashMap::from([(local_id, 5), (peer, 1)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1326,6 +1338,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("stale-peer".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         env.state.register_pending_request(peer, name.clone()).await;
         let staging = make_staged_transfer(&env, b"stale-peer").await;
@@ -1479,6 +1492,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("older-live".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         let (insert_started, release_insert) =
             db.block_insert(name.clone(), Some("older-live")).await;
@@ -1513,8 +1527,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         let tombstone_evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
             metadata: TransportMetadata {
@@ -1583,6 +1598,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("peer-hash".into()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
         // Block the metadata insert so the commit pauses after the disk
         // move but before persisting.
@@ -1652,8 +1668,9 @@ mod tests {
             kind: EntryKind::File,
             hash: None,
             version: HashMap::from([(peer, 2)]),
+            deleted: false,
         };
-        tombstone.set_removed_hash();
+        tombstone.mark_removed();
         let tombstone_evt = TransportEvent {
             payload: TransportData::Metadata(tombstone),
             metadata: TransportMetadata {
@@ -1685,6 +1702,7 @@ mod tests {
                 kind: EntryKind::File,
                 hash: Some("newer-local-live".into()),
                 version: HashMap::from([(local_id, 1), (peer, 2)]),
+                deleted: false,
             })
             .await
             .unwrap();
@@ -1752,6 +1770,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("hash".to_string()),
             version: HashMap::from([(peer, 1)]),
+            deleted: false,
         };
 
         let evt = TransportEvent {

@@ -218,6 +218,7 @@ mod tests {
             kind: EntryKind::File,
             hash: Some("h".into()),
             version: HashMap::from([(peer_id, 1)]),
+            deleted: false,
         };
 
         h.push
