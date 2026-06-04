@@ -47,6 +47,7 @@ pub fn default_home_dir() -> io::Result<CanonicalPath> {
 pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
     const MAX_ATTEMPTS: usize = 3;
 
+    let mut last_hash = None;
     for _ in 0..MAX_ATTEMPTS {
         let before = file_signature(path).await?;
         let hash = hash_file_contents(path).await?;
@@ -54,12 +55,13 @@ pub async fn compute_hash(path: &CanonicalPath) -> io::Result<String> {
         if before == after {
             return Ok(hash);
         }
+        last_hash = Some(hash);
     }
 
     // The file changed across every attempt (a continuously-active local
-    // writer). Return a best-effort hash; the next watcher event recomputes
-    // once the writer settles.
-    hash_file_contents(path).await
+    // writer). Return the last best-effort hash without re-reading; the next
+    // watcher event recomputes once the writer settles.
+    Ok(last_hash.expect("loop runs at least once with MAX_ATTEMPTS >= 1"))
 }
 
 /// Reads the file at `path` in 64 KiB chunks so memory usage stays flat
