@@ -782,6 +782,10 @@ mod tests {
             self.inner.entries.lock().await.remove(name);
             Ok(())
         }
+
+        async fn gc_tombstones(&self, _cutoff_ms: i64) -> PersistenceResult<u64> {
+            Ok(0)
+        }
     }
 
     #[tokio::test]
