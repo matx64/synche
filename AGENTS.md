@@ -121,7 +121,9 @@ The file watcher does **not** hold the per-entry inflight lock, so a remote-driv
 
 ### Peer identity is currently untrusted
 
-`source_id` on the TCP frame is read off the wire and **not** verified — there is no TLS or signature today. The follow-up tracked under issue #32 will replace this with mutual TLS or Noise IK. Until that lands, any code that decides "is this peer allowed to do X" cannot trust `source_id` for cross-peer authorization — only use it for routing.
+`source_id` on the TCP frame is read off the wire and **not** verified — there is no TLS or signature today. The follow-up tracked under issue #36 will replace this with mutual TLS or Noise IK. Until that lands, any code that decides "is this peer allowed to do X" cannot trust `source_id` for cross-peer authorization — only use it for routing.
+
+As a cheap honest-collision guard (issue #52, split from #36), `TransportReceiver::handle_handshake` rejects any handshake whose `source_id == local_id` and logs loudly: a peer declaring our own device id means a duplicated `device_id` (config copy, restored backup, baked-in container id), and without the guard both sides fall through the `local_id < peer_id` tiebreak in `handle_conflict` and overwrite each other. This guard does **not** defend against a malicious peer forging `source_id` — that still requires the cryptographic identity work in #36.
 
 ### Runtime / data files (not in repo)
 

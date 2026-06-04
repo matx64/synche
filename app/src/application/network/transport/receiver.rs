@@ -121,6 +121,21 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
+        // Honest UUID-collision guard (was #45 B10, split into #52 from the
+        // crypto-auth work in #36): a peer declaring our own device id means a
+        // duplicated device_id (config copy, restored backup, baked-in container
+        // id). Both sides would fall through the `local_id < peer_id` tiebreak in
+        // `handle_conflict` and overwrite each other. Drop the handshake and log
+        // loudly. NOTE: this does NOT defend against a malicious peer forging
+        // source_id — that needs cryptographic identity (#36).
+        if event.metadata.source_id == self.state.local_id() {
+            warn!(
+                peer = %event.metadata.source_id,
+                "rejecting handshake: peer declares our own device id (duplicated device_id?)"
+            );
+            return Ok(());
+        }
+
         let peer = Peer::new(
             event.metadata.source_id,
             event.metadata.source_ip,
@@ -858,6 +873,38 @@ mod tests {
             }
             _ => panic!("unexpected outbound message"),
         }
+        assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn handle_handshake_rejects_peer_claiming_our_own_device_id() {
+        // Issue #52: a handshake whose source_id equals our own local_id means a
+        // duplicated device_id (config copy / restored backup / baked-in
+        // container id). It must be dropped: no peer registered, no Ack/Request
+        // enqueued, so both sides don't fall through the conflict tiebreak.
+        let (env, receiver, _entry_manager, mut send_rx) = setup().await;
+        let local_id = env.state.local_id();
+
+        let evt = TransportEvent {
+            payload: TransportData::HandshakeSyn(HandshakeData {
+                hostname: "impostor".to_string(),
+                instance_id: Uuid::new_v4(),
+                sync_dirs: Vec::new(),
+                entries: HashMap::new(),
+            }),
+            metadata: TransportMetadata {
+                source_id: local_id,
+                source_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            },
+            staging: None,
+        };
+
+        receiver.handle_handshake(evt).await.unwrap();
+
+        assert!(
+            receiver.peer_manager.list().await.is_empty(),
+            "handshake declaring our own device id must not register a peer"
+        );
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
