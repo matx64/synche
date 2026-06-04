@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use tokio::io;
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ pub enum PresenceEvent {
     /// `instance_id` for the same `id` indicates the peer restarted.
     Ping {
         id: Uuid,
-        addr: IpAddr,
+        endpoint: SocketAddr,
         instance_id: Uuid,
     },
     /// A peer explicitly retracted its advertisement.

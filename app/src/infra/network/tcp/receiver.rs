@@ -427,6 +427,7 @@ mod tests {
         let data = HandshakeData {
             hostname: "peer".to_string(),
             instance_id: Uuid::new_v4(),
+            transport_port: Some(52882),
             sync_dirs: vec![SyncDirectory {
                 name: "sync".into(),
             }],
@@ -445,6 +446,7 @@ mod tests {
         let data = HandshakeData {
             hostname: "peer".to_string(),
             instance_id: Uuid::new_v4(),
+            transport_port: Some(52882),
             sync_dirs: vec![SyncDirectory {
                 name: "sync".into(),
             }],

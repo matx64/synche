@@ -6,7 +6,7 @@ use crate::{
     domain::{TransportData, TransportEvent, TransportMetadata},
     infra::network::tcp::{kind::TcpStreamKind, receiver::TcpReceiver, sender::TcpSender},
 };
-use std::{net::IpAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{io::AsyncReadExt, net::TcpListener};
 use tracing::{trace, warn};
 use uuid::Uuid;
@@ -40,7 +40,7 @@ impl TcpAdapter {
 }
 
 impl TransportInterface for TcpAdapter {
-    async fn send(&self, target: IpAddr, data: TransportData) -> TransportResult<()> {
+    async fn send(&self, target: SocketAddr, data: TransportData) -> TransportResult<()> {
         self.sender.send_data(target, data).await
     }
 

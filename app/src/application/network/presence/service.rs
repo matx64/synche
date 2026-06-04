@@ -6,7 +6,7 @@ use crate::{
     },
     domain::TransportChannelData,
 };
-use std::{net::IpAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{io, sync::mpsc::Sender};
 use tracing::{trace, warn};
 use uuid::Uuid;
@@ -49,10 +49,10 @@ impl<P: PresenceInterface> PresenceService<P> {
             match event {
                 PresenceEvent::Ping {
                     id,
-                    addr,
+                    endpoint,
                     instance_id,
                 } => {
-                    self.handle_ping(id, addr, instance_id).await?;
+                    self.handle_ping(id, endpoint, instance_id).await?;
                 }
 
                 PresenceEvent::Disconnect(id) => {
@@ -64,13 +64,18 @@ impl<P: PresenceInterface> PresenceService<P> {
         Ok(())
     }
 
-    async fn handle_ping(&self, id: Uuid, addr: IpAddr, instance_id: Uuid) -> io::Result<()> {
-        trace!(peer = %id, %addr, "presence ping");
+    async fn handle_ping(
+        &self,
+        id: Uuid,
+        endpoint: SocketAddr,
+        instance_id: Uuid,
+    ) -> io::Result<()> {
+        trace!(peer = %id, %endpoint, "presence ping");
         let seen = self.peer_manager.seen(&id, &instance_id).await;
 
         if !seen && self.state.local_id() < id {
             self.sender_tx
-                .send(TransportChannelData::HandshakeSyn(addr))
+                .send(TransportChannelData::HandshakeSyn(endpoint))
                 .await
                 .map_err(io::Error::other)?;
         }
@@ -91,7 +96,7 @@ impl<P: PresenceInterface> PresenceService<P> {
 mod tests {
     use super::*;
     use crate::application::network::presence::interface::{PresenceEvent, PresenceInterface};
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use tokio::sync::{Mutex, mpsc};
     use uuid::Uuid;
 
@@ -172,7 +177,7 @@ mod tests {
 
         let ping_event = PresenceEvent::Ping {
             id: larger_id,
-            addr,
+            endpoint: SocketAddr::new(addr, 52882),
             instance_id: Uuid::new_v4(),
         };
 
@@ -186,8 +191,8 @@ mod tests {
             tokio::time::timeout(tokio::time::Duration::from_millis(100), sender_rx.recv()).await;
 
         assert!(received.is_ok(), "Should receive handshake message");
-        if let Ok(Some(TransportChannelData::HandshakeSyn(received_addr))) = received {
-            assert_eq!(received_addr, addr);
+        if let Ok(Some(TransportChannelData::HandshakeSyn(received_endpoint))) = received {
+            assert_eq!(received_endpoint, SocketAddr::new(addr, 52882));
         } else {
             panic!("Expected HandshakeSyn message");
         }
@@ -202,7 +207,7 @@ mod tests {
 
         let ping_event = PresenceEvent::Ping {
             id: smaller_id,
-            addr,
+            endpoint: SocketAddr::new(addr, 52882),
             instance_id: Uuid::new_v4(),
         };
 
@@ -238,6 +243,7 @@ mod tests {
                 id: remote_id,
                 instance_id,
                 addr,
+                transport_port: 52882,
                 hostname: "test-peer".to_string(),
                 last_seen: SystemTime::now(),
                 sync_dirs: Default::default(),
@@ -246,7 +252,7 @@ mod tests {
 
         let ping_event = PresenceEvent::Ping {
             id: remote_id,
-            addr,
+            endpoint: SocketAddr::new(addr, 52882),
             instance_id,
         };
         let adapter = MockPresenceAdapter::new(vec![ping_event]);
@@ -281,6 +287,7 @@ mod tests {
                 id: peer_id,
                 instance_id,
                 addr,
+                transport_port: 52882,
                 hostname: "test-peer".to_string(),
                 last_seen: SystemTime::now(),
                 sync_dirs: Default::default(),
@@ -335,12 +342,12 @@ mod tests {
             PresenceEvent::Disconnect(peer2_id),
             PresenceEvent::Ping {
                 id: peer2_id,
-                addr: addr2,
+                endpoint: SocketAddr::new(addr2, 52882),
                 instance_id: Uuid::new_v4(),
             },
             PresenceEvent::Ping {
                 id: peer1_id,
-                addr: addr1,
+                endpoint: SocketAddr::new(addr1, 52883),
                 instance_id: Uuid::new_v4(),
             },
         ];

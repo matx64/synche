@@ -7,7 +7,7 @@ use crate::{
     utils::fs::is_git_path,
 };
 use futures::TryFutureExt;
-use std::{net::IpAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     io,
     sync::{Mutex, mpsc::Receiver},
@@ -27,7 +27,7 @@ pub struct TransportSender<T: TransportInterface, P: PersistenceInterface> {
     entry_manager: Arc<EntryManager<P>>,
     send_rx: Mutex<Receiver<TransportChannelData>>,
     control_chan: MutexChannel<TransportChannelData>,
-    transfer_chan: MutexChannel<(IpAddr, EntryInfo)>,
+    transfer_chan: MutexChannel<(SocketAddr, EntryInfo)>,
 }
 
 impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
@@ -108,7 +108,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     #[tracing::instrument(skip_all, fields(target = %target, is_syn))]
-    async fn send_handshake(&self, target: IpAddr, is_syn: bool) -> io::Result<()> {
+    async fn send_handshake(&self, target: SocketAddr, is_syn: bool) -> io::Result<()> {
         let data = self.entry_manager.get_handshake_data().await?;
 
         self.try_send(
@@ -149,7 +149,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
     }
 
     #[tracing::instrument(skip_all, fields(target = %target, entry = %entry.name))]
-    async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> io::Result<()> {
+    async fn send_request(&self, target: SocketAddr, entry: EntryInfo) -> io::Result<()> {
         if is_git_path(&entry.name) {
             return Ok(());
         }
@@ -192,26 +192,26 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportSender<T, P> {
         Ok(())
     }
 
-    async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
+    async fn try_send<F, Fut>(&self, mut op: F, endpoint: SocketAddr)
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = io::Result<()>>,
     {
         for _ in 0..3 {
             if let Err(err) = op().await {
-                error!(peer = ?addr, "Transport send error: {err}");
+                error!(peer = ?endpoint, "Transport send error: {err}");
             } else {
                 return;
             }
 
-            if !self.peer_manager.exists(addr).await {
+            if !self.peer_manager.exists_endpoint(endpoint).await {
                 warn!("cancelled transport send: peer disconnected mid-op");
                 return;
             }
         }
 
-        error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
-        self.peer_manager.remove_peer_by_addr(addr).await;
+        error!(peer = ?endpoint, "Disconnecting peer after 3 Transport send attempts.");
+        self.peer_manager.remove_peer_by_endpoint(endpoint).await;
     }
 }
 
@@ -225,7 +225,7 @@ mod tests {
     };
     use std::{
         collections::HashMap,
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
     };
     use uuid::Uuid;
 
@@ -267,6 +267,7 @@ mod tests {
         pm.insert(Peer::new(
             id,
             addr,
+            52882,
             "host".into(),
             Uuid::new_v4(),
             sync_dirs,
@@ -290,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn send_handshake_dispatches_handshake_syn_to_target() {
         let h = setup().await;
-        let target = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 52882);
 
         h.sender.send_handshake(target, true).await.unwrap();
 
@@ -331,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn send_request_skips_git_paths() {
         let h = setup().await;
-        let target = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 6));
+        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 6)), 52882);
 
         h.sender
             .send_request(target, entry("sync/.git/HEAD"))
@@ -373,23 +374,24 @@ mod tests {
 
         let recorded = h.adapter.sends.lock().await;
         assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].0, sharing);
+        assert_eq!(recorded[0].0, SocketAddr::new(sharing, 52882));
     }
 
     /// Three consecutive `send` failures must evict the peer via
-    /// `PeerManager::remove_peer_by_addr` — the disconnect contract that
+    /// `PeerManager::remove_peer_by_endpoint` — the disconnect contract that
     /// keeps a dead TCP target from blocking the sender forever.
     #[tokio::test]
     async fn send_disconnects_peer_after_three_consecutive_failures() {
         let h = setup().await;
         let addr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
         add_peer(&h.peer_manager, addr, vec![]).await;
+        let endpoint = SocketAddr::new(addr, 52882);
         h.adapter.set_fail_sends(true);
 
-        h.sender.send_handshake(addr, true).await.unwrap();
+        h.sender.send_handshake(endpoint, true).await.unwrap();
 
         assert!(
-            !h.peer_manager.exists(addr).await,
+            !h.peer_manager.exists_endpoint(endpoint).await,
             "peer should have been evicted after 3 failed sends"
         );
         assert_eq!(

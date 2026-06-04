@@ -5,10 +5,7 @@ use crate::{
     infra::network::tcp::{chunk::TRANSFER_CHUNK_SIZE, kind::TcpStreamKind},
 };
 use sha2::{Digest, Sha256};
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     fs::File,
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -32,7 +29,7 @@ impl TcpSender {
         Self { state }
     }
 
-    pub async fn send_data(&self, target: IpAddr, data: TransportData) -> TransportResult<()> {
+    pub async fn send_data(&self, target: SocketAddr, data: TransportData) -> TransportResult<()> {
         let kind = TcpStreamKind::from(&data);
 
         match data {
@@ -47,12 +44,11 @@ impl TcpSender {
 
     async fn send_handshake(
         &self,
-        target: IpAddr,
+        target: SocketAddr,
         hs_data: HandshakeData,
         kind: TcpStreamKind,
     ) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports().transport);
-        let mut stream = TcpStream::connect(socket).await?;
+        let mut stream = TcpStream::connect(target).await?;
 
         let contents = serde_json::to_vec(&hs_data)?;
 
@@ -68,9 +64,8 @@ impl TcpSender {
         Ok(())
     }
 
-    async fn send_metadata(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports().transport);
-        let mut stream = TcpStream::connect(socket).await?;
+    async fn send_metadata(&self, target: SocketAddr, entry: EntryInfo) -> TransportResult<()> {
+        let mut stream = TcpStream::connect(target).await?;
 
         let kind = TcpStreamKind::Metadata;
         let contents = serde_json::to_vec(&entry)?;
@@ -86,9 +81,8 @@ impl TcpSender {
         Ok(())
     }
 
-    async fn send_request(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports().transport);
-        let mut stream = TcpStream::connect(socket).await?;
+    async fn send_request(&self, target: SocketAddr, entry: EntryInfo) -> TransportResult<()> {
+        let mut stream = TcpStream::connect(target).await?;
 
         let kind = TcpStreamKind::Request;
         let contents = serde_json::to_vec(&entry)?;
@@ -109,9 +103,8 @@ impl TcpSender {
     /// size, then `entry_size` bytes of content. Logs a warning (but
     /// still completes the transfer) if the file changes during
     /// streaming so the receiver can reject by hash mismatch.
-    async fn send_entry(&self, target: IpAddr, entry: EntryInfo) -> TransportResult<()> {
-        let socket = SocketAddr::new(target, self.state.ports().transport);
-        let mut stream = TcpStream::connect(socket).await?;
+    async fn send_entry(&self, target: SocketAddr, entry: EntryInfo) -> TransportResult<()> {
+        let mut stream = TcpStream::connect(target).await?;
 
         let path = entry.name.to_canonical(self.state.home_path());
         // Open the file first, then derive the wire size from the same handle

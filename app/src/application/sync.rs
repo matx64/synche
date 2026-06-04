@@ -7,10 +7,9 @@ use crate::{
             transport::{TransportService, interface::TransportInterface},
         },
         persistence::interface::PersistenceInterface,
-        state::default_ports,
         watcher::{FileWatcher, interface::FileWatcherInterface},
     },
-    domain::ServerEvent,
+    domain::{PortOverrides, ServerEvent},
     infra::{
         self,
         network::{mdns::MdnsAdapter, tcp::TcpAdapter},
@@ -66,9 +65,11 @@ pub struct Synchronizer<
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
     /// Builds a `Synchronizer` wired with the production adapters and
     /// the supplied `SyncheDirs` (so the binary uses OS dirs and tests
-    /// can inject isolated temporary ones).
-    pub async fn new_default_with_dirs(dirs: SyncheDirs) -> Self {
-        let state = AppState::new(dirs, default_ports()).await;
+    /// can inject isolated temporary ones). `port_overrides` carries the
+    /// CLI port flags; ports are then resolved against `config.toml` and
+    /// the defaults inside `AppState::new`.
+    pub async fn new_default_with_dirs(dirs: SyncheDirs, port_overrides: PortOverrides) -> Self {
+        let state = AppState::new(dirs, port_overrides).await;
 
         let notify = NotifyFileWatcher::new(state.clone());
         let mdns_adapter = MdnsAdapter::new(state.clone());
@@ -86,9 +87,13 @@ impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
     ///
     /// Anything touching shutdown or restart paths must preserve this
     /// sentinel contract.
-    pub async fn run_default_with_restart(dirs: SyncheDirs) -> io::Result<()> {
+    pub async fn run_default_with_restart(
+        dirs: SyncheDirs,
+        port_overrides: PortOverrides,
+    ) -> io::Result<()> {
         loop {
-            let mut synchronizer = Self::new_default_with_dirs(dirs.clone()).await;
+            let mut synchronizer =
+                Self::new_default_with_dirs(dirs.clone(), port_overrides.clone()).await;
 
             match synchronizer.run().await {
                 Ok(()) => break,

@@ -13,6 +13,7 @@
 -   **Live Activity Feedback:** The web GUI shows per-directory sync activity as files are received from peers, including the most recent completed and failed transfers.
 -   **Peer-to-Peer:** Files are transferred directly between your devices.
 -   **Web Interface:** A simple, browser-based GUI for managing the app.
+-   **Configurable Ports & CLI Flags:** Override the HTTP/presence/transport ports via a `[ports]` block in `config.toml` or `--http-port`/`--presence-port`/`--transport-port` flags, and relocate all state with `--config-dir` to run multiple instances on one host.
 
 ## Why Synche?
 

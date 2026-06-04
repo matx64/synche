@@ -1,6 +1,10 @@
 use crate::domain::{EntryInfo, RelativePath, SyncDirectory};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, net::IpAddr, path::PathBuf};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -106,6 +110,8 @@ pub enum TransportData {
 pub struct HandshakeData {
     pub hostname: String,
     pub instance_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_port: Option<u16>,
     pub sync_dirs: Vec<SyncDirectory>,
     pub entries: HashMap<RelativePath, EntryInfo>,
 }
@@ -116,9 +122,9 @@ pub struct HandshakeData {
 /// Mirrors `TransportData` but carries the target peer address since the
 /// sender, unlike the receiver, must know where to send.
 pub enum TransportChannelData {
-    HandshakeSyn(IpAddr),
-    _HandshakeAck(IpAddr),
+    HandshakeSyn(SocketAddr),
+    _HandshakeAck(SocketAddr),
     Metadata(EntryInfo),
-    Request((IpAddr, EntryInfo)),
-    Transfer((IpAddr, EntryInfo)),
+    Request((SocketAddr, EntryInfo)),
+    Transfer((SocketAddr, EntryInfo)),
 }

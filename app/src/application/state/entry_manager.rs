@@ -915,6 +915,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
             sync_dirs,
             entries,
             instance_id: self.state.instance_id(),
+            transport_port: Some(self.state.ports().transport),
             hostname: self.state.hostname().clone(),
         })
     }
@@ -1084,6 +1085,7 @@ mod tests {
         let peer = Peer::new(
             peer_id,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
+            52882,
             "peer".to_string(),
             Uuid::new_v4(),
             vec![SyncDirectory {
@@ -1116,6 +1118,7 @@ mod tests {
         let peer = Peer::new(
             peer_id,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
+            52882,
             "peer".to_string(),
             Uuid::new_v4(),
             vec![SyncDirectory {

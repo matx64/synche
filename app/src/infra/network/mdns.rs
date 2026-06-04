@@ -1,16 +1,17 @@
 use crate::{
-    application::AppState,
     application::network::presence::interface::{PresenceEvent, PresenceInterface},
+    application::{AppState, DEFAULT_TRANSPORT_PORT},
 };
 use mdns_sd::{
     IfKind, Receiver, ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, TxtProperties,
 };
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::io;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const SERVICE_TYPE: &str = "_synche._udp.local.";
+const TRANSPORT_PORT_TXT: &str = "transport_port";
 const RETRY_COUNT: usize = 3;
 
 /// `mdns-sd` adapter implementing `PresenceInterface`.
@@ -48,7 +49,10 @@ impl MdnsAdapter {
 impl PresenceInterface for MdnsAdapter {
     async fn advertise(&self) -> io::Result<()> {
         let hostname = self.state.hostname().clone() + ".local.";
-        let properties = [("instance_id", self.state.instance_id())];
+        let properties = [
+            ("instance_id", self.state.instance_id().to_string()),
+            (TRANSPORT_PORT_TXT, self.state.ports().transport.to_string()),
+        ];
 
         let service_info = ServiceInfo::new(
             &self.service_type,
@@ -98,6 +102,7 @@ impl MdnsAdapter {
         }
 
         let instance_id = self.get_peer_instance_id(info.get_properties())?;
+        let transport_port = self.get_peer_transport_port(info.get_properties());
 
         for addr in info.addresses {
             if addr.is_ipv6() {
@@ -111,7 +116,7 @@ impl MdnsAdapter {
 
             return Some(PresenceEvent::Ping {
                 id,
-                addr,
+                endpoint: SocketAddr::new(addr, transport_port),
                 instance_id,
             });
         }
@@ -140,6 +145,13 @@ impl MdnsAdapter {
 
         let instance_str = std::str::from_utf8(instance_bytes).ok()?;
         Uuid::parse_str(instance_str).ok()
+    }
+
+    fn get_peer_transport_port(&self, props: &TxtProperties) -> u16 {
+        props
+            .get_property_val_str(TRANSPORT_PORT_TXT)
+            .and_then(|port| port.parse::<u16>().ok())
+            .unwrap_or(DEFAULT_TRANSPORT_PORT)
     }
 
     fn unregister(&self) {
@@ -179,6 +191,7 @@ impl MdnsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdns_sd::{IntoTxtProperties, TxtProperty};
     use uuid::Uuid;
 
     async fn create_test_adapter() -> (crate::utils::test_support::TestEnv, MdnsAdapter) {
@@ -216,6 +229,31 @@ mod tests {
         let result = adapter.get_peer_id(fullname);
 
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_peer_transport_port_from_txt() {
+        let (_env, adapter) = create_test_adapter().await;
+        let props = vec![TxtProperty::from(&(TRANSPORT_PORT_TXT, "52882"))].into_txt_properties();
+
+        assert_eq!(adapter.get_peer_transport_port(&props), 52882);
+    }
+
+    #[tokio::test]
+    async fn test_get_peer_transport_port_falls_back_for_missing_or_invalid_txt() {
+        let (_env, adapter) = create_test_adapter().await;
+        let missing = TxtProperties::new();
+        let invalid =
+            vec![TxtProperty::from(&(TRANSPORT_PORT_TXT, "not-a-port"))].into_txt_properties();
+
+        assert_eq!(
+            adapter.get_peer_transport_port(&missing),
+            DEFAULT_TRANSPORT_PORT
+        );
+        assert_eq!(
+            adapter.get_peer_transport_port(&invalid),
+            DEFAULT_TRANSPORT_PORT
+        );
     }
 
     #[tokio::test]

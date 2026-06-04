@@ -1,7 +1,7 @@
 use crate::{
     domain::{
-        AppPorts, BroadcastChannel, CanonicalPath, Config, ConfigDirectory, Peer, RelativePath,
-        ServerEvent, SyncDirectory,
+        AppPorts, BroadcastChannel, CanonicalPath, Config, ConfigDirectory, Peer, PortOverrides,
+        RelativePath, ServerEvent, SyncDirectory,
     },
     utils::dirs::SyncheDirs,
 };
@@ -42,14 +42,20 @@ struct PendingTransferRegistry {
     claims: HashSet<PendingTransferKey>,
 }
 
-/// Returns the production port assignment. Tests inject their own
-/// `AppPorts { http: 0, ... }` to avoid collisions with a running
-/// instance and with each other.
-pub fn default_ports() -> AppPorts {
+/// Resolves the effective ports with precedence CLI > config > default.
+/// Each port is resolved independently, so a single overridden field does
+/// not force the others off their defaults.
+pub(crate) fn resolve_ports(cli: &PortOverrides, cfg: &PortOverrides) -> AppPorts {
     AppPorts {
-        http: DEFAULT_HTTP_PORT,
-        presence: DEFAULT_PRESENCE_PORT,
-        transport: DEFAULT_TRANSPORT_PORT,
+        http: cli.http.or(cfg.http).unwrap_or(DEFAULT_HTTP_PORT),
+        presence: cli
+            .presence
+            .or(cfg.presence)
+            .unwrap_or(DEFAULT_PRESENCE_PORT),
+        transport: cli
+            .transport
+            .or(cfg.transport)
+            .unwrap_or(DEFAULT_TRANSPORT_PORT),
     }
 }
 
@@ -107,13 +113,16 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Build an `AppState` from explicit directories and ports.
+    /// Build an `AppState` from explicit directories and CLI port overrides.
     ///
-    /// `main` builds `SyncheDirs::from_os()` once and threads it through
-    /// `Synchronizer::run_default_with_restart`; tests construct their own
-    /// `SyncheDirs` rooted in a per-test `TempDir` for isolation.
-    pub async fn new(dirs: SyncheDirs, ports: AppPorts) -> Arc<Self> {
+    /// `main` builds `SyncheDirs::from_os()` (or `rooted_at` for `--config-dir`)
+    /// once and threads it through `Synchronizer::run_default_with_restart`; tests
+    /// construct their own `SyncheDirs` rooted in a per-test `TempDir` for
+    /// isolation. The effective ports are resolved here against the loaded config
+    /// with precedence CLI > config > default (see [`resolve_ports`]).
+    pub async fn new(dirs: SyncheDirs, cli_ports: PortOverrides) -> Arc<Self> {
         let config = Config::init(&dirs).await.unwrap();
+        let ports = resolve_ports(&cli_ports, &config.ports);
 
         let local_ip = local_ip_address::local_ip().unwrap();
         let (local_id, instance_id) = Self::init_ids(&dirs).await.unwrap();
@@ -373,6 +382,7 @@ impl AppState {
         self.write_config(&Config {
             directory,
             home_path: self.home_path.clone(),
+            ports: self.current_config_ports().await,
         })
         .await
         .map(|_| true)
@@ -397,6 +407,7 @@ impl AppState {
         self.write_config(&Config {
             directory,
             home_path: self.home_path.clone(),
+            ports: self.current_config_ports().await,
         })
         .await
     }
@@ -420,6 +431,7 @@ impl AppState {
         self.write_config(&Config {
             directory,
             home_path: new_home_path,
+            ports: self.current_config_ports().await,
         })
         .await
     }
@@ -440,6 +452,20 @@ impl AppState {
         }
 
         CanonicalPath::new(&path_buf)
+    }
+
+    /// Reads the `[ports]` block currently on disk. `AppState` keeps only the
+    /// resolved `AppPorts`, not the original config block, so config rewrites
+    /// (dir add/remove, home_path change) must re-read it to avoid clobbering a
+    /// user-set `[ports]` block. Falls back to empty if the file is missing or
+    /// unparseable.
+    async fn current_config_ports(&self) -> PortOverrides {
+        match fs::read_to_string(self.dirs.config_file()).await {
+            Ok(contents) => toml::from_str::<Config>(&contents)
+                .map(|cfg| cfg.ports)
+                .unwrap_or_default(),
+            Err(_) => PortOverrides::default(),
+        }
     }
 
     async fn write_config(&self, config: &Config) -> io::Result<()> {
@@ -505,13 +531,55 @@ mod tests {
         let env = test_env().await;
         let local_id1 = env.state.local_id();
 
-        let state2 = AppState::new(env.dirs.clone(), default_ports()).await;
+        let state2 = AppState::new(env.dirs.clone(), PortOverrides::ephemeral()).await;
         let local_id2 = state2.local_id();
 
         assert_eq!(
             local_id1, local_id2,
             "Local ID should persist across AppState instances"
         );
+    }
+
+    #[test]
+    fn resolve_ports_falls_back_to_defaults_when_empty() {
+        let ports = resolve_ports(&PortOverrides::default(), &PortOverrides::default());
+        assert_eq!(ports.http, DEFAULT_HTTP_PORT);
+        assert_eq!(ports.presence, DEFAULT_PRESENCE_PORT);
+        assert_eq!(ports.transport, DEFAULT_TRANSPORT_PORT);
+    }
+
+    #[test]
+    fn resolve_ports_config_overrides_default() {
+        let cfg = PortOverrides {
+            http: Some(1111),
+            presence: Some(2222),
+            transport: Some(3333),
+        };
+        let ports = resolve_ports(&PortOverrides::default(), &cfg);
+        assert_eq!(ports.http, 1111);
+        assert_eq!(ports.presence, 2222);
+        assert_eq!(ports.transport, 3333);
+    }
+
+    #[test]
+    fn resolve_ports_cli_overrides_config_and_default() {
+        let cli = PortOverrides {
+            http: Some(9999),
+            presence: None,
+            transport: None,
+        };
+        let cfg = PortOverrides {
+            http: Some(1111),
+            presence: Some(2222),
+            transport: None,
+        };
+        let ports = resolve_ports(&cli, &cfg);
+        // CLI wins for http.
+        assert_eq!(ports.http, 9999);
+        // Config wins for presence (CLI unset).
+        assert_eq!(ports.presence, 2222);
+        // Default wins for transport (both unset).
+        assert_eq!(ports.transport, DEFAULT_TRANSPORT_PORT);
     }
 
     #[tokio::test]

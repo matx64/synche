@@ -1,6 +1,9 @@
-use super::app_state::AppState;
+use super::app_state::{AppState, DEFAULT_TRANSPORT_PORT};
 use crate::domain::{EntryInfo, Peer, ServerEvent};
-use std::{net::IpAddr, sync::Arc};
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 use tokio::sync::broadcast;
 use tracing::info;
 use uuid::Uuid;
@@ -23,7 +26,7 @@ impl PeerManager {
     /// Inserts or refreshes a peer. Emits `PeerConnected` only on the
     /// first appearance for a given `(id, instance_id)` pair, so a
     /// peer restart fires a fresh event while plain re-pings do not.
-    #[tracing::instrument(skip_all, fields(peer = %peer.id, addr = %peer.addr))]
+    #[tracing::instrument(skip_all, fields(peer = %peer.id, endpoint = %peer.endpoint()))]
     pub async fn insert(&self, peer: Peer) {
         if !self.seen(&peer.id, &peer.instance_id).await {
             info!("Peer connected: {}", peer.id);
@@ -51,6 +54,7 @@ impl PeerManager {
         matches!(self.state.peers.read().await.get(id), Some(peer) if peer.instance_id == *instance_id)
     }
 
+    #[cfg(test)]
     pub async fn exists(&self, addr: IpAddr) -> bool {
         self.state
             .peers
@@ -60,6 +64,25 @@ impl PeerManager {
             .any(|peer| peer.addr == addr)
     }
 
+    pub async fn exists_endpoint(&self, endpoint: SocketAddr) -> bool {
+        self.state
+            .peers
+            .read()
+            .await
+            .values()
+            .any(|peer| peer.endpoint() == endpoint)
+    }
+
+    pub async fn endpoint_for_peer(&self, id: Uuid, fallback_ip: IpAddr) -> SocketAddr {
+        self.state
+            .peers
+            .read()
+            .await
+            .get(&id)
+            .map(Peer::endpoint)
+            .unwrap_or_else(|| SocketAddr::new(fallback_ip, DEFAULT_TRANSPORT_PORT))
+    }
+
     pub async fn list(&self) -> Vec<Peer> {
         self.state.peers.read().await.values().cloned().collect()
     }
@@ -67,7 +90,7 @@ impl PeerManager {
     /// Returns the addresses of peers that share the sync directory
     /// containing `entry`, i.e. the recipients of an outbound
     /// metadata broadcast for that entry.
-    pub async fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<IpAddr> {
+    pub async fn get_peers_to_send_metadata(&self, entry: &EntryInfo) -> Vec<SocketAddr> {
         let root_dir = entry.get_sync_dir();
 
         self.state
@@ -76,7 +99,7 @@ impl PeerManager {
             .await
             .values()
             .filter(|peer| peer.sync_dirs.contains_key(&root_dir))
-            .map(|peer| peer.addr)
+            .map(Peer::endpoint)
             .collect()
     }
 
@@ -88,6 +111,7 @@ impl PeerManager {
         }
     }
 
+    #[cfg(test)]
     #[tracing::instrument(skip_all, fields(addr = %addr))]
     pub async fn remove_peer_by_addr(&self, addr: IpAddr) {
         let mut peers = self.state.peers.write().await;
@@ -95,6 +119,21 @@ impl PeerManager {
         if let Some(peer_id) = peers
             .iter()
             .find_map(|(id, peer)| (peer.addr == addr).then_some(*id))
+        {
+            peers.remove(&peer_id);
+            info!("Peer disconnected: {peer_id}");
+            self.send_sse_event(ServerEvent::PeerDisconnected(peer_id))
+                .await;
+        }
+    }
+
+    #[tracing::instrument(skip_all, fields(endpoint = %endpoint))]
+    pub async fn remove_peer_by_endpoint(&self, endpoint: SocketAddr) {
+        let mut peers = self.state.peers.write().await;
+
+        if let Some(peer_id) = peers
+            .iter()
+            .find_map(|(id, peer)| (peer.endpoint() == endpoint).then_some(*id))
         {
             peers.remove(&peer_id);
             info!("Peer disconnected: {peer_id}");
@@ -115,7 +154,7 @@ mod tests {
     use super::*;
     use crate::domain::{RelativePath, SyncDirectory};
     use std::collections::HashMap;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::time::SystemTime;
     use tokio::sync::broadcast::error::TryRecvError;
 
@@ -135,6 +174,7 @@ mod tests {
             id,
             instance_id: instance,
             addr,
+            transport_port: 52882,
             hostname: "host".into(),
             last_seen: SystemTime::now(),
             sync_dirs: dirs
@@ -177,6 +217,10 @@ mod tests {
 
         assert_eq!(drain_connect(&mut rx), Some(id));
         assert!(pm.exists(addr).await);
+        assert!(
+            pm.exists_endpoint(SocketAddr::new(addr, 52882)).await,
+            "peer endpoint should include the transport port"
+        );
     }
 
     #[tokio::test]
@@ -284,7 +328,31 @@ mod tests {
         };
 
         let recipients = pm.get_peers_to_send_metadata(&entry).await;
-        assert_eq!(recipients, vec![sharing]);
+        assert_eq!(recipients, vec![SocketAddr::new(sharing, 52882)]);
+    }
+
+    #[tokio::test]
+    async fn remove_peer_by_endpoint_does_not_remove_same_ip_other_port() {
+        let (_env, pm, mut rx) = setup().await;
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 11));
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+
+        let mut peer_a = peer(first, Uuid::new_v4(), ip, vec![]);
+        peer_a.transport_port = 42882;
+        let mut peer_b = peer(second, Uuid::new_v4(), ip, vec![]);
+        peer_b.transport_port = 52882;
+
+        pm.insert(peer_a).await;
+        pm.insert(peer_b).await;
+        let _ = drain_connect(&mut rx);
+        let _ = drain_connect(&mut rx);
+
+        pm.remove_peer_by_endpoint(SocketAddr::new(ip, 52882)).await;
+
+        assert!(pm.exists_endpoint(SocketAddr::new(ip, 42882)).await);
+        assert!(!pm.exists_endpoint(SocketAddr::new(ip, 52882)).await);
+        assert_eq!(drain_disconnect(&mut rx), Some(second));
     }
 
     #[tokio::test]

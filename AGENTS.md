@@ -14,7 +14,7 @@ The single Cargo workspace member is `app` (binary name `synche`).
 - `just dev` — runs `watchexec` to restart `cargo run -p synche` whenever `app/` or `gui/index.html` changes. Requires `just` and `watchexec` installed.
 - `just setup-hooks` — installs the git pre-commit hook (run once after cloning).
 
-Running the binary serves the web GUI at `http://localhost:42880`. Ports used: HTTP `42880`, presence (mDNS) `42881`, transport (TCP) `42882` — defined in `app/src/application/state/app_state.rs`.
+Running the binary serves the web GUI at `http://localhost:42880`. Default ports: HTTP `42880`, presence (mDNS) `42881`, transport (TCP) `42882` — the `DEFAULT_*_PORT` constants in `app/src/application/state/app_state.rs`. They are no longer fixed: ports resolve with precedence **CLI flag > `[ports]` block in `config.toml` > default** (see the "Configurable ports & CLI flags" section below).
 
 ## Pre-commit checklist (mandatory)
 
@@ -37,7 +37,7 @@ Single Cargo workspace (root `Cargo.toml`) with one member crate at `app/`. Rust
 
 ### Layers
 
-- **`domain/`** — pure types, no I/O, no async. The full domain surface is re-exported from `app/src/domain/mod.rs`: `Config`, `Peer`, `EntryInfo`/`EntryKind`, `VersionVector`/`VersionCmp`, `CanonicalPath`/`RelativePath`, `SyncDirectory`, `AppPorts`, `ServerEvent`, the `Transport*` family, and channel helpers (`BroadcastChannel`, `MutexChannel`).
+- **`domain/`** — pure types, no I/O, no async. The full domain surface is re-exported from `app/src/domain/mod.rs`: `Config`, `Peer`, `EntryInfo`/`EntryKind`, `VersionVector`/`VersionCmp`, `CanonicalPath`/`RelativePath`, `SyncDirectory`, `AppPorts`/`PortOverrides`, `ServerEvent`, the `Transport*` family, and channel helpers (`BroadcastChannel`, `MutexChannel`).
 - **`application/`** — services and the **traits (ports)** they depend on. Each subsystem defines its trait in an `interface.rs`:
   - `application/watcher/interface.rs` → `FileWatcherInterface`
   - `application/network/transport/interface.rs` → `TransportInterface`
@@ -61,6 +61,18 @@ Single Cargo workspace (root `Cargo.toml`) with one member crate at `app/`. Rust
 `run_default_with_restart` wraps `run` in a loop that catches a sentinel `io::Error` whose message starts with `HOME_PATH_CHANGED:<old>:<new>` and rebuilds the entire `Synchronizer`. This is how a `home_path` change made through the GUI is applied at runtime — preserve that contract when touching shutdown/restart paths.
 
 TCP transport receive errors after a connection is accepted are treated as bad peer messages and skipped so a corrupt transfer, truncated stream, or malformed payload does not stop the synchronizer. Listener bind/accept failures remain fatal.
+
+### Configurable ports & CLI flags
+
+The binary parses CLI args with `clap` in `main.rs` via the `Cli` struct in `app/src/cli.rs` (`--config-dir`, `--http-port`, `--presence-port`, `--transport-port`; `--version`/`--help` are auto-generated, and `--version` reads `CARGO_PKG_VERSION` so the single-source rule holds). The three port flags are collected into a `domain::PortOverrides` (a struct of three `Option<u16>`), the same type the optional `[ports]` block in `config.toml` deserializes into.
+
+Port resolution lives in `app_state::resolve_ports(cli, cfg)` and runs inside `AppState::new`, which already loads the config: each port is `cli.x.or(cfg.x).unwrap_or(DEFAULT_X)`, so precedence is **CLI > config > default** and each port resolves independently. `PortOverrides` is threaded from `main` through `Synchronizer::run_default_with_restart` / `new_default_with_dirs` so CLI ports survive the `home_path`-change restart loop. There is no `default_ports()` helper anymore — resolution is the only path. Tests build ports via `PortOverrides::ephemeral()` (all `Some(0)`).
+
+Transport routing must use the **remote peer's** advertised endpoint, not `SocketAddr::new(peer_ip, state.ports().transport)`. mDNS keeps the service record's port as the presence port and advertises the TCP transport port in TXT key `transport_port`; `PresenceEvent::Ping`, `TransportChannelData`, and `TransportInterface::send` carry `SocketAddr`s. Handshake JSON also includes optional `transport_port` so a peer receiving a SYN can send the ACK back to the sender's listening port. Missing old-peer values fall back to `DEFAULT_TRANSPORT_PORT`.
+
+`[ports]` is `#[serde(default, skip_serializing_if = "PortOverrides::is_empty")]` on `Config`, so a missing block deserializes to empty and the auto-generated default `config.toml` omits it entirely. **`AppState` keeps only the resolved `AppPorts`, not the original config block**, so the three GUI-driven config rewrites (`add_dir_to_config`, `remove_dir_from_config`, `set_home_path_in_config`) must re-read the on-disk `[ports]` via `AppState::current_config_ports()` when rebuilding `Config` — otherwise a rewrite would silently wipe a user's `[ports]` block.
+
+`--config-dir <path>` relocates **all** state, not just config: it builds `SyncheDirs::rooted_at(path)` (`<path>/{data,config,logs}`), the same constructor tests use. This full isolation (separate `data.db` **and** `device_id`) is what lets two instances run side-by-side on one host — sharing `device_id` would otherwise trip the issue #52 self-handshake guard. When `--config-dir` is absent, `SyncheDirs::from_os()` is used as before.
 
 ### Conflict resolution
 
