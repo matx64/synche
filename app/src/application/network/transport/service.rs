@@ -71,7 +71,7 @@ mod tests {
     };
     use std::{
         collections::HashMap,
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         time::Duration,
     };
     use uuid::Uuid;
@@ -81,7 +81,7 @@ mod tests {
         service: TransportService<RecordingTransport, SqliteDb>,
         sender_tx: tokio::sync::mpsc::Sender<TransportChannelData>,
         peer_manager: Arc<PeerManager>,
-        sends: Arc<tokio::sync::Mutex<Vec<(IpAddr, crate::domain::TransportData)>>>,
+        sends: Arc<tokio::sync::Mutex<Vec<(SocketAddr, crate::domain::TransportData)>>>,
         push: tokio::sync::mpsc::UnboundedSender<
             crate::application::network::transport::interface::TransportResult<TransportEvent>,
         >,
@@ -116,6 +116,7 @@ mod tests {
             payload: crate::domain::TransportData::HandshakeSyn(HandshakeData {
                 hostname: "remote".into(),
                 instance_id: Uuid::new_v4(),
+                transport_port: Some(52882),
                 sync_dirs: Vec::new(),
                 entries: HashMap::new(),
             }),
@@ -162,7 +163,7 @@ mod tests {
     async fn new_returns_usable_sender_channel() {
         let h = setup().await;
 
-        let target = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50));
+        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)), 52882);
         h.sender_tx
             .send(TransportChannelData::HandshakeSyn(target))
             .await

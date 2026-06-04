@@ -1,7 +1,9 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager, network::transport::interface::TransportInterface,
-        persistence::interface::PersistenceInterface, state::entry_manager::CommitOutcome,
+        AppState, EntryManager, PeerManager,
+        network::transport::interface::TransportInterface,
+        persistence::interface::PersistenceInterface,
+        state::{DEFAULT_TRANSPORT_PORT, entry_manager::CommitOutcome},
     },
     domain::{
         EntryInfo, MAX_TRUSTED_COUNTER, MutexChannel, Peer, RelativePath, ServerEvent,
@@ -10,7 +12,7 @@ use crate::{
     utils::fs::is_git_path,
 };
 use futures::TryFutureExt;
-use std::{net::IpAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{fs, io, sync::mpsc::Sender};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -139,6 +141,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         let peer = Peer::new(
             event.metadata.source_id,
             event.metadata.source_ip,
+            hs_data.transport_port.unwrap_or(DEFAULT_TRANSPORT_PORT),
             hs_data.hostname,
             hs_data.instance_id,
             hs_data.sync_dirs,
@@ -151,10 +154,10 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             self.try_send(
                 || {
                     self.adapter
-                        .send(peer.addr, TransportData::HandshakeAck(data.clone()))
+                        .send(peer.endpoint(), TransportData::HandshakeAck(data.clone()))
                         .map_err(|e| e.into())
                 },
-                peer.addr,
+                peer.endpoint(),
             )
             .await;
         }
@@ -179,7 +182,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     .await;
                 self.broadcast_sync_started(event.metadata.source_id, &entry);
                 self.send_tx
-                    .send(TransportChannelData::Request((peer.addr, entry)))
+                    .send(TransportChannelData::Request((peer.endpoint(), entry)))
                     .await
                     .map_err(io::Error::other)?;
             } else {
@@ -221,11 +224,12 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                         .register_pending_request(event.metadata.source_id, peer_entry.name.clone())
                         .await;
                     self.broadcast_sync_started(event.metadata.source_id, &peer_entry);
+                    let endpoint = self
+                        .peer_manager
+                        .endpoint_for_peer(event.metadata.source_id, event.metadata.source_ip)
+                        .await;
                     self.send_tx
-                        .send(TransportChannelData::Request((
-                            event.metadata.source_ip,
-                            peer_entry,
-                        )))
+                        .send(TransportChannelData::Request((endpoint, peer_entry)))
                         .await
                         .map_err(io::Error::other)
                 } else {
@@ -256,11 +260,12 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 if local_entry.is_file()
                     && matches!(local_entry.compare(&requested_entry), VersionCmp::Equal) =>
             {
+                let endpoint = self
+                    .peer_manager
+                    .endpoint_for_peer(event.metadata.source_id, event.metadata.source_ip)
+                    .await;
                 self.send_tx
-                    .send(TransportChannelData::Transfer((
-                        event.metadata.source_ip,
-                        local_entry,
-                    )))
+                    .send(TransportChannelData::Transfer((endpoint, local_entry)))
                     .await
                     .map_err(io::Error::other)
             }
@@ -556,26 +561,26 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         result
     }
 
-    async fn try_send<F, Fut>(&self, mut op: F, addr: IpAddr)
+    async fn try_send<F, Fut>(&self, mut op: F, endpoint: SocketAddr)
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = io::Result<()>>,
     {
         for _ in 0..3 {
             if let Err(err) = op().await {
-                error!(peer = ?addr, "Transport send error: {err}");
+                error!(peer = ?endpoint, "Transport send error: {err}");
             } else {
                 return;
             }
 
-            if !self.peer_manager.exists(addr).await {
+            if !self.peer_manager.exists_endpoint(endpoint).await {
                 warn!("cancelled transport send: peer disconnected mid-op");
                 return;
             }
         }
 
-        error!(peer = ?addr, "Disconnecting peer after 3 Transport send attempts.");
-        self.peer_manager.remove_peer_by_addr(addr).await;
+        error!(peer = ?endpoint, "Disconnecting peer after 3 Transport send attempts.");
+        self.peer_manager.remove_peer_by_endpoint(endpoint).await;
     }
 }
 
@@ -590,7 +595,7 @@ mod tests {
     };
     use std::{
         collections::HashMap,
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         path::PathBuf,
         time::Duration,
     };
@@ -671,6 +676,36 @@ mod tests {
             },
             staging: None,
         }
+    }
+
+    #[tokio::test]
+    async fn handle_handshake_ack_uses_advertised_transport_port() {
+        let (_env, receiver, _entry_manager, _send_rx) = setup().await;
+        let peer_id = Uuid::new_v4();
+        let source_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let advertised_port = 52899;
+
+        let evt = TransportEvent {
+            payload: TransportData::HandshakeSyn(HandshakeData {
+                hostname: "custom-port-peer".to_string(),
+                instance_id: Uuid::new_v4(),
+                transport_port: Some(advertised_port),
+                sync_dirs: Vec::new(),
+                entries: HashMap::new(),
+            }),
+            metadata: TransportMetadata {
+                source_id: peer_id,
+                source_ip,
+            },
+            staging: None,
+        };
+
+        receiver.handle_handshake(evt).await.unwrap();
+
+        let recorded = receiver.adapter.sends.lock().await;
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, SocketAddr::new(source_ip, advertised_port));
+        assert!(matches!(recorded[0].1, TransportData::HandshakeAck(_)));
     }
 
     #[tokio::test]
@@ -841,6 +876,7 @@ mod tests {
             payload: TransportData::HandshakeAck(HandshakeData {
                 hostname: "remote".to_string(),
                 instance_id: Uuid::new_v4(),
+                transport_port: Some(52882),
                 sync_dirs: Vec::new(),
                 entries: HashMap::from([(name.clone(), tombstone)]),
             }),
@@ -889,6 +925,7 @@ mod tests {
             payload: TransportData::HandshakeSyn(HandshakeData {
                 hostname: "impostor".to_string(),
                 instance_id: Uuid::new_v4(),
+                transport_port: Some(52882),
                 sync_dirs: Vec::new(),
                 entries: HashMap::new(),
             }),
@@ -969,6 +1006,7 @@ mod tests {
             payload: TransportData::HandshakeAck(HandshakeData {
                 hostname: "remote".to_string(),
                 instance_id: Uuid::new_v4(),
+                transport_port: Some(52882),
                 sync_dirs: Vec::new(),
                 entries: HashMap::from([(name.clone(), tombstone)]),
             }),

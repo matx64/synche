@@ -5,7 +5,7 @@
 //! permanent-failure mode for retry tests.
 
 use std::{
-    net::IpAddr,
+    net::SocketAddr,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -21,7 +21,7 @@ use crate::{
 };
 
 pub(super) struct RecordingTransport {
-    pub sends: Arc<Mutex<Vec<(IpAddr, TransportData)>>>,
+    pub sends: Arc<Mutex<Vec<(SocketAddr, TransportData)>>>,
     pub recv_tx: mpsc::UnboundedSender<TransportResult<TransportEvent>>,
     pub recv_rx: Mutex<mpsc::UnboundedReceiver<TransportResult<TransportEvent>>>,
     pub fail_sends: Arc<AtomicBool>,
@@ -63,7 +63,7 @@ impl TransportInterface for RecordingTransport {
             .unwrap_or_else(|| Err(TransportError::new("recv channel closed")))
     }
 
-    async fn send(&self, target: IpAddr, data: TransportData) -> TransportResult<()> {
+    async fn send(&self, target: SocketAddr, data: TransportData) -> TransportResult<()> {
         if self.fail_sends.load(Ordering::SeqCst) {
             return Err(TransportError::new("simulated send failure"));
         }

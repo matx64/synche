@@ -1,5 +1,5 @@
 use crate::domain::{TransportData, TransportEvent};
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use tokio::io::{self};
 
 /// Port for the peer-to-peer transport that carries handshakes,
@@ -20,7 +20,7 @@ pub trait TransportInterface {
 
     /// Sends `data` to `target`. Returns once the payload has been
     /// written to the wire.
-    async fn send(&self, target: IpAddr, data: TransportData) -> TransportResult<()>;
+    async fn send(&self, target: SocketAddr, data: TransportData) -> TransportResult<()>;
 }
 
 /// Result alias for fallible transport calls.

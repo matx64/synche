@@ -334,7 +334,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         for peer in peers {
             self.sender_tx
-                .send(TransportChannelData::HandshakeSyn(peer.addr))
+                .send(TransportChannelData::HandshakeSyn(peer.endpoint()))
                 .await
                 .map_err(|e| io::Error::other(e.to_string()))?;
         }

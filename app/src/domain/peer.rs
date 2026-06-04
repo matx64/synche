@@ -1,6 +1,10 @@
 use crate::domain::{RelativePath, SyncDirectory};
 use serde::Serialize;
-use std::{collections::HashMap, net::IpAddr, time::SystemTime};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    time::SystemTime,
+};
 use uuid::Uuid;
 
 /// A remote Synche instance currently visible on the network.
@@ -14,6 +18,7 @@ use uuid::Uuid;
 pub struct Peer {
     pub id: Uuid,
     pub addr: IpAddr,
+    pub transport_port: u16,
     pub hostname: String,
     pub instance_id: Uuid,
     pub last_seen: SystemTime,
@@ -27,6 +32,7 @@ impl Peer {
     pub fn new(
         id: Uuid,
         addr: IpAddr,
+        transport_port: u16,
         hostname: String,
         instance_id: Uuid,
         sync_dirs: Vec<SyncDirectory>,
@@ -44,9 +50,14 @@ impl Peer {
             id,
             instance_id,
             addr,
+            transport_port,
             hostname,
             sync_dirs,
             last_seen: SystemTime::now(),
         }
+    }
+
+    pub fn endpoint(&self) -> SocketAddr {
+        SocketAddr::new(self.addr, self.transport_port)
     }
 }
