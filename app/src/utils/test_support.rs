@@ -9,7 +9,7 @@
 //! seeded `config.toml`, and an `AppState` bound to ephemeral ports (`0`).
 use crate::{
     application::AppState,
-    domain::{AppPorts, CanonicalPath, Config, ConfigDirectory},
+    domain::{CanonicalPath, Config, ConfigDirectory, PortOverrides},
     utils::dirs::SyncheDirs,
 };
 use std::sync::Arc;
@@ -60,20 +60,13 @@ pub async fn test_env_with_dirs(dirs: &[&str]) -> TestEnv {
 
     let seeded = Config {
         home_path: home.clone(),
+        ports: PortOverrides::default(),
         directory: dirs.iter().map(|name| ConfigDirectory::new(name)).collect(),
     };
     let contents = toml::to_string_pretty(&seeded).expect("serialize seeded config");
     std::fs::write(dirs_struct.config_file(), contents).expect("write seeded config");
 
-    let state = AppState::new(
-        dirs_struct.clone(),
-        AppPorts {
-            http: 0,
-            presence: 0,
-            transport: 0,
-        },
-    )
-    .await;
+    let state = AppState::new(dirs_struct.clone(), PortOverrides::ephemeral()).await;
 
     TestEnv {
         temp,

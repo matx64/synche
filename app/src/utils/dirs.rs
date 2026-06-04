@@ -1,7 +1,8 @@
 use crate::domain::CanonicalPath;
-#[cfg(test)]
-use std::path::Path;
-use std::{io, path::PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 /// Resolved on-disk locations Synche uses for persistent state.
 ///
@@ -33,9 +34,12 @@ impl SyncheDirs {
     }
 
     /// Build directories rooted under `root`, creating
-    /// `root/data`, `root/config`, and `root/logs`. Used by tests to isolate
-    /// per-test state from the real OS dirs.
-    #[cfg(test)]
+    /// `root/data`, `root/config`, and `root/logs`.
+    ///
+    /// Used by the `--config-dir` CLI flag to relocate all Synche state under a
+    /// single directory (so two instances can run side-by-side without sharing
+    /// `data.db` or the persistent `device_id`), and by tests to isolate per-test
+    /// state from the real OS dirs.
     pub fn rooted_at<P: AsRef<Path>>(root: P) -> io::Result<Self> {
         let data = ensure_dir(root.as_ref().join("data"))?;
         let config = ensure_dir(root.as_ref().join("config"))?;

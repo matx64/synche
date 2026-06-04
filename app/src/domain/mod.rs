@@ -25,6 +25,7 @@ pub use fs::RelativePath;
 pub use fs::WatcherEventPath;
 pub use peer::Peer;
 pub use ports::AppPorts;
+pub use ports::PortOverrides;
 pub use sse::ServerEvent;
 pub use transport::HandshakeData;
 pub use transport::StagedTransfer;

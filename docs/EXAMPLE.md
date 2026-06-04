@@ -54,3 +54,54 @@ With Synche running on both devices, they will automatically discover each other
     -   Example location: `~/Synche/my-project/notes.txt`
 
 Any changes, edits, or deletions made to files within the `my-project` directory on one device will now be automatically synchronized with the other.
+
+---
+
+## Configuration & CLI Flags
+
+Synche reads its settings from `config.toml` in the OS config dir, but ports and the
+state location can also be overridden on the command line.
+
+### CLI flags
+
+```
+synche [OPTIONS]
+
+  --config-dir <PATH>      Root directory for all Synche state (config, data, logs);
+                           overrides the OS-default directories
+  --http-port <PORT>       Web GUI / HTTP API port (default 42880)
+  --presence-port <PORT>   mDNS presence/discovery port (default 42881)
+  --transport-port <PORT>  TCP peer-transport port (default 42882)
+  -h, --help               Print usage
+  -V, --version            Print the version and exit
+```
+
+### Configurable ports in `config.toml`
+
+Add an optional `[ports]` block. Any missing field falls back to its default:
+
+```toml
+home_path = "/home/user/Synche"
+
+[ports]
+http = 42880
+presence = 42881
+transport = 42882
+
+[[directory]]
+name = "my-project"
+```
+
+**Precedence:** CLI flag > `config.toml` > built-in default. Each port resolves
+independently, so overriding only `--http-port` leaves the others on their defaults.
+
+### Running two instances on one host
+
+Because `--config-dir` relocates *all* state (config, data, **and** the persistent
+`device_id`), you can run two fully independent instances on a single machine — useful
+for testing. Give each a distinct config dir and a non-overlapping port set:
+
+```sh
+synche --config-dir /tmp/synche-a --http-port 42880 --presence-port 42881 --transport-port 42882
+synche --config-dir /tmp/synche-b --http-port 52880 --presence-port 52881 --transport-port 52882
+```
