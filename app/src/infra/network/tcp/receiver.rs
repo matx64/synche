@@ -30,8 +30,8 @@ use uuid::Uuid;
 /// against the advertised SHA-256, and returned to the adapter
 /// alongside the parsed `EntryInfo` so the application layer can
 /// run its pre-commit checks (outstanding-request, local compare,
-/// per-entry serialization) BEFORE renaming into `home_path` —
-/// issue #33 B1. Corrupt, oversized, or unsafe transfers are dropped
+/// per-entry serialization) BEFORE renaming into `home_path`.
+/// Corrupt, oversized, or unsafe transfers are dropped
 /// in this layer without ever staging.
 pub struct TcpReceiver {
     state: Arc<AppState>,
@@ -307,7 +307,7 @@ impl TcpReceiver {
     /// Flushes the staging file, drops the handle, and hands a
     /// `StagedTransfer` back to the caller. Renaming into `home_path`
     /// is deliberately deferred to the application layer so the four
-    /// pre-commit checks (issue #33 B1) can run before the user's
+    /// pre-commit checks can run before the user's
     /// tree changes. The returned `StagedTransfer` owns the staging
     /// directory and cleans it up on drop if no caller commits it.
     async fn finalise_staging(&self, mut staging: Staging) -> TransportResult<StagedTransfer> {
@@ -611,7 +611,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_transfer_stages_bytes_without_writing_to_home() {
-        // Issue #33 B1: the TCP layer must NOT rename staged bytes into
+        // The TCP layer must NOT rename staged bytes into
         // `home_path`. It returns a `StagedTransfer` whose file contains
         // the verified payload, and the application layer commits later.
         let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
@@ -958,7 +958,7 @@ mod tests {
 
     /// Drive `read_data` against a writer that sends `bytes` then closes the
     /// connection. Returns the decode result so each malformed-input test can
-    /// assert it was rejected (issue #23).
+    /// assert it was rejected.
     async fn read_data_from_bytes(
         state: Arc<AppState>,
         kind: TcpStreamKind,

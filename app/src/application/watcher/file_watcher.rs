@@ -128,7 +128,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
     #[tracing::instrument(skip_all, fields(path = %path.relative))]
     async fn handle_entry_create_or_modify(&self, path: WatcherEventPath) -> io::Result<()> {
-        // Issue #40 (B5): skip events the synchronizer itself triggered
+        // Skip events the synchronizer itself triggered
         // while committing a peer Transfer. Without this guard a watcher
         // event in the move→persist window sees the stale DB hash and
         // broadcasts a spurious local-edit Metadata for a remote write.
@@ -202,7 +202,7 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
     #[tracing::instrument(skip_all, fields(path = %path.relative))]
     async fn handle_entry_remove(&self, path: WatcherEventPath) -> io::Result<()> {
-        // Issue #40 (B5): skip the removal the synchronizer itself
+        // Skip the removal the synchronizer itself
         // triggered while applying a peer tombstone. Without this guard
         // the watcher re-bumps the local counter and re-broadcasts the
         // tombstone as a local delete.
@@ -433,7 +433,7 @@ mod tests {
         (env, watcher, entry_manager, sender_rx)
     }
 
-    /// Issue #40 (B5): while a path is marked remote-write-in-progress,
+    /// While a path is marked remote-write-in-progress,
     /// a watcher modify event for it must be a no-op — no local counter
     /// bump, no outbound Metadata. Clearing the mark restores normal
     /// behavior.
@@ -590,7 +590,7 @@ mod tests {
         }
     }
 
-    /// Issue #40 (B5): a watcher remove event for a path the
+    /// A watcher remove event for a path the
     /// synchronizer is removing (peer tombstone) must be skipped so it
     /// does not re-bump the local counter and re-broadcast a tombstone.
     #[tokio::test]
@@ -630,7 +630,7 @@ mod tests {
         assert_eq!(stored.version.get(&local_id), Some(&1));
     }
 
-    /// Issue #40 (B5): committing a nested remote file may create
+    /// Committing a nested remote file may create
     /// missing parent directories before the file move. Platform watcher
     /// events for those parent directories must be suppressed by the
     /// leaf-file remote-write mark, or `handle_create_dir` can scan and
@@ -673,7 +673,7 @@ mod tests {
         );
     }
 
-    /// Issue #40 (B5): applying a peer tombstone for a directory can
+    /// Applying a peer tombstone for a directory can
     /// produce watcher remove events for tracked descendants. The
     /// directory's remote-write mark must suppress those child events so
     /// they do not become fresh local tombstones.
@@ -715,7 +715,7 @@ mod tests {
         assert_eq!(stored.version.get(&local_id), Some(&2));
     }
 
-    /// Issue #40 (B5): the platform watcher can deliver the remove event
+    /// The platform watcher can deliver the remove event
     /// after `apply_peer_tombstone` has already cleared the remote-write
     /// mark. If the row is already a tombstone, that late event must be a
     /// no-op rather than rebroadcasting the delete as a local tombstone.
@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(stored_after.version.get(&peer_id), Some(&5));
     }
 
-    /// Issue #40 (B5): suppression must happen before the event enters
+    /// Suppression must happen before the event enters
     /// the debounce buffer. Otherwise the remote-write mark can be
     /// cleared before the debounced event is handled, reintroducing the
     /// stale-DB race.

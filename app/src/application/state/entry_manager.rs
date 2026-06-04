@@ -23,7 +23,7 @@ use walkdir::WalkDir;
 
 /// Outcome of `EntryManager::commit_staged_transfer`.
 ///
-/// Issue #33 B1 — the application-layer commit decides whether the
+/// The application-layer commit decides whether the
 /// staged bytes earn the rename into `home_path` based on the local
 /// view of the entry. `Committed` returns the new local entry so the
 /// caller can broadcast metadata; `Dropped` carries a short, GUI-
@@ -194,7 +194,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
                 None if entry.is_removed() => {
                     // Tombstones intentionally have no on-disk file; keep
                     // the row so the deletion stays durable across restart
-                    // and continues to propagate to peers (issue #33 B3).
+                    // and continues to propagate to peers.
                 }
 
                 None => {
@@ -413,7 +413,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// the peer's version counters into the local entry so future
     /// comparisons converge.
     ///
-    /// Issue #33 B2: never merge the peer's axis when the raw compare
+    /// Never merge the peer's axis when the raw compare
     /// was `Conflict` and the tiebreak resolved to `KeepSelf`. The peer
     /// announced a counter under an axis whose content we never
     /// integrated — absorbing it would make our vector dominate the
@@ -493,7 +493,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let ext = path.extension().unwrap_or_default().to_string_lossy();
 
-        // Issue #41 (B6): millisecond resolution plus a fresh random
+        // Millisecond resolution plus a fresh random
         // component per attempt makes filename collisions practically
         // impossible even for two conflicts in the same second from the
         // same peer, and `create_new` guarantees we never truncate an
@@ -619,7 +619,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// Commit a staged Transfer into `home_path` after re-validating
     /// against the current local view.
     ///
-    /// Issue #33 B1: the TCP adapter writes the verified payload to a
+    /// The TCP adapter writes the verified payload to a
     /// staging directory; this method is the application-layer commit
     /// gate. It runs `EntryInfo::compare` (with the peer entry
     /// sanitized to the sender's own axis) and:
@@ -635,7 +635,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     ///   user file is not modified by a partial copy.
     /// - on `KeepSelf` (including `Conflict → KeepSelf`): drops the
     ///   staged bytes, leaves both DB and disk untouched. This is the
-    ///   B2-aligned no-merge-on-conflict-keep-self path.
+    ///   no-merge-on-conflict-keep-self path.
     ///
     /// The caller MUST hold the per-entry inflight lock around this
     /// call so two concurrent commits for the same path cannot
@@ -706,7 +706,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
                 let target = final_entry.name.to_canonical(self.state.home_path());
 
-                // Issue #40 (B5): mark the path as remote-write-in-progress
+                // Mark the path as remote-write-in-progress
                 // before the move and clear it only after the metadata is
                 // persisted, so a watcher event in the move→persist window
                 // does not see the stale DB hash and broadcast a spurious
@@ -805,7 +805,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// only the named directory row was tombstoned; without tombstoning the
     /// descendant rows a handshake in the window before the peer's per-child
     /// tombstones arrive could re-advertise a still-live child and resurrect
-    /// it (issue #39 / B4). Descendants the peer did not send have no peer
+    /// it. Descendants the peer did not send have no peer
     /// vector to preserve, so — like the local `remove_dir` path — we author
     /// a local tombstone (bump local axis + set the `deleted` flag) via
     /// `delete_and_update_entry`. `starts_with_dir` is inclusive of the dir
@@ -863,7 +863,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
     /// to peers via the handshake entry list. A plain `delete_entry`
     /// would lose the tombstone the moment we crash or a late-joining
     /// peer connects, letting the file silently resurrect from any peer
-    /// that still has the live copy. (issue #33 finding B3)
+    /// that still has the live copy.
     pub async fn delete_and_update_entry(&self, mut entry: EntryInfo) -> io::Result<EntryInfo> {
         bump_local_counter(&mut entry.version, self.state.local_id())?;
         entry.mark_removed();
@@ -874,10 +874,9 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
     /// Drops tombstone rows older than `retention` so the entry map — and
     /// every handshake payload — does not grow without bound over the life
-    /// of an install (issue #43 B8). The tradeoff is a fixed retention
+    /// of an install. The tradeoff is a fixed retention
     /// window: a peer offline longer than `retention` could resurrect a
-    /// deleted file, the same hazard #33 B3 hardened against. Returns the
-    /// number of tombstones removed.
+    /// deleted file. Returns the number of tombstones removed.
     pub async fn gc_tombstones(&self, retention: std::time::Duration) -> io::Result<u64> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1305,7 +1304,7 @@ mod tests {
         );
     }
 
-    // Issue #41 (B6): two conflicts for the same file in quick
+    // Two conflicts for the same file in quick
     // succession must each produce a distinct conflict copy — the
     // second must never truncate the first.
     #[tokio::test]
@@ -1504,8 +1503,7 @@ mod tests {
     /// After a non-conflict handle_metadata, only the peer's own axis
     /// (`peer_entry.version[peer_id]`) is merged into the local vector.
     /// Foreign axes the peer claims to know about are ignored, because
-    /// an unauthenticated peer can advertise arbitrary values for them
-    /// (issue #32 finding #3).
+    /// an unauthenticated peer can advertise arbitrary values for them.
     #[tokio::test]
     async fn handle_metadata_merges_only_peer_own_axis() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
@@ -1550,8 +1548,7 @@ mod tests {
 
     /// A peer-supplied counter above `MAX_TRUSTED_COUNTER` is treated as
     /// poisoned: the merge is skipped (warn-and-drop) so future
-    /// legitimate updates from that device don't look stale forever
-    /// (issue #32 finding #5).
+    /// legitimate updates from that device don't look stale forever.
     #[tokio::test]
     async fn merge_versions_skips_poisoned_peer_counter() {
         let (_env, _temp_dir, sync_dir, manager) = setup().await;
@@ -1740,7 +1737,7 @@ mod tests {
         );
     }
 
-    /// Issue #33 B2: on a true concurrent-edit conflict resolved by the
+    /// On a true concurrent-edit conflict resolved by the
     /// `local_id < peer_id` tiebreak, the local row must NOT absorb the
     /// peer's axis. If we merged, our vector would dominate the peer's
     /// on the next exchange, and the peer would silently overwrite its
@@ -1836,7 +1833,7 @@ mod tests {
         assert_eq!(stored.version.get(&peer_id), Some(&4));
     }
 
-    /// Issue #33 B3: a deletion must persist as a durable tombstone, not
+    /// A deletion must persist as a durable tombstone, not
     /// vanish from the DB. Without this, a crash between the row-delete
     /// and the metadata broadcast — or any late-joining peer — would
     /// silently re-sync the file back from a peer that still has the
@@ -1872,7 +1869,7 @@ mod tests {
         assert_eq!(stored.version.get(&local_id), Some(&2));
     }
 
-    /// Issue #43 (B8): the periodic GC drops aged tombstones but keeps live
+    /// The periodic GC drops aged tombstones but keeps live
     /// entries and tombstones still inside the retention window.
     #[tokio::test]
     async fn gc_tombstones_drops_only_aged_tombstones() {
@@ -1929,7 +1926,7 @@ mod tests {
         assert!(manager.get_entry(&live).await.unwrap().is_some());
     }
 
-    /// Issue #40 (B5): a delayed watcher remove event can arrive after
+    /// A delayed watcher remove event can arrive after
     /// a peer tombstone has already been persisted and unmarked. That
     /// duplicate remove must be a no-op so it does not bump our local
     /// axis and re-advertise the peer delete as a local tombstone.
@@ -1960,7 +1957,7 @@ mod tests {
         assert_eq!(stored.version.get(&local_id), Some(&2));
     }
 
-    /// Issue #33 B3: build_db must preserve tombstones whose files are
+    /// build_db must preserve tombstones whose files are
     /// (correctly) missing on disk. The pre-fix code deleted any row
     /// whose file was missing, which erased every tombstone on every
     /// restart and let deleted files resurrect from peers.
@@ -1991,7 +1988,7 @@ mod tests {
         assert!(stored.is_removed());
     }
 
-    /// Issue #33 B3: if a previously-tombstoned file is restored on disk
+    /// If a previously-tombstoned file is restored on disk
     /// (e.g. user pastes it back) before the next startup scan, the
     /// existing hash-mismatch branch replaces the tombstone with the
     /// live entry and bumps the local counter so the resurrection
@@ -2067,7 +2064,7 @@ mod tests {
         assert_eq!(stored.version.get(&local_id), Some(&2));
     }
 
-    /// Issue #33 B3: tombstones must reach peers via the handshake entry
+    /// Tombstones must reach peers via the handshake entry
     /// list so a late-joining or recently-online peer learns the delete
     /// and removes its own live copy.
     #[tokio::test]
@@ -2242,7 +2239,7 @@ mod tests {
         assert!(!leaked_temp, "failed temp copy must be cleaned up");
     }
 
-    /// Issue #33 B1: metadata is persisted only after the staged file
+    /// Metadata is persisted only after the staged file
     /// has moved into `home_path`. If the move fails, the DB is still
     /// untouched. Here there was no prior row, so no row should appear.
     #[tokio::test]
@@ -2281,7 +2278,7 @@ mod tests {
         );
     }
 
-    /// Issue #33 B1: when a row already exists and the file move fails,
+    /// When a row already exists and the file move fails,
     /// the previous row remains untouched because the new metadata has
     /// not been written yet.
     #[tokio::test]

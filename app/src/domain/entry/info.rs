@@ -151,7 +151,7 @@ impl<'de> Deserialize<'de> for EntryInfo {
     }
 }
 
-/// Legacy tombstone sentinel from before issue #42. Kept for mixed-version
+/// Legacy tombstone sentinel from before the explicit `deleted` flag. Kept for mixed-version
 /// wire compatibility and SQLite migration only; runtime/persisted tombstones
 /// are represented by `deleted = true` with `hash = None`.
 const LEGACY_REMOVED_HASH: &str = "00000000000000000000000000000000";

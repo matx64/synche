@@ -98,15 +98,14 @@ pub struct AppState {
     /// tombstone application. `commit_staged_transfer` acquires the
     /// inner mutex across compare → rename → persist, and accepted peer
     /// tombstones use the same mutex before revalidating and removing
-    /// disk state, so same-path inbound updates cannot interleave
-    /// (issue #33 B1).
+    /// disk state, so same-path inbound updates cannot interleave.
     inflight_transfers: Mutex<HashMap<RelativePath, Arc<Mutex<()>>>>,
 
     /// Paths the synchronizer is currently mutating on disk on behalf of
     /// a peer (a Transfer commit's move→persist window, or a peer
     /// tombstone's file removal). The file watcher skips events for
     /// these paths so a remote write does not masquerade as a local edit
-    /// or delete and broadcast a spurious `Metadata` (issue #40 / B5).
+    /// or delete and broadcast a spurious `Metadata`.
     /// A plain `HashSet` is sufficient because the per-entry inflight
     /// lock already serializes same-path remote writes.
     remote_writes: Mutex<HashSet<RelativePath>>,
@@ -282,8 +281,8 @@ impl AppState {
     }
 
     /// Mark `name` as being written on disk by the synchronizer on
-    /// behalf of a peer. The watcher skips events for marked paths
-    /// (issue #40 / B5). Pair every `mark` with a `clear`, including on
+    /// behalf of a peer. The watcher skips events for marked paths.
+    /// Pair every `mark` with a `clear`, including on
     /// error paths — `clear` is async so it cannot run from a `Drop`.
     pub async fn mark_remote_write(&self, name: &RelativePath) {
         self.remote_writes.lock().await.insert(name.clone());
@@ -731,9 +730,8 @@ mod tests {
         }
     }
 
-    /// Verifies the component-aware boundary check (issue #32 finding
-    /// #4). A configured sync dir `foo` must NOT match a sibling path
-    /// like `foobar/file.txt`.
+    /// Verifies the component-aware boundary check. A configured sync dir
+    /// `foo` must NOT match a sibling path like `foobar/file.txt`.
     #[tokio::test]
     async fn is_under_sync_dir_does_not_match_string_prefix_siblings() {
         let env = crate::utils::test_support::test_env_with_dirs(&["foo"]).await;

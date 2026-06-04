@@ -123,13 +123,12 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             _ => unreachable!(),
         };
 
-        // Honest UUID-collision guard (was #45 B10, split into #52 from the
-        // crypto-auth work in #36): a peer declaring our own device id means a
-        // duplicated device_id (config copy, restored backup, baked-in container
-        // id). Both sides would fall through the `local_id < peer_id` tiebreak in
-        // `handle_conflict` and overwrite each other. Drop the handshake and log
-        // loudly. NOTE: this does NOT defend against a malicious peer forging
-        // source_id — that needs cryptographic identity (#36).
+        // Honest UUID-collision guard: a peer declaring our own device id means
+        // a duplicated device_id (config copy, restored backup, baked-in
+        // container id). Both sides would fall through the `local_id < peer_id`
+        // tiebreak in `handle_conflict` and overwrite each other. Drop the
+        // handshake and log loudly. NOTE: this does NOT defend against a
+        // malicious peer forging source_id — that needs cryptographic identity.
         if event.metadata.source_id == self.state.local_id() {
             warn!(
                 peer = %event.metadata.source_id,
@@ -174,7 +173,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 self.apply_peer_tombstone(event.metadata.source_id, entry)
                     .await?;
             } else if entry.is_file() {
-                // Issue #33 B1: register the outstanding request BEFORE
+                // Register the outstanding request BEFORE
                 // enqueuing it on the wire so the matching Transfer is
                 // recognized as solicited.
                 self.state
@@ -217,7 +216,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         {
             VersionCmp::KeepOther => {
                 if peer_entry.is_file() {
-                    // Issue #33 B1: register the outstanding request so
+                    // Register the outstanding request so
                     // the matching Transfer is recognized as solicited
                     // before any bytes hit disk.
                     self.state
@@ -330,7 +329,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
 
         let _path_gate = self.state.acquire_path_mutation_shared().await;
 
-        // Issue #33 B1: every Transfer must be backed by an outstanding
+        // Every Transfer must be backed by an outstanding
         // Request we sent. Unsolicited transfers are dropped without
         // touching home_path. `staging` is the RAII handle on the
         // staged bytes — let it drop on every failure path.
@@ -489,7 +488,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                     return Ok::<Vec<EntryInfo>, io::Error>(Vec::new());
                 };
 
-                // Issue #40 (B5): the file removal below is a remote write
+                // The file removal below is a remote write
                 // the watcher would otherwise pick up and re-broadcast as a
                 // local delete. Mark the path while removing it (the
                 // tombstone metadata is already persisted), clearing the
@@ -499,7 +498,7 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
                 self.state.mark_remote_write(&entry.name).await;
                 let removal = self.remove_path_from_disk(&entry.name).await;
 
-                // Issue #39 (B4): `remove_path_from_disk` wiped the whole
+                // `remove_path_from_disk` wiped the whole
                 // subtree on disk for a directory tombstone, but only the
                 // named row was tombstoned above. Durably tombstone every
                 // descendant row now — atomically with the disk removal and
@@ -639,8 +638,7 @@ mod tests {
         tokio::sync::mpsc::Receiver<TransportChannelData>,
     ) {
         // Use "sync" as the configured directory so the existing
-        // `sync/...` entry paths are inside a configured sync dir
-        // (scope guard added for issue #32).
+        // `sync/...` entry paths are inside a configured sync dir.
         let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
         let state = env.state.clone();
         let entry_manager = EntryManager::new(db, state.clone());
@@ -914,7 +912,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_handshake_rejects_peer_claiming_our_own_device_id() {
-        // Issue #52: a handshake whose source_id equals our own local_id means a
+        // A handshake whose source_id equals our own local_id means a
         // duplicated device_id (config copy / restored backup / baked-in
         // container id). It must be dropped: no peer registered, no Ack/Request
         // enqueued, so both sides don't fall through the conflict tiebreak.
@@ -1039,7 +1037,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_peer_tombstone_for_directory_tombstones_descendants() {
-        // Issue #39 (B4): a remote directory tombstone wipes the subtree on
+        // A remote directory tombstone wipes the subtree on
         // disk via `remove_dir_all`, so its still-live descendant rows must
         // be durably tombstoned in the same step — otherwise a handshake in
         // the window before the peer's per-child tombstones arrive could
@@ -1368,7 +1366,7 @@ mod tests {
         );
     }
 
-    /// Issue #33 B1: an unsolicited Transfer (no matching outstanding
+    /// An unsolicited Transfer (no matching outstanding
     /// Request) must be dropped at the application layer before any
     /// DB write — even if the bytes already made it to staging. The
     /// poisoned-counter rejection path lives at the TCP layer (see
@@ -1523,7 +1521,7 @@ mod tests {
         }
     }
 
-    /// Issue #33 B1: when we requested a transfer but locally edited
+    /// When we requested a transfer but locally edited
     /// the entry since (so the local row strictly dominates the peer's
     /// vector), the commit path must drop the staged bytes rather than
     /// overwrite the newer local edit. The pre-fix flow would have
@@ -1655,7 +1653,7 @@ mod tests {
         }
     }
 
-    /// Issue #33 B1: a successful commit renames the staged bytes
+    /// A successful commit renames the staged bytes
     /// atomically into `home_path` and persists the sanitized peer
     /// metadata.
     #[tokio::test]
@@ -1696,7 +1694,7 @@ mod tests {
         assert!(!staging_root.exists(), "staging dir cleaned up on commit");
     }
 
-    /// Issue #33: an inbound tombstone for the same path as an
+    /// An inbound tombstone for the same path as an
     /// in-flight Transfer must wait for the Transfer commit to finish
     /// and then compare against the freshly persisted live row. Before
     /// tombstones shared the per-entry lock, the tombstone could remove
@@ -1804,7 +1802,7 @@ mod tests {
         );
     }
 
-    /// Issue #40 (B5): while `commit_staged_transfer` is mid-commit (the
+    /// While `commit_staged_transfer` is mid-commit (the
     /// staged bytes are already renamed into `home_path` but the merged
     /// metadata is not yet persisted), the path must be marked
     /// remote-write-in-progress so a racing watcher event is suppressed.
@@ -1947,7 +1945,7 @@ mod tests {
         assert!(matches!(send_rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
-    /// Issue #33 B1: `register_pending_request` followed by
+    /// `register_pending_request` followed by
     /// `take_pending_request` is the legitimate cycle; a second
     /// `take_pending_request` with the same key must return false so
     /// a replayed Transfer cannot resurrect a consumed registration.

@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn relative_path_rejects_unsafe_sync_paths() {
         // One representative input per hostile class the protocol decoder
-        // must reject (issue #23): empty, absolute, parent-directory
+        // must reject: empty, absolute, parent-directory
         // traversal in several forms, backslash separators, mixed
         // separators, and embedded NUL bytes.
         for path in [

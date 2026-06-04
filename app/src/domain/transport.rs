@@ -27,7 +27,7 @@ pub struct TransportEvent {
 /// staging directory in the OS temp dir but not yet committed into
 /// `home_path`.
 ///
-/// Issue #33 B1: the TCP adapter deliberately stops short of renaming
+/// The TCP adapter deliberately stops short of renaming
 /// staging → home so the application layer can run the four
 /// pre-commit checks (sync-dir scope, outstanding-request, local
 /// compare, and per-entry serialization) BEFORE the user's tree

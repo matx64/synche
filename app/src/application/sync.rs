@@ -22,8 +22,8 @@ use std::{sync::Arc, time::Duration};
 use tokio::io;
 
 /// How long a tombstone is kept before the periodic GC drops it. A peer
-/// offline longer than this could resurrect a deleted file (issue #43 B8
-/// tradeoff), so the window is deliberately conservative.
+/// offline longer than this could resurrect a deleted file, so the window
+/// is deliberately conservative.
 const TOMBSTONE_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// How often the tombstone GC sweep runs.
 const TOMBSTONE_GC_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
@@ -261,8 +261,8 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
         )
     }
 
-    /// Periodically drops tombstones older than `TOMBSTONE_RETENTION`
-    /// (issue #43 B8). Runs once at startup (the first `interval` tick
+    /// Periodically drops tombstones older than `TOMBSTONE_RETENTION`.
+    /// Runs once at startup (the first `interval` tick
     /// fires immediately) then every `TOMBSTONE_GC_INTERVAL`. Never
     /// returns `Ok` — it loops for the lifetime of the synchronizer like
     /// the other `select!` arms. A GC error is logged and swallowed so a

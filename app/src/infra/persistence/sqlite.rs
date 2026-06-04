@@ -52,8 +52,8 @@ impl SqliteDb {
         Ok(Self { pool })
     }
 
-    /// One-time migration off the legacy `REMOVED_HASH` tombstone sentinel
-    /// (issue #42). Older databases encoded a tombstone by stamping the
+    /// One-time migration off the legacy `REMOVED_HASH` tombstone sentinel.
+    /// Older databases encoded a tombstone by stamping the
     /// `hash` column with a 32-zero string and have no `deleted` column. If
     /// the column is missing, add it, then promote every legacy sentinel
     /// row to an explicit tombstone (`deleted = 1`) and clear the now-defunct
@@ -86,7 +86,7 @@ impl SqliteDb {
         Ok(())
     }
 
-    /// One-time migration adding the `tombstoned_at` column (issue #43).
+    /// One-time migration adding the `tombstoned_at` column.
     /// Tombstone rows carry the Unix-millis timestamp of when this device
     /// last persisted them as deleted; the periodic GC drops tombstones
     /// older than the retention window. If the column is missing, add it,
@@ -128,7 +128,7 @@ fn now_unix_millis() -> i64 {
         .as_millis() as i64
 }
 
-/// Legacy tombstone sentinel from before issue #42. Used **only** by the
+/// Legacy tombstone sentinel from before the explicit `deleted` flag. Used **only** by the
 /// one-time `deleted`-column migration to recognize pre-upgrade tombstones;
 /// it must never re-enter the live hash path.
 const LEGACY_REMOVED_HASH: &str = "00000000000000000000000000000000";
@@ -530,7 +530,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_migrates_legacy_removed_hash_to_deleted_flag() {
-        // A database written before issue #42 has no `deleted` column and
+        // A pre-`deleted`-column database has no `deleted` column and
         // encodes tombstones with the all-zeros sentinel in `hash`. Opening
         // it through `SqliteDb::new` must add the column, promote the
         // sentinel row to an explicit tombstone, and clear the hash.
@@ -747,7 +747,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_migration_backfills_tombstoned_at_for_existing_tombstones() {
-        // A database written before issue #43 has the `deleted` column but
+        // A pre-`tombstoned_at` database has the `deleted` column but
         // no `tombstoned_at`. Opening it must add the column and stamp every
         // existing tombstone so it becomes GC-eligible from upgrade time.
         let dir = tempdir().unwrap();

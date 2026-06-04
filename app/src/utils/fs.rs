@@ -36,7 +36,7 @@ pub fn default_home_dir() -> io::Result<CanonicalPath> {
 
 /// Returns the lowercase hex SHA-256 of the file at `path`.
 ///
-/// Guards against a local writer mutating the file mid-read (issue #44 / B9):
+/// Guards against a local writer mutating the file mid-read:
 /// hashing while another process keeps writing would otherwise publish a hash
 /// that doesn't match the on-disk bytes, so every peer that requests it rejects
 /// the transfer and the stale hash lingers until the next watcher event. We
