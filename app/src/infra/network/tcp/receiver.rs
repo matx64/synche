@@ -410,6 +410,9 @@ mod tests {
             "/tmp/payload.bin",
             "../payload.bin",
             "sync/../../payload.bin",
+            "a\\b\\payload.bin", // backslash-separated
+            "a/b\\payload.bin",  // mixed separators
+            "a\0b.bin",          // embedded NUL
         ] {
             assert_transport_error(
                 TcpReceiver::validate_entry_info(file_entry(path, Some("hash".to_string()))),
@@ -949,5 +952,147 @@ mod tests {
             }
             Ok(_) => panic!("expected oversize rejection"),
         }
+    }
+
+    /// Drive `read_data` against a writer that sends `bytes` then closes the
+    /// connection. Returns the decode result so each malformed-input test can
+    /// assert it was rejected (issue #23).
+    async fn read_data_from_bytes(
+        state: Arc<AppState>,
+        kind: TcpStreamKind,
+        bytes: Vec<u8>,
+    ) -> TransportResult<(TransportData, Option<StagedTransfer>)> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream.write_all(&bytes).await.unwrap();
+            // Drop closes the connection, simulating a peer that stops
+            // mid-frame.
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state);
+        let result = receiver.read_data(stream, kind, Uuid::new_v4()).await;
+        writer.await.unwrap();
+        result
+    }
+
+    #[tokio::test]
+    async fn read_handshake_rejects_truncated_length_prefix() {
+        let env = crate::utils::test_support::test_env().await;
+        // Only two of the four length-prefix bytes before the peer hangs up.
+        let result = read_data_from_bytes(
+            env.state.clone(),
+            TcpStreamKind::HandshakeSyn,
+            vec![0u8, 0u8],
+        )
+        .await;
+        assert!(result.is_err(), "truncated length prefix must be rejected");
+    }
+
+    #[tokio::test]
+    async fn read_handshake_rejects_truncated_body() {
+        let env = crate::utils::test_support::test_env().await;
+        // Advertise 100 bytes of JSON but send only 10 before closing.
+        let mut bytes = (100u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[b'{'; 10]);
+        let result =
+            read_data_from_bytes(env.state.clone(), TcpStreamKind::HandshakeSyn, bytes).await;
+        assert!(result.is_err(), "truncated handshake body must be rejected");
+    }
+
+    #[tokio::test]
+    async fn read_entry_info_rejects_truncated_body() {
+        let env = crate::utils::test_support::test_env().await;
+        // Advertise 50 bytes of entry JSON but send none before closing.
+        let bytes = (50u32).to_be_bytes().to_vec();
+        let result = read_data_from_bytes(env.state.clone(), TcpStreamKind::Metadata, bytes).await;
+        assert!(result.is_err(), "truncated entry body must be rejected");
+    }
+
+    #[tokio::test]
+    async fn read_handshake_rejects_invalid_utf8() {
+        let env = crate::utils::test_support::test_env().await;
+        // Valid 2-byte length prefix, then non-UTF-8 bytes.
+        let mut bytes = (2u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[0xFF, 0xFE]);
+        let result =
+            read_data_from_bytes(env.state.clone(), TcpStreamKind::HandshakeSyn, bytes).await;
+        assert!(result.is_err(), "invalid UTF-8 handshake must be rejected");
+    }
+
+    #[tokio::test]
+    async fn read_entry_info_rejects_invalid_utf8() {
+        let env = crate::utils::test_support::test_env().await;
+        // Valid length prefix, then bytes that are neither UTF-8 nor JSON.
+        let mut bytes = (2u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[0xFF, 0xFE]);
+        let result = read_data_from_bytes(env.state.clone(), TcpStreamKind::Metadata, bytes).await;
+        assert!(result.is_err(), "invalid UTF-8 entry must be rejected");
+    }
+
+    #[tokio::test]
+    async fn read_handshake_rejects_u32_max_length() {
+        let env = crate::utils::test_support::test_env().await;
+        // u32::MAX length prefix with no body: must be rejected by the cap
+        // check before any allocation or further read.
+        let bytes = u32::MAX.to_be_bytes().to_vec();
+        let result =
+            read_data_from_bytes(env.state.clone(), TcpStreamKind::HandshakeSyn, bytes).await;
+        assert_transport_error(result, "MAX_HANDSHAKE_JSON_SIZE");
+    }
+
+    #[tokio::test]
+    async fn read_entry_info_rejects_u32_max_length() {
+        let env = crate::utils::test_support::test_env().await;
+        let bytes = u32::MAX.to_be_bytes().to_vec();
+        let result = read_data_from_bytes(env.state.clone(), TcpStreamKind::Metadata, bytes).await;
+        assert_transport_error(result, "MAX_ENTRY_JSON_SIZE");
+    }
+
+    #[tokio::test]
+    async fn read_transfer_rejects_truncated_payload() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let peer = Uuid::new_v4();
+        let entry_name = format!("sync/truncated-{}.bin", Uuid::new_v4());
+        let original_path = state.home_path().join(&entry_name);
+        let entry = file_entry(&entry_name, Some("ignored".to_string()));
+        state
+            .register_pending_request(peer, entry.name.clone())
+            .await;
+
+        let entry_json = serde_json::to_vec(&entry).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(&(entry_json.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            stream.write_all(&entry_json).await.unwrap();
+            // Declare 200 payload bytes but send only 20 before closing.
+            stream.write_all(&(200u64).to_be_bytes()).await.unwrap();
+            stream.write_all(&[0u8; 20]).await.unwrap();
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let receiver = TcpReceiver::new(state.clone());
+        let result = receiver
+            .read_data(stream, TcpStreamKind::Transfer, peer)
+            .await;
+        writer.await.unwrap();
+
+        assert!(result.is_err(), "truncated transfer payload must error");
+        assert!(
+            !original_path.exists(),
+            "truncated transfer must not write to home"
+        );
+        assert!(
+            !state.take_pending_request(peer, &entry.name).await,
+            "failed staging must release the pre-stage claim"
+        );
     }
 }

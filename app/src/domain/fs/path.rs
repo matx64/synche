@@ -88,6 +88,7 @@ impl RelativePath {
     pub fn is_safe_sync_path(&self) -> bool {
         !self.0.is_empty()
             && !self.0.contains('\\')
+            && !self.0.contains('\0')
             && Path::new(&self.0)
                 .components()
                 .all(|component| matches!(component, Component::Normal(_)))
@@ -137,9 +138,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn relative_path_rejects_paths_that_escape_home() {
-        for path in ["", "/tmp/file", "../file", "sync/../../file", "sync\\file"] {
-            assert!(!RelativePath::from(path).is_safe_sync_path(), "{path}");
+    fn relative_path_rejects_unsafe_sync_paths() {
+        // One representative input per hostile class the protocol decoder
+        // must reject (issue #23): empty, absolute, parent-directory
+        // traversal in several forms, backslash separators, mixed
+        // separators, and embedded NUL bytes.
+        for path in [
+            "",                // empty
+            "/tmp/file",       // absolute
+            "..",              // bare parent
+            "../file",         // leading traversal
+            "../etc/passwd",   // deeper leading traversal
+            "a/../../b",       // interior traversal escaping the root
+            "sync/../../file", // traversal under a sync dir
+            "a\\b\\c",         // backslash-separated
+            "a/b\\c",          // mixed separators
+            "a\0b",            // embedded NUL
+            "sync/\0",         // embedded NUL in a later component
+        ] {
+            assert!(
+                !RelativePath::from(path).is_safe_sync_path(),
+                "expected reject: {path:?}"
+            );
         }
     }
 
