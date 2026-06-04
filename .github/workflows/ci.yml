@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    name: fmt + clippy + test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Compute lockfile hash
+        id: lockfile
+        run: echo "hash=$(git hash-object Cargo.lock)" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-ci-${{ steps.lockfile.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ci-
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy -p synche -- -D warnings
+
+      - name: cargo test
+        run: cargo test -p synche --locked

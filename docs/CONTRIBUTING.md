@@ -43,11 +43,22 @@ Check the [Build Guide](BUILD.md). Optionally, you can use `watchexec + just` to
     ```bash
     cargo clippy
     ```
+5.  Run the test suite at any time with:
+    ```bash
+    cargo test -p synche
+    ```
+
+> The `pre-commit` git hook (`just setup-hooks`) runs `cargo fmt --check` and
+> `cargo clippy` locally on every commit for fast feedback. The full
+> `cargo fmt` + `cargo clippy` + `cargo test` suite is enforced by CI
+> (`.github/workflows/ci.yml`) on every push/merge to `main`.
 
 ## Pull Request Process
 
 1.  Update the documentation if you are changing functionality.
 2.  Add tests for any new features or bug fixes.
-3.  Ensure all tests pass and there are no linting errors.
+3.  Ensure all tests pass and there are no linting errors. CI runs the full
+    `cargo fmt` + `cargo clippy` + `cargo test` suite when your change lands on
+    `main`.
 4.  Push your branch to your fork and submit a Pull Request to the `main` branch of the `matx64/synche` repository.
 5.  Provide a clear description of the changes and link to any relevant issues.

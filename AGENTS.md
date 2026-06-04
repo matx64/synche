@@ -31,6 +31,8 @@ Both must exit with **zero warnings and zero failures**.
 - If either command fails, fix the root cause before marking the task done.
 - Never silence a warning with `#[allow(...)]` without explicit approval from the user.
 
+**Enforcement split**: the local `pre-commit` hook (`.githooks/pre-commit`) runs `cargo fmt --check` + `cargo clippy` only; `cargo test` is enforced by CI (`.github/workflows/ci.yml`) on every push/merge to `main`. The agent checklist above (clippy **and** test before done) is unchanged — still run both locally regardless of what the hooks gate.
+
 ## Architecture
 
 Single Cargo workspace (root `Cargo.toml`) with one member crate at `app/`. Rust source lives under `app/src/` and follows a **hexagonal / ports-and-adapters** layout. Read this section before navigating individual files — the layer boundaries matter.
