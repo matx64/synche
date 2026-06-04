@@ -136,6 +136,54 @@ mod tests {
         }
     }
 
+    async fn write_truncated_metadata(stream: &mut TcpStream, source_id: Uuid) {
+        stream.write_all(source_id.as_bytes()).await.unwrap();
+        stream
+            .write_all(&[TcpStreamKind::Metadata as u8])
+            .await
+            .unwrap();
+        // Advertise 4 KiB of entry JSON but send nothing before closing,
+        // so the decoder hits EOF mid-frame.
+        stream.write_all(&(4096u32).to_be_bytes()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn recv_ignores_truncated_frame_and_keeps_listening() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["ok"]).await;
+        let adapter = TcpAdapter::new(env.state.clone()).await;
+        let addr = adapter.listener.local_addr().unwrap();
+        let source_id = Uuid::new_v4();
+        let metadata_entry = file_entry("ok/payload.bin", "hash");
+
+        let metadata_entry_clone = metadata_entry.clone();
+        let writer = tokio::spawn(async move {
+            let mut bad_stream = TcpStream::connect(addr).await.unwrap();
+            write_truncated_metadata(&mut bad_stream, source_id).await;
+            drop(bad_stream);
+
+            let mut good_stream = TcpStream::connect(addr).await.unwrap();
+            write_metadata(&mut good_stream, source_id, &metadata_entry_clone).await;
+        });
+
+        let result = timeout(Duration::from_secs(2), adapter.recv())
+            .await
+            .expect("adapter should keep listening after truncated frame");
+        writer.await.unwrap();
+
+        let event = match result {
+            Ok(event) => event,
+            Err(TransportError::Failure(message)) => {
+                panic!("unexpected transport error: {message}")
+            }
+        };
+
+        assert_eq!(event.metadata.source_id, source_id);
+        match event.payload {
+            TransportData::Metadata(entry) => assert_eq!(entry.name, metadata_entry.name),
+            _ => panic!("expected metadata after truncated frame"),
+        }
+    }
+
     #[tokio::test]
     async fn recv_ignores_corrupt_transfer_and_keeps_listening() {
         let env = crate::utils::test_support::test_env_with_dirs(&["bad"]).await;

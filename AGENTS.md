@@ -72,7 +72,7 @@ TCP transport receive errors after a connection is accepted are treated as bad p
 
 Permanent path exclusions must be enforced at every boundary where entries can enter or leave sync: filesystem scans, watcher events, handshakes, metadata handling, request handling, transfer handling, and disk writes. Use `utils::fs::is_git_path` as the shared predicate for `.git/` path exclusion. It matches an exact `.git` path component only, so `.gitignore`, `.gitattributes`, `.github/`, and `foo.git/` remain syncable.
 
-Remote transport paths must be validated before any metadata handling or disk write. Use `RelativePath::is_safe_sync_path` to reject absolute paths, parent-directory traversal, empty paths, and backslash-separated paths from peers.
+Remote transport paths must be validated before any metadata handling or disk write. Use `RelativePath::is_safe_sync_path` to reject absolute paths, parent-directory traversal, empty paths, backslash-separated paths, and paths with embedded NUL bytes from peers.
 
 ### Scoping inbound entries to configured sync_dirs
 
@@ -83,6 +83,8 @@ Every inbound `Metadata`/`Request`/`Transfer` handler in `TransportReceiver` (`a
 ### Inbound TCP message size caps
 
 `app/src/infra/network/tcp/chunk.rs` defines three hard caps that are enforced **before** allocating: `MAX_TRANSFER_SIZE` (raw file bytes), `MAX_HANDSHAKE_JSON_SIZE` (handshake JSON), `MAX_ENTRY_JSON_SIZE` (single `EntryInfo` JSON). Anything that decodes a peer-supplied `u32` length must check it against the right cap before `vec![0u8; len]`. Don't add a new variable-length frame without picking (or adding) a cap.
+
+The TCP frame decoder (`receiver.rs`/`adapter.rs`) and `RelativePath::is_safe_sync_path` (`path.rs`) are the wire-facing security edges, so they carry table-driven malformed-input tests (issue #23): oversized/`u32::MAX` length prefixes, streams truncated mid-frame, invalid UTF-8 in string fields, embedded NUL bytes, and unsafe paths (absolute, `..` traversal, backslash/mixed separators). Each case must either be rejected by `is_safe_sync_path`/`validate_*` or drained/dropped by the receiver so the adapter keeps serving other peers. When you add a new frame field or relax a path rule, extend those tables.
 
 ### Sanitizing peer-supplied version vectors
 
