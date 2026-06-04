@@ -40,12 +40,14 @@ impl SqliteDb {
                 kind TEXT NOT NULL,
                 hash TEXT,
                 version TEXT NOT NULL,
-                deleted INTEGER NOT NULL DEFAULT 0
+                deleted INTEGER NOT NULL DEFAULT 0,
+                tombstoned_at INTEGER DEFAULT NULL
             )",
         )
         .await?;
 
         Self::migrate_deleted_column(&pool).await?;
+        Self::migrate_tombstoned_at_column(&pool).await?;
 
         Ok(Self { pool })
     }
@@ -83,6 +85,47 @@ impl SqliteDb {
 
         Ok(())
     }
+
+    /// One-time migration adding the `tombstoned_at` column (issue #43).
+    /// Tombstone rows carry the Unix-millis timestamp of when this device
+    /// last persisted them as deleted; the periodic GC drops tombstones
+    /// older than the retention window. If the column is missing, add it,
+    /// then backfill every existing tombstone with the current time so
+    /// pre-upgrade tombstones become GC-eligible starting at upgrade rather
+    /// than being dropped immediately. The backfill runs even when the
+    /// column already exists so startup can finish a migration that crashed
+    /// after `ALTER TABLE`.
+    async fn migrate_tombstoned_at_column(pool: &Pool<Sqlite>) -> Result<(), Error> {
+        let columns = sqlx::query("PRAGMA table_info(entries)")
+            .fetch_all(pool)
+            .await?;
+        let has_tombstoned_at = columns
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("name").ok())
+            .any(|name| name == "tombstoned_at");
+
+        if !has_tombstoned_at {
+            pool.execute("ALTER TABLE entries ADD COLUMN tombstoned_at INTEGER DEFAULT NULL")
+                .await?;
+        }
+
+        sqlx::query(
+            "UPDATE entries SET tombstoned_at = ? WHERE deleted = 1 AND tombstoned_at IS NULL",
+        )
+        .bind(now_unix_millis())
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+}
+
+/// Current Unix time in milliseconds, clamped into `i64` for SQLite.
+fn now_unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 /// Legacy tombstone sentinel from before issue #42. Used **only** by the
@@ -95,15 +138,32 @@ impl PersistenceInterface for SqliteDb {
     async fn insert_or_replace_entry(&self, entry: &EntryInfo) -> PersistenceResult<()> {
         let version_json = serde_json::to_string(&entry.version)?;
 
+        // UPSERT (not INSERT OR REPLACE) so a re-persist of an existing
+        // tombstone preserves its original `tombstoned_at` via COALESCE.
+        // INSERT OR REPLACE deletes the prior row and would reset the
+        // timestamp on every version bump / peer re-advertisement. A fresh
+        // tombstone is stamped now; a row going live clears the timestamp.
         sqlx::query(
-            "INSERT OR REPLACE INTO entries (name, kind, hash, version, deleted)
-                VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO entries (name, kind, hash, version, deleted, tombstoned_at)
+                VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN ? ELSE NULL END)
+                ON CONFLICT(name) DO UPDATE SET
+                    kind = excluded.kind,
+                    hash = excluded.hash,
+                    version = excluded.version,
+                    deleted = excluded.deleted,
+                    tombstoned_at = CASE
+                        WHEN excluded.deleted = 1
+                            THEN COALESCE(entries.tombstoned_at, excluded.tombstoned_at)
+                        ELSE NULL
+                    END",
         )
         .bind(&*entry.name)
         .bind(entry.kind.to_string())
         .bind(entry.hash.clone())
         .bind(version_json)
         .bind(entry.deleted as i64)
+        .bind(entry.deleted as i64)
+        .bind(now_unix_millis())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -132,6 +192,17 @@ impl PersistenceInterface for SqliteDb {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn gc_tombstones(&self, cutoff_ms: i64) -> PersistenceResult<u64> {
+        let result = sqlx::query(
+            "DELETE FROM entries
+                WHERE deleted = 1 AND tombstoned_at IS NOT NULL AND tombstoned_at < ?",
+        )
+        .bind(cutoff_ms)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 }
 
@@ -604,5 +675,139 @@ mod tests {
         let live = db.get_entry("dir/live.txt").await.unwrap().unwrap();
         assert!(!live.is_removed());
         assert_eq!(live.hash, Some("abc123".to_string()));
+    }
+
+    /// Reads the raw `tombstoned_at` column for a row (tests live in-module
+    /// so they can reach `db.pool` directly to inspect/age the timestamp).
+    async fn tombstoned_at(db: &SqliteDb, name: &str) -> Option<i64> {
+        let row = sqlx::query("SELECT tombstoned_at FROM entries WHERE name = ?")
+            .bind(name)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        row.try_get::<Option<i64>, _>("tombstoned_at").unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_tombstoned_at_set_preserved_and_cleared() {
+        let db = create_test_db().await;
+
+        // Live entry: no timestamp.
+        let mut entry = create_test_entry("dir/file.txt", EntryKind::File, Some("abc".into()));
+        db.insert_or_replace_entry(&entry).await.unwrap();
+        assert_eq!(tombstoned_at(&db, "dir/file.txt").await, None);
+
+        // Becomes a tombstone: stamped now.
+        entry.mark_removed();
+        db.insert_or_replace_entry(&entry).await.unwrap();
+        let first = tombstoned_at(&db, "dir/file.txt").await;
+        assert!(first.is_some(), "tombstone must carry a timestamp");
+
+        // Re-persisting the tombstone (e.g. a peer re-advertisement) must
+        // preserve the original stamp, not reset it.
+        db.insert_or_replace_entry(&entry).await.unwrap();
+        assert_eq!(tombstoned_at(&db, "dir/file.txt").await, first);
+
+        // Resurrecting the entry to live clears the timestamp.
+        entry.deleted = false;
+        entry.hash = Some("def".into());
+        db.insert_or_replace_entry(&entry).await.unwrap();
+        assert_eq!(tombstoned_at(&db, "dir/file.txt").await, None);
+    }
+
+    #[tokio::test]
+    async fn test_gc_tombstones_removes_only_aged_tombstones() {
+        let db = create_test_db().await;
+
+        let mut old = create_test_entry("dir/old.txt", EntryKind::File, Some("a".into()));
+        old.mark_removed();
+        db.insert_or_replace_entry(&old).await.unwrap();
+
+        let mut recent = create_test_entry("dir/recent.txt", EntryKind::File, Some("b".into()));
+        recent.mark_removed();
+        db.insert_or_replace_entry(&recent).await.unwrap();
+
+        let live = create_test_entry("dir/live.txt", EntryKind::File, Some("c".into()));
+        db.insert_or_replace_entry(&live).await.unwrap();
+
+        // Age the old tombstone well into the past.
+        sqlx::query("UPDATE entries SET tombstoned_at = 1000 WHERE name = ?")
+            .bind("dir/old.txt")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+
+        let removed = db.gc_tombstones(10_000).await.unwrap();
+        assert_eq!(removed, 1);
+
+        assert!(db.get_entry("dir/old.txt").await.unwrap().is_none());
+        assert!(db.get_entry("dir/recent.txt").await.unwrap().is_some());
+        assert!(db.get_entry("dir/live.txt").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_migration_backfills_tombstoned_at_for_existing_tombstones() {
+        // A database written before issue #43 has the `deleted` column but
+        // no `tombstoned_at`. Opening it must add the column and stamp every
+        // existing tombstone so it becomes GC-eligible from upgrade time.
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("pre_43.db");
+
+        let legacy_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+
+        legacy_pool
+            .execute(
+                "CREATE TABLE entries (
+                    name TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    hash TEXT,
+                    version TEXT NOT NULL,
+                    deleted INTEGER NOT NULL DEFAULT 0
+                )",
+            )
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/gone.txt")
+        .bind("F")
+        .bind(Option::<String>::None)
+        .bind("{}")
+        .bind(1_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO entries (name, kind, hash, version, deleted) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("dir/live.txt")
+        .bind("F")
+        .bind("abc123")
+        .bind("{}")
+        .bind(0_i64)
+        .execute(&legacy_pool)
+        .await
+        .unwrap();
+        legacy_pool.close().await;
+
+        let db = SqliteDb::new(&db_path).await.unwrap();
+
+        assert!(
+            tombstoned_at(&db, "dir/gone.txt").await.is_some(),
+            "existing tombstone must be backfilled with a timestamp"
+        );
+        assert_eq!(
+            tombstoned_at(&db, "dir/live.txt").await,
+            None,
+            "live entries must not be stamped"
+        );
     }
 }

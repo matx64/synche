@@ -24,6 +24,10 @@ pub trait PersistenceInterface: Send + Sync + 'static {
     async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>>;
     /// Deletes an entry by name. Deleting a missing entry must not error.
     async fn delete_entry(&self, name: &str) -> PersistenceResult<()>;
+    /// Deletes tombstone rows whose `tombstoned_at` is older than
+    /// `cutoff_ms` (Unix millis), returning the number of rows removed.
+    /// Live entries and tombstones with no timestamp are never touched.
+    async fn gc_tombstones(&self, cutoff_ms: i64) -> PersistenceResult<u64>;
 }
 
 /// Result alias for fallible persistence calls.

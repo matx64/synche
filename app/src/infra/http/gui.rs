@@ -106,6 +106,10 @@ mod tests {
             self.entries.lock().await.retain(|e| &*e.name != name);
             Ok(())
         }
+
+        async fn gc_tombstones(&self, _cutoff_ms: i64) -> PersistenceResult<u64> {
+            Ok(0)
+        }
     }
 
     async fn create_test_components() -> (

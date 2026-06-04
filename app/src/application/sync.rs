@@ -19,8 +19,15 @@ use crate::{
     },
     utils::dirs::SyncheDirs,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::io;
+
+/// How long a tombstone is kept before the periodic GC drops it. A peer
+/// offline longer than this could resurrect a deleted file (issue #43 B8
+/// tradeoff), so the window is deliberately conservative.
+const TOMBSTONE_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+/// How often the tombstone GC sweep runs.
+const TOMBSTONE_GC_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Parses the `HOME_PATH_CHANGED:<old>:<new>` sentinel emitted by the
 /// HTTP layer when the user changes `home_path` through the GUI.
@@ -240,12 +247,29 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             res = self.transport_service.run() => res,
             res = self.presence_service.run() => res,
             res = self.file_watcher.run() => res,
+            res = Self::run_tombstone_gc(self.entry_manager.clone()) => res,
             res = infra::http::run(
                 self.state.clone(),
                 self.peer_manager.clone(),
                 self.entry_manager.clone(),
             ) => res,
         )
+    }
+
+    /// Periodically drops tombstones older than `TOMBSTONE_RETENTION`
+    /// (issue #43 B8). Runs once at startup (the first `interval` tick
+    /// fires immediately) then every `TOMBSTONE_GC_INTERVAL`. Never
+    /// returns `Ok` — it loops for the lifetime of the synchronizer like
+    /// the other `select!` arms. A GC error is logged and swallowed so a
+    /// transient DB failure cannot tear down the running synchronizer.
+    async fn run_tombstone_gc(entry_manager: Arc<EntryManager<P>>) -> io::Result<()> {
+        let mut interval = tokio::time::interval(TOMBSTONE_GC_INTERVAL);
+        loop {
+            interval.tick().await;
+            if let Err(e) = entry_manager.gc_tombstones(TOMBSTONE_RETENTION).await {
+                tracing::warn!("tombstone GC failed: {e}");
+            }
+        }
     }
 
     /// Cleanly stops background services (currently presence).

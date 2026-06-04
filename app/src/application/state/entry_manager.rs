@@ -872,6 +872,26 @@ impl<P: PersistenceInterface> EntryManager<P> {
         Ok(entry)
     }
 
+    /// Drops tombstone rows older than `retention` so the entry map — and
+    /// every handshake payload — does not grow without bound over the life
+    /// of an install (issue #43 B8). The tradeoff is a fixed retention
+    /// window: a peer offline longer than `retention` could resurrect a
+    /// deleted file, the same hazard #33 B3 hardened against. Returns the
+    /// number of tombstones removed.
+    pub async fn gc_tombstones(&self, retention: std::time::Duration) -> io::Result<u64> {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let cutoff = now_ms.saturating_sub(retention.as_millis() as i64);
+
+        let removed = self.db.gc_tombstones(cutoff).await?;
+        if removed > 0 {
+            tracing::info!(removed, "garbage-collected expired tombstones");
+        }
+        Ok(removed)
+    }
+
     pub async fn get_handshake_data(&self) -> io::Result<HandshakeData> {
         let sync_dirs = self
             .state
@@ -978,6 +998,10 @@ mod tests {
         async fn delete_entry(&self, name: &str) -> PersistenceResult<()> {
             self.entries.lock().await.remove(name);
             Ok(())
+        }
+
+        async fn gc_tombstones(&self, _cutoff_ms: i64) -> PersistenceResult<u64> {
+            Ok(0)
         }
     }
 
@@ -1843,6 +1867,63 @@ mod tests {
             .expect("tombstone must be persisted in DB");
         assert!(stored.is_removed());
         assert_eq!(stored.version.get(&local_id), Some(&2));
+    }
+
+    /// Issue #43 (B8): the periodic GC drops aged tombstones but keeps live
+    /// entries and tombstones still inside the retention window.
+    #[tokio::test]
+    async fn gc_tombstones_drops_only_aged_tombstones() {
+        let (_env, _temp_dir, sync_dir, manager) = setup().await;
+        let sync_root = add_sync_dir(&manager, &sync_dir).await;
+        let local_id = manager.state.local_id();
+
+        let gone = dir_relative(&sync_root, "gone.txt");
+        manager
+            .insert_entry(EntryInfo {
+                name: gone.clone(),
+                kind: EntryKind::File,
+                hash: Some("live".into()),
+                version: HashMap::from([(local_id, 1)]),
+                deleted: false,
+            })
+            .await
+            .unwrap();
+        manager.remove_entry(&gone).await.unwrap();
+
+        let live = dir_relative(&sync_root, "keep.txt");
+        manager
+            .insert_entry(EntryInfo {
+                name: live.clone(),
+                kind: EntryKind::File,
+                hash: Some("live".into()),
+                version: HashMap::from([(local_id, 1)]),
+                deleted: false,
+            })
+            .await
+            .unwrap();
+
+        // A large retention keeps the fresh tombstone.
+        assert_eq!(
+            manager
+                .gc_tombstones(std::time::Duration::from_secs(3600))
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(manager.get_entry(&gone).await.unwrap().is_some());
+
+        // Once the tombstone is older than the retention window it is GC'd;
+        // the live entry is untouched. Advance the clock past the stamp.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        assert_eq!(
+            manager
+                .gc_tombstones(std::time::Duration::ZERO)
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(manager.get_entry(&gone).await.unwrap().is_none());
+        assert!(manager.get_entry(&live).await.unwrap().is_some());
     }
 
     /// Issue #40 (B5): a delayed watcher remove event can arrive after
