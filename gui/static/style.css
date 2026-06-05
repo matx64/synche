@@ -44,6 +44,29 @@ body {
     font-family: monospace;
 }
 
+.toast-region {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(360px, calc(100vw - 2rem));
+    pointer-events: none;
+}
+
+.toast {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--error-color);
+    border-left: 4px solid var(--error-color);
+    border-radius: var(--border-radius);
+    background-color: var(--bg-color-highlight);
+    color: var(--text-color);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    pointer-events: auto;
+}
+
 body>header {
     text-align: center;
     background-color: var(--bg-color-secondary);
@@ -230,6 +253,20 @@ input {
     background-color: var(--bg-color-highlight);
 }
 
+.form-error {
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--error-color);
+    border-radius: var(--border-radius);
+    background-color: rgba(119, 5, 5, 0.08);
+    color: var(--error-color);
+    text-align: left;
+}
+
+.form-error[hidden] {
+    display: none;
+}
+
 .btn {
     padding: 8px;
     border: none;
@@ -238,8 +275,17 @@ input {
     transition: opacity 0.2s;
 }
 
+.btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 .btn:hover {
     opacity: 0.85;
+}
+
+.btn:disabled:hover {
+    opacity: 0.6;
 }
 
 .btn-success {
