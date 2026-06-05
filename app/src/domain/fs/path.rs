@@ -4,6 +4,10 @@ use std::{
     ops::Deref,
     path::{Component, Path, PathBuf},
 };
+use uuid::Uuid;
+
+/// Marker embedded in conflict-copy file names by `conflict_file_name`.
+const CONFLICT_MARKER: &str = "_CONFLICT_";
 
 /// Wrapper around an absolute filesystem path.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -93,6 +97,81 @@ impl RelativePath {
                 .components()
                 .all(|component| matches!(component, Component::Normal(_)))
     }
+
+    /// Builds the file name of a conflict copy from its parts. This is the
+    /// **single source** of the `<stem>_CONFLICT_<ms>_<device>_<rand>.<ext>`
+    /// format that `is_conflict_file` / `conflict_origin` parse — keep all
+    /// three in lockstep when changing the layout.
+    pub fn conflict_file_name(stem: &str, ext: &str, ms: u128, device: Uuid, rand: &str) -> String {
+        if ext.is_empty() {
+            format!("{stem}{CONFLICT_MARKER}{ms}_{device}_{rand}")
+        } else {
+            format!("{stem}{CONFLICT_MARKER}{ms}_{device}_{rand}.{ext}")
+        }
+    }
+
+    /// Returns true if this path's final component is a conflict copy
+    /// produced by `conflict_file_name`. Validates the trailing
+    /// `<ms>_<device>_<rand>` triple precisely so user files that merely
+    /// contain `_CONFLICT_` (or names like `.gitignore`) are not
+    /// misclassified.
+    pub fn is_conflict_file(&self) -> bool {
+        self.conflict_stem_split().is_some()
+    }
+
+    /// For a conflict copy, returns the original entry path (same parent
+    /// directory and extension, with the `_CONFLICT_...` suffix stripped).
+    /// Returns `None` when this is not a conflict copy.
+    pub fn conflict_origin(&self) -> Option<RelativePath> {
+        let (dir, original_stem, ext) = self.conflict_stem_split()?;
+        let file = match ext {
+            Some(ext) => format!("{original_stem}.{ext}"),
+            None => original_stem.to_string(),
+        };
+        Some(RelativePath(format!("{dir}{file}")))
+    }
+
+    /// Splits a conflict-copy path into `(dir_with_trailing_slash,
+    /// original_stem, extension)` when the final component is a valid
+    /// conflict copy, else `None`. Shared by `is_conflict_file` and
+    /// `conflict_origin`.
+    fn conflict_stem_split(&self) -> Option<(&str, &str, Option<&str>)> {
+        let (dir, file) = match self.0.rfind('/') {
+            Some(i) => (&self.0[..=i], &self.0[i + 1..]),
+            None => ("", self.0.as_str()),
+        };
+
+        let path = Path::new(file);
+        let stem = path.file_stem()?.to_str()?;
+        let ext = path.extension().and_then(|e| e.to_str());
+
+        // Match the last marker so a conflict-of-a-conflict still parses,
+        // keeping the trailing triple as the final three `_`-separated
+        // tokens.
+        let marker = stem.rfind(CONFLICT_MARKER)?;
+        let suffix = &stem[marker + CONFLICT_MARKER.len()..];
+        if !is_valid_conflict_suffix(suffix) {
+            return None;
+        }
+
+        Some((dir, &stem[..marker], ext))
+    }
+}
+
+/// Validates a conflict-copy suffix shaped `<ms>_<device>_<rand>`:
+/// millisecond digits, a parseable device UUID, and an 8-char hex random.
+fn is_valid_conflict_suffix(suffix: &str) -> bool {
+    let parts: [&str; 3] = match suffix.split('_').collect::<Vec<_>>().try_into() {
+        Ok(parts) => parts,
+        Err(_) => return false,
+    };
+    let [ms, device, rand] = parts;
+
+    !ms.is_empty()
+        && ms.bytes().all(|b| b.is_ascii_digit())
+        && Uuid::parse_str(device).is_ok()
+        && rand.len() == 8
+        && rand.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 impl Deref for RelativePath {
@@ -167,6 +246,50 @@ mod tests {
     fn relative_path_accepts_normal_forward_slash_paths() {
         for path in ["sync", "sync/file.txt", "sync/nested/file.txt"] {
             assert!(RelativePath::from(path).is_safe_sync_path(), "{path}");
+        }
+    }
+
+    #[test]
+    fn conflict_file_name_round_trips_through_origin() {
+        let device = Uuid::new_v4();
+        let cases = [
+            // (dir, stem, ext, expected original file)
+            ("sync/", "img", "jpg", "img.jpg"),
+            ("sync/nested/", "report", "pdf", "report.pdf"),
+            ("sync/", "README", "", "README"),
+            ("sync/", "archive.tar", "gz", "archive.tar.gz"),
+        ];
+
+        for (dir, stem, ext, original_file) in cases {
+            let file =
+                RelativePath::conflict_file_name(stem, ext, 1_717_000_000_000, device, "a1b2c3d4");
+            let conflict = RelativePath::from(format!("{dir}{file}"));
+
+            assert!(conflict.is_conflict_file(), "should detect: {conflict}");
+            assert_eq!(
+                conflict.conflict_origin(),
+                Some(RelativePath::from(format!("{dir}{original_file}"))),
+                "origin mismatch for {conflict}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_conflict_paths_are_not_misclassified() {
+        for path in [
+            "sync/file.txt",
+            "sync/.gitignore",
+            "sync/.gitattributes",
+            "sync/nested/photo.png",
+            // Contains the marker but the trailing triple is invalid.
+            "sync/foo_CONFLICT_notvalid.txt",
+            "sync/foo_CONFLICT_123_not-a-uuid_a1b2c3d4.txt",
+            "sync/foo_CONFLICT_123_00000000-0000-0000-0000-000000000000_zzz.txt",
+            "sync/foo_CONFLICT_abc_00000000-0000-0000-0000-000000000000_a1b2c3d4.txt",
+        ] {
+            let p = RelativePath::from(path);
+            assert!(!p.is_conflict_file(), "should not detect: {path}");
+            assert_eq!(p.conflict_origin(), None, "should have no origin: {path}");
         }
     }
 }

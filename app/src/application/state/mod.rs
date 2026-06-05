@@ -4,5 +4,5 @@ mod ignore;
 mod peer_manager;
 
 pub use app_state::{AppState, DEFAULT_TRANSPORT_PORT};
-pub use entry_manager::EntryManager;
+pub use entry_manager::{EntryManager, ResolveAction};
 pub use peer_manager::PeerManager;

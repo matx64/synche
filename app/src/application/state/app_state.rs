@@ -345,6 +345,32 @@ impl AppState {
         self.sse_broadcast.subscribe()
     }
 
+    /// Broadcast a `ConflictDetected` SSE for a conflict copy, deriving the
+    /// sync dir and original entry path from the copy's name. No-op if the
+    /// path is not a recognized conflict copy.
+    pub fn broadcast_conflict_detected(&self, conflict_path: &RelativePath) {
+        let Some(original_path) = conflict_path.conflict_origin() else {
+            return;
+        };
+        let _ = self.sse_sender().send(ServerEvent::ConflictDetected {
+            dir: conflict_path.sync_dir(),
+            conflict_path: conflict_path.clone(),
+            original_path,
+        });
+    }
+
+    /// Broadcast a `ConflictResolved` SSE for a conflict copy that was
+    /// removed. No-op if the path is not a recognized conflict copy.
+    pub fn broadcast_conflict_resolved(&self, conflict_path: &RelativePath) {
+        if !conflict_path.is_conflict_file() {
+            return;
+        }
+        let _ = self.sse_sender().send(ServerEvent::ConflictResolved {
+            dir: conflict_path.sync_dir(),
+            conflict_path: conflict_path.clone(),
+        });
+    }
+
     async fn init_ids(dirs: &SyncheDirs) -> io::Result<(Uuid, Uuid)> {
         let file = dirs.device_id_file();
 

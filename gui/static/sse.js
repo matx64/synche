@@ -5,7 +5,8 @@ import {
   removeDirFromList,
   setSyncStarted,
   setSyncCompleted,
-  setSyncFailed
+  setSyncFailed,
+  refreshConflicts
 } from './components.js';
 
 const el_peer_list = document.getElementById("peer-list");
@@ -54,6 +55,11 @@ es.onmessage = (event) => {
 
     case "EntrySyncFailed":
       setSyncFailed(payload);
+      break;
+
+    case "ConflictDetected":
+    case "ConflictResolved":
+      refreshConflicts();
       break;
   }
 };

@@ -2,6 +2,7 @@ use crate::{
     application::{
         AppState, EntryManager, PeerManager, persistence::interface::PersistenceInterface,
     },
+    domain::TransportChannelData,
     infra::http::{api, gui},
 };
 use axum::Router;
@@ -15,6 +16,7 @@ pub fn build_router<P: PersistenceInterface>(
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
     template_engine: Environment<'static>,
+    sender_tx: tokio::sync::mpsc::Sender<TransportChannelData>,
 ) -> Router {
     Router::new()
         .merge(gui::routes(
@@ -23,5 +25,5 @@ pub fn build_router<P: PersistenceInterface>(
             peer_manager.clone(),
             entry_manager.clone(),
         ))
-        .merge(api::routes(state, peer_manager, entry_manager))
+        .merge(api::routes(state, peer_manager, entry_manager, sender_tx))
 }

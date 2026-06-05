@@ -388,6 +388,12 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
         match outcome {
             CommitOutcome::Committed(entry) => {
                 self.broadcast_sync_completed(peer_id, &entry);
+                // A conflict copy received from a peer must surface in this
+                // device's Conflicts list too (the creator emits its own
+                // event from the watcher create path).
+                if entry.name.is_conflict_file() {
+                    self.state.broadcast_conflict_detected(&entry.name);
+                }
                 self.send_tx
                     .send(TransportChannelData::Metadata(entry))
                     .await
@@ -526,6 +532,11 @@ impl<T: TransportInterface, P: PersistenceInterface> TransportReceiver<T, P> {
             .await?;
 
         for entry in applied {
+            // A peer's tombstone for a conflict copy resolves it on this
+            // device — drop it from the Conflicts list live.
+            if entry.name.is_conflict_file() {
+                self.state.broadcast_conflict_resolved(&entry.name);
+            }
             self.send_tx
                 .send(TransportChannelData::Metadata(entry))
                 .await

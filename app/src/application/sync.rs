@@ -60,6 +60,9 @@ pub struct Synchronizer<
     entry_manager: Arc<EntryManager<P>>,
     presence_service: PresenceService<R>,
     transport_service: TransportService<T, P>,
+    /// Transport command channel, kept so the HTTP layer can broadcast
+    /// `Metadata` to peers (e.g. after a GUI-driven conflict resolution).
+    sender_tx: tokio::sync::mpsc::Sender<crate::domain::TransportChannelData>,
 }
 
 impl Synchronizer<NotifyFileWatcher, TcpAdapter, SqliteDb, MdnsAdapter> {
@@ -151,7 +154,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             presence_adapter,
             state.clone(),
             peer_manager.clone(),
-            sender_tx,
+            sender_tx.clone(),
         );
 
         Self {
@@ -161,6 +164,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
             entry_manager,
             presence_service,
             transport_service,
+            sender_tx,
         }
     }
 
@@ -257,6 +261,7 @@ impl<W: FileWatcherInterface, T: TransportInterface, P: PersistenceInterface, D:
                 self.state.clone(),
                 self.peer_manager.clone(),
                 self.entry_manager.clone(),
+                self.sender_tx.clone(),
             ) => res,
         )
     }

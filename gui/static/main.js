@@ -1,4 +1,4 @@
-import { addDirToList, removeDirFromList } from './components.js';
+import { addDirToList, removeDirFromList, refreshConflicts } from './components.js';
 
 const el_dir_form = document.getElementById("add-dir-form");
 const el_dir_list = document.getElementById("dir-list");
@@ -6,6 +6,7 @@ const el_remove_dialog = document.getElementById("remove-dir-dialog");
 const el_remove_dir_name = document.getElementById("remove-dir-name");
 const el_confirm_remove_btn = document.getElementById("confirm-remove-btn");
 const el_home_path_form = document.getElementById("home-path-form");
+const el_conflict_list = document.getElementById("conflict-list");
 
 el_dir_form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -64,3 +65,30 @@ el_home_path_form.addEventListener("submit", async (e) => {
     method: "POST",
   });
 });
+
+el_conflict_list?.addEventListener("click", async (e) => {
+  const mineBtn = e.target.closest(".keep-mine-btn");
+  const theirsBtn = e.target.closest(".use-theirs-btn");
+  const btn = mineBtn || theirsBtn;
+  if (!btn) return;
+
+  const path = btn.dataset.conflict;
+  if (!path) return;
+
+  const action = mineBtn ? "keep-mine" : "keep-theirs";
+  btn.disabled = true;
+
+  const res = await fetch(
+    `/api/resolve-conflict?path=${encodeURIComponent(path)}&action=${action}`,
+    { method: "POST" },
+  );
+
+  if (res.ok) {
+    refreshConflicts();
+  } else {
+    btn.disabled = false;
+  }
+});
+
+// Populate the Conflicts section on first paint; SSE keeps it live after.
+refreshConflicts();

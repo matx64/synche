@@ -4,5 +4,5 @@ pub mod state;
 pub mod sync;
 pub mod watcher;
 
-pub use state::{AppState, DEFAULT_TRANSPORT_PORT, EntryManager, PeerManager};
+pub use state::{AppState, DEFAULT_TRANSPORT_PORT, EntryManager, PeerManager, ResolveAction};
 pub use sync::Synchronizer;
