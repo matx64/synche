@@ -9,6 +9,14 @@
     </head>
 
     <body>
+        <div
+            aria-atomic="true"
+            aria-live="polite"
+            class="toast-region"
+            id="toast-region"
+            role="status"
+        ></div>
+
         <header>
             <img alt="Synche logo" src="/static/logo.svg" width="240px" />
 
@@ -317,6 +325,12 @@
                             required
                             type="text"
                         />
+                        <p
+                            class="form-error"
+                            hidden
+                            id="add-dir-error"
+                            role="alert"
+                        ></p>
                         <div>
                             <button class="btn btn-success" type="submit">
                                 Confirm
@@ -344,6 +358,13 @@
                             files will not be deleted.
                         </small>
                     </hgroup>
+
+                    <p
+                        class="form-error"
+                        hidden
+                        id="remove-dir-error"
+                        role="alert"
+                    ></p>
 
                     <div>
                         <button class="btn btn-danger" id="confirm-remove-btn">
@@ -384,6 +405,12 @@
                             required
                             type="text"
                         />
+                        <p
+                            class="form-error"
+                            hidden
+                            id="home-path-error"
+                            role="alert"
+                        ></p>
                         <div>
                             <button class="btn btn-success" type="submit">
                                 Confirm

@@ -220,6 +220,8 @@ Renders the Synche single-page UI as an HTML page.  The template receives the cu
 
 Serves CSS, JavaScript, and other static files from `gui/static/`.  Returns `404 Not Found` if the requested file does not exist.
 
+The GUI surfaces non-success `/api/*` responses with a reusable inline/toast error path.  The message includes the HTTP status and a short reason; network failures use a generic "Could not reach Synche." message.
+
 ---
 
 ## Server-Sent Events

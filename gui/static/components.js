@@ -1,3 +1,5 @@
+import { requestApi, showApiError } from './api_feedback.js';
+
 function escapeHtml(s) {
   return String(s).replace(
     /[&<>"']/g,
@@ -255,11 +257,22 @@ export function renderConflicts(data) {
 }
 
 export async function refreshConflicts() {
+  const result = await requestApi("/api/conflicts", {}, {
+    statusMessages: {
+      500: "Could not load conflicts.",
+    },
+  });
+
+  if (!result.ok) {
+    return false;
+  }
+
   try {
-    const res = await fetch("/api/conflicts");
-    if (!res.ok) return;
-    renderConflicts(await res.json());
+    renderConflicts(await result.response.json());
+    return true;
   } catch (err) {
     console.error("Failed to load conflicts:", err);
+    showApiError("Could not read Synche response.");
+    return false;
   }
 }

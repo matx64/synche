@@ -160,5 +160,57 @@ mod tests {
             html.contains(env!("CARGO_PKG_VERSION")),
             "Should contain crate version in footer"
         );
+        assert!(
+            html.contains("id=\"toast-region\""),
+            "Should include the global toast region"
+        );
+        assert!(
+            html.contains("id=\"add-dir-error\""),
+            "Should include add directory inline error"
+        );
+        assert!(
+            html.contains("id=\"remove-dir-error\""),
+            "Should include remove directory inline error"
+        );
+        assert!(
+            html.contains("id=\"home-path-error\""),
+            "Should include home path inline error"
+        );
+    }
+
+    #[test]
+    fn test_gui_static_js_uses_shared_api_error_feedback() {
+        let helper = include_str!("../../../../gui/static/api_feedback.js");
+        let main = include_str!("../../../../gui/static/main.js");
+        let components = include_str!("../../../../gui/static/components.js");
+
+        assert!(
+            helper.contains("Could not reach Synche."),
+            "Network errors should have a reusable user-facing message"
+        );
+        assert!(
+            helper.contains("HTTP ${response.status}: ${reason}"),
+            "HTTP failures should include status and reason"
+        );
+        assert!(
+            main.contains("requestApi(`/api/add-sync-dir"),
+            "Add sync dir should use the shared request helper"
+        );
+        assert!(
+            main.contains("A directory with that name is already synced."),
+            "Duplicate sync dir errors should have a specific reason"
+        );
+        assert!(
+            main.contains("requestApi(\n      `/api/remove-sync-dir"),
+            "Remove sync dir should use the shared request helper"
+        );
+        assert!(
+            main.contains("requestApi(\n    `/api/set-home-path"),
+            "Set home path should use the shared request helper"
+        );
+        assert!(
+            components.contains("requestApi(\"/api/conflicts\""),
+            "Conflict refresh should use the shared request helper"
+        );
     }
 }
