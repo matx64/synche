@@ -32,7 +32,7 @@ export function dirListItem(name) {
             <div class="dir-activity" hidden></div>
 
             <div class="dir-actions">
-            <button class="btn icon-btn remove-dir-btn">
+            <button class="btn icon-btn remove-dir-btn" type="button">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="18"
@@ -96,18 +96,57 @@ export function peerDisconnectedStatus() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-alert-icon lucide-cloud-alert disconnected"><path d="M12 12v4"/><path d="M12 20h.01"/><path d="M17 18h.5a1 1 0 0 0 0-9h-1.79A7 7 0 1 0 7 17.708"/></svg>`;
 }
 
+function insertListItem(listElement, html) {
+  const emptyState = listElement.querySelector(".empty-state");
+  if (emptyState) {
+    emptyState.insertAdjacentHTML("beforebegin", html);
+    return;
+  }
+
+  listElement.insertAdjacentHTML("beforeend", html);
+}
+
+function setEmptyStateVisibility(listElement, itemSelector) {
+  const emptyState = listElement?.querySelector(".empty-state");
+  if (!emptyState) {
+    return;
+  }
+
+  emptyState.hidden = listElement.querySelector(itemSelector) !== null;
+}
+
+export function updatePeerEmptyState(
+  listElement = document.getElementById("peer-list"),
+) {
+  setEmptyStateVisibility(listElement, 'details[id^="peer-"]');
+}
+
+export function updateDirEmptyState(
+  listElement = document.getElementById("dir-list"),
+) {
+  setEmptyStateVisibility(listElement, 'details[id^="dir-"]');
+}
+
+export function syncEmptyStates() {
+  updatePeerEmptyState();
+  updateDirEmptyState();
+}
+
 export function addDirToList(dirName, listElement) {
   document.getElementById(`dir-${dirName}`)?.remove();
-  listElement.insertAdjacentHTML("beforeend", dirListItem(dirName));
+  insertListItem(listElement, dirListItem(dirName));
+  updateDirEmptyState(listElement);
 }
 
 export function removeDirFromList(dirName) {
   document.getElementById(`dir-${dirName}`)?.remove();
+  updateDirEmptyState();
 }
 
 export function addPeerToList(peer, listElement) {
   document.getElementById(`peer-${peer.id}`)?.remove();
-  listElement.insertAdjacentHTML("beforeend", peerListItem(peer));
+  insertListItem(listElement, peerListItem(peer));
+  updatePeerEmptyState(listElement);
 }
 
 export function setPeerAsDisconnected(peer) {
@@ -229,8 +268,8 @@ function conflictItem({ conflict_path, original_path, abs_path }) {
               <span class="conflict-path">${escapeHtml(abs_path)}</span>
             </div>
             <div class="conflict-actions">
-              <button class="btn keep-mine-btn" data-conflict="${safePath}">Keep current</button>
-              <button class="btn btn-success use-theirs-btn" data-conflict="${safePath}">Use this copy</button>
+              <button class="btn keep-mine-btn" data-conflict="${safePath}" type="button">Keep current</button>
+              <button class="btn btn-success use-theirs-btn" data-conflict="${safePath}" type="button">Use this copy</button>
             </div>
           </div>`;
 }

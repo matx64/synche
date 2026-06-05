@@ -176,6 +176,16 @@ mod tests {
             html.contains("id=\"home-path-error\""),
             "Should include home path inline error"
         );
+        assert!(
+            html.contains(
+                "No devices yet &mdash; start Synche on another device on the same network"
+            ),
+            "Should include the peers empty state copy"
+        );
+        assert!(
+            html.contains("Add a folder under your home path to start syncing"),
+            "Should include the sync directories empty state copy"
+        );
     }
 
     #[test]
@@ -211,6 +221,62 @@ mod tests {
         assert!(
             components.contains("requestApi(\"/api/conflicts\""),
             "Conflict refresh should use the shared request helper"
+        );
+    }
+
+    #[test]
+    fn test_gui_visual_refresh_contract() {
+        let template = include_str!("../../../../gui/index.html");
+        let components = include_str!("../../../../gui/static/components.js");
+        let main = include_str!("../../../../gui/static/main.js");
+        let styles = include_str!("../../../../gui/static/style.css");
+
+        assert!(
+            template.contains("data-empty-state=\"peers\""),
+            "Peer list should include a template-rendered empty state"
+        );
+        assert!(
+            template.contains("data-empty-state=\"dirs\""),
+            "Directory list should include a template-rendered empty state"
+        );
+        assert!(
+            components.contains("function setEmptyStateVisibility"),
+            "List rendering should keep empty states in sync after live updates"
+        );
+        assert!(
+            components.contains("updatePeerEmptyState(listElement)"),
+            "Adding peers should hide the peer empty state"
+        );
+        assert!(
+            components.contains("updateDirEmptyState();"),
+            "Removing directories should reveal the directory empty state"
+        );
+        assert!(
+            main.contains("syncEmptyStates();"),
+            "Initial page load should reconcile server-rendered empty states"
+        );
+        for token in [
+            "--space-1:",
+            "--space-4:",
+            "--font-size-base:",
+            "--line-height-base:",
+        ] {
+            assert!(
+                styles.contains(token),
+                "Styles should define the visual scale token {token}"
+            );
+        }
+        assert!(
+            styles.contains("prefers-color-scheme: dark"),
+            "Styles should keep an explicit dark-mode palette"
+        );
+        assert!(
+            styles.contains(":focus-visible"),
+            "Styles should include keyboard focus states"
+        );
+        assert!(
+            styles.contains("dialog::backdrop"),
+            "Dialog styling should include backdrop treatment"
         );
     }
 }

@@ -17,13 +17,19 @@
             role="status"
         ></div>
 
-        <header>
-            <img alt="Synche logo" src="/static/logo.svg" width="240px" />
+        <header class="app-header">
+            <img
+                alt="Synche logo"
+                class="brand-logo"
+                src="/static/logo.svg"
+                width="240"
+            />
 
             <div id="settings-container">
                 <button
                     class="btn icon-btn settings-btn"
                     onclick="document.getElementById('home-path-dialog').showModal()"
+                    type="button"
                 >
                     <svg
                         class="lucide lucide-settings-icon lucide-settings"
@@ -192,6 +198,14 @@
                         </p>
                     </details>
                     {% endfor %}
+
+                    <div
+                        class="empty-state"
+                        data-empty-state="peers"
+                        {% if peers %}hidden{% endif %}
+                    >
+                        No devices yet &mdash; start Synche on another device on the same network
+                    </div>
                 </div>
             </section>
 
@@ -225,6 +239,7 @@
                         <button
                             class="btn btn-success icon-btn"
                             onclick="document.getElementById('add-dir-dialog').showModal()"
+                            type="button"
                         >
                             <svg
                                 class="lucide lucide-folder-plus-icon lucide-folder-plus"
@@ -276,7 +291,10 @@
                         <div class="dir-activity" hidden></div>
 
                         <div class="dir-actions">
-                            <button class="btn icon-btn remove-dir-btn">
+                            <button
+                                class="btn icon-btn remove-dir-btn"
+                                type="button"
+                            >
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
                                     width="18"
@@ -300,6 +318,14 @@
                         </div>
                     </details>
                     {% endfor %}
+
+                    <div
+                        class="empty-state"
+                        data-empty-state="dirs"
+                        {% if dirs %}hidden{% endif %}
+                    >
+                        Add a folder under your home path to start syncing
+                    </div>
                 </div>
 
                 <dialog id="add-dir-dialog">
@@ -338,6 +364,7 @@
                             <button
                                 class="btn"
                                 onclick="this.closest('dialog').close()"
+                                type="button"
                             >
                                 Cancel
                             </button>
@@ -367,7 +394,11 @@
                     ></p>
 
                     <div>
-                        <button class="btn btn-danger" id="confirm-remove-btn">
+                        <button
+                            class="btn btn-danger"
+                            id="confirm-remove-btn"
+                            type="button"
+                        >
                             Confirm
                         </button>
                         <button
