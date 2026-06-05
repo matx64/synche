@@ -1,8 +1,9 @@
 use crate::{
     application::{
-        AppState, EntryManager, PeerManager, persistence::interface::PersistenceInterface,
+        AppState, EntryManager, PeerManager, ResolveAction,
+        persistence::interface::PersistenceInterface,
     },
-    domain::RelativePath,
+    domain::{RelativePath, TransportChannelData},
 };
 use async_stream::try_stream;
 use axum::{
@@ -15,7 +16,7 @@ use axum::{
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -24,8 +25,8 @@ struct ApiState<P: PersistenceInterface> {
     pub state: Arc<AppState>,
     #[allow(dead_code)]
     pub peer_manager: Arc<PeerManager>,
-    #[allow(dead_code)]
     pub entry_manager: Arc<EntryManager<P>>,
+    pub sender_tx: mpsc::Sender<TransportChannelData>,
 }
 
 #[derive(Deserialize)]
@@ -46,17 +47,46 @@ struct InfoResponse {
     pub hostname: String,
 }
 
+#[derive(Deserialize)]
+struct ResolveConflictParams {
+    /// Relative path of the `_CONFLICT_` copy to resolve.
+    pub path: RelativePath,
+    /// `keep-mine` (delete the copy, keep the original) or `keep-theirs`
+    /// (overwrite the original with the copy, then delete the copy).
+    pub action: String,
+}
+
+#[derive(Serialize)]
+struct ConflictsResponse {
+    pub conflicts: Vec<ConflictGroup>,
+}
+
+#[derive(Serialize)]
+struct ConflictGroup {
+    pub dir: RelativePath,
+    pub items: Vec<ConflictItem>,
+}
+
+#[derive(Serialize)]
+struct ConflictItem {
+    pub conflict_path: RelativePath,
+    pub original_path: RelativePath,
+    pub abs_path: String,
+}
+
 /// JSON API routes — peer listing, sync-directory management,
 /// `home_path` updates, and the SSE stream of `ServerEvent`s.
 pub fn routes<P: PersistenceInterface>(
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
+    sender_tx: mpsc::Sender<TransportChannelData>,
 ) -> Router {
     let api_state = Arc::new(ApiState {
         state,
         peer_manager,
         entry_manager,
+        sender_tx,
     });
 
     Router::new().nest(
@@ -67,6 +97,8 @@ pub fn routes<P: PersistenceInterface>(
             .route("/add-sync-dir", post(add_sync_dir::<P>))
             .route("/remove-sync-dir", post(remove_sync_dir::<P>))
             .route("/set-home-path", post(set_home_path::<P>))
+            .route("/conflicts", get(conflicts::<P>))
+            .route("/resolve-conflict", post(resolve_conflict::<P>))
             .with_state(api_state),
     )
 }
@@ -126,6 +158,77 @@ async fn set_home_path<P: PersistenceInterface>(
             error!("Set home path error: {err}");
             match err.kind() {
                 std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        }
+    }
+}
+
+/// Lists the current conflict copies grouped by sync directory for the
+/// GUI's Conflicts section.
+async fn conflicts<P: PersistenceInterface>(
+    State(state): State<Arc<ApiState<P>>>,
+) -> Result<Json<ConflictsResponse>, StatusCode> {
+    let infos = state.entry_manager.list_conflicts().await.map_err(|err| {
+        error!("List conflicts error: {err}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let mut groups: Vec<ConflictGroup> = Vec::new();
+    for info in infos {
+        let item = ConflictItem {
+            conflict_path: info.conflict_path,
+            original_path: info.original_path,
+            abs_path: info.abs_path,
+        };
+        match groups.iter_mut().find(|g| g.dir == info.dir) {
+            Some(group) => group.items.push(item),
+            None => groups.push(ConflictGroup {
+                dir: info.dir,
+                items: vec![item],
+            }),
+        }
+    }
+
+    Ok(Json(ConflictsResponse { conflicts: groups }))
+}
+
+/// Resolves a single conflict copy (`keep-mine` / `keep-theirs`) and
+/// broadcasts the resulting metadata to peers so the resolution converges.
+async fn resolve_conflict<P: PersistenceInterface>(
+    State(state): State<Arc<ApiState<P>>>,
+    Query(params): Query<ResolveConflictParams>,
+) -> StatusCode {
+    let action = match params.action.as_str() {
+        "keep-mine" => ResolveAction::KeepMine,
+        "keep-theirs" => ResolveAction::KeepTheirs,
+        other => {
+            warn!("Resolve conflict: unknown action {other:?}");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+
+    let path = params.path.trim().into();
+
+    match state.entry_manager.resolve_conflict(&path, action).await {
+        Ok(entries) => {
+            tracing::info!("Conflict resolved ({action:?}): {path:?}");
+            for entry in entries {
+                if let Err(err) = state
+                    .sender_tx
+                    .send(TransportChannelData::Metadata(entry))
+                    .await
+                {
+                    error!("Failed to broadcast resolved conflict metadata: {err}");
+                }
+            }
+            StatusCode::OK
+        }
+        Err(err) => {
+            error!("Resolve conflict error: {err}");
+            match err.kind() {
+                std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+                std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             }
         }
@@ -230,6 +333,14 @@ mod tests {
         (env, state, peer_manager, entry_manager)
     }
 
+    /// A transport sender whose receiver is intentionally leaked so the
+    /// channel stays open for tests that never inspect broadcasts.
+    fn test_sender() -> mpsc::Sender<TransportChannelData> {
+        let (tx, rx) = mpsc::channel(8);
+        std::mem::forget(rx);
+        tx
+    }
+
     #[tokio::test]
     async fn test_add_sync_dir_success() {
         let (_env, state, pm, em) = create_test_components().await;
@@ -242,6 +353,7 @@ mod tests {
             state: state.clone(),
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let params = ModifySyncDirParams {
@@ -272,6 +384,7 @@ mod tests {
             state: state.clone(),
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let params = ModifySyncDirParams {
@@ -295,6 +408,7 @@ mod tests {
             state: state.clone(),
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let params = ModifySyncDirParams {
@@ -321,6 +435,7 @@ mod tests {
             state: state.clone(),
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let params = ModifySyncDirParams {
@@ -339,6 +454,7 @@ mod tests {
             state,
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let params = ModifySyncDirParams {
@@ -365,6 +481,7 @@ mod tests {
             state,
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let params = ModifySyncDirParams {
@@ -383,6 +500,7 @@ mod tests {
             state,
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let temp_dir = tempfile::tempdir().unwrap();
@@ -402,6 +520,7 @@ mod tests {
             state,
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let temp_dir = tempfile::tempdir().unwrap();
@@ -428,6 +547,7 @@ mod tests {
             state: state.clone(),
             peer_manager: pm,
             entry_manager: em,
+            sender_tx: test_sender(),
         });
 
         let Json(body) = info(State(api_state)).await;
@@ -454,5 +574,156 @@ mod tests {
             result.unwrap().is_ok(),
             "Event should be received successfully"
         );
+    }
+
+    fn conflict_entry(name: &RelativePath, device: Uuid) -> EntryInfo {
+        EntryInfo {
+            name: name.clone(),
+            kind: crate::domain::EntryKind::File,
+            hash: Some("h".into()),
+            version: std::collections::HashMap::from([(device, 1)]),
+            deleted: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_conflicts_endpoint_groups_by_dir() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let pm = PeerManager::new(state.clone());
+        let em = EntryManager::new(MockPersistence::new(), state.clone());
+        let device = state.local_id();
+
+        let name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let conflict_rel: RelativePath = format!("sync/{name}").into();
+        em.insert_entry(conflict_entry(&conflict_rel, device))
+            .await
+            .unwrap();
+
+        let api_state = Arc::new(ApiState {
+            state,
+            peer_manager: pm,
+            entry_manager: em,
+            sender_tx: test_sender(),
+        });
+
+        let Json(body) = conflicts(State(api_state)).await.unwrap();
+
+        assert_eq!(body.conflicts.len(), 1);
+        assert_eq!(body.conflicts[0].dir, "sync".into());
+        assert_eq!(body.conflicts[0].items.len(), 1);
+        assert_eq!(body.conflicts[0].items[0].conflict_path, conflict_rel);
+        assert_eq!(
+            body.conflicts[0].items[0].original_path,
+            "sync/img.jpg".into()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolve_conflict_unknown_action_is_bad_request() {
+        let (_env, state, pm, em) = create_test_components().await;
+        let api_state = Arc::new(ApiState {
+            state,
+            peer_manager: pm,
+            entry_manager: em,
+            sender_tx: test_sender(),
+        });
+
+        let params = ResolveConflictParams {
+            path: "sync/x".into(),
+            action: "bogus".into(),
+        };
+
+        let status = resolve_conflict(State(api_state), Query(params)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_conflict_non_conflict_path_is_bad_request() {
+        let (_env, state, pm, em) = create_test_components().await;
+        let api_state = Arc::new(ApiState {
+            state,
+            peer_manager: pm,
+            entry_manager: em,
+            sender_tx: test_sender(),
+        });
+
+        let params = ResolveConflictParams {
+            path: "sync/not-a-conflict.txt".into(),
+            action: "keep-mine".into(),
+        };
+
+        let status = resolve_conflict(State(api_state), Query(params)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_conflict_missing_entry_is_not_found() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let pm = PeerManager::new(state.clone());
+        let em = EntryManager::new(MockPersistence::new(), state.clone());
+        let device = state.local_id();
+
+        let name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let api_state = Arc::new(ApiState {
+            state,
+            peer_manager: pm,
+            entry_manager: em,
+            sender_tx: test_sender(),
+        });
+
+        let params = ResolveConflictParams {
+            path: format!("sync/{name}").into(),
+            action: "keep-mine".into(),
+        };
+
+        let status = resolve_conflict(State(api_state), Query(params)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_conflict_keep_mine_broadcasts_tombstone() {
+        let env = crate::utils::test_support::test_env_with_dirs(&["sync"]).await;
+        let state = env.state.clone();
+        let pm = PeerManager::new(state.clone());
+        let em = EntryManager::new(MockPersistence::new(), state.clone());
+        let device = state.local_id();
+
+        let sync_abs = state.home_path().join("sync");
+        tokio::fs::create_dir_all(&sync_abs).await.unwrap();
+        let name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let conflict_rel: RelativePath = format!("sync/{name}").into();
+        tokio::fs::write(sync_abs.join(&name), b"copy")
+            .await
+            .unwrap();
+        em.insert_entry(conflict_entry(&conflict_rel, device))
+            .await
+            .unwrap();
+
+        let (tx, mut rx) = mpsc::channel(8);
+        let api_state = Arc::new(ApiState {
+            state: state.clone(),
+            peer_manager: pm,
+            entry_manager: em,
+            sender_tx: tx,
+        });
+
+        let params = ResolveConflictParams {
+            path: conflict_rel.clone(),
+            action: "keep-mine".into(),
+        };
+
+        let status = resolve_conflict(State(api_state), Query(params)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!sync_abs.join(&name).exists(), "copy must be removed");
+
+        match rx.try_recv().expect("a tombstone must be broadcast") {
+            TransportChannelData::Metadata(entry) => {
+                assert_eq!(entry.name, conflict_rel);
+                assert!(entry.is_removed());
+            }
+            _ => panic!("expected a Metadata broadcast"),
+        }
     }
 }

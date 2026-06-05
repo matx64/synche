@@ -134,6 +134,65 @@ POST /api/set-home-path?path=/home/user/synced-data
 
 ---
 
+### `GET /api/conflicts` — List conflict copies
+
+Returns the current conflict copies (files named `<stem>_CONFLICT_<ms>_<device>_<rand>.<ext>`) grouped by sync directory, for the GUI's Conflicts section.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **Query params** | none |
+| **Response** | `application/json` |
+
+```json
+{
+  "conflicts": [
+    {
+      "dir": "Photos",
+      "items": [
+        {
+          "conflict_path": "Photos/img_CONFLICT_1717000000000_550e8400-e29b-41d4-a716-446655440000_a1b2c3d4.jpg",
+          "original_path": "Photos/img.jpg",
+          "abs_path": "/home/user/synced-data/Photos/img_CONFLICT_1717000000000_550e8400-e29b-41d4-a716-446655440000_a1b2c3d4.jpg"
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK` | Conflict list returned (the array is empty when there are none) |
+| `500 Internal Server Error` | Unexpected error reading entry metadata |
+
+---
+
+### `POST /api/resolve-conflict` — Resolve a conflict copy
+
+Resolves a single conflict copy and propagates the result to peers. `keep-mine` deletes the conflict copy and keeps the file at the original path; `keep-theirs` overwrites the original with the conflict copy's contents and then deletes the copy. Both paths go through `EntryManager` so version vectors stay correct.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **Query params** | `path` — relative path of the conflict copy; `action` — `keep-mine` or `keep-theirs` |
+| **Request body** | none |
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK` | Conflict resolved and the new metadata broadcast to peers |
+| `400 Bad Request` | Unknown `action`, or `path` is not a conflict copy / not under a configured sync dir |
+| `404 Not Found` | The conflict copy is already resolved (no live entry) |
+| `500 Internal Server Error` | Unexpected I/O error applying the resolution |
+
+**Example:**
+
+```
+POST /api/resolve-conflict?path=Photos/img_CONFLICT_1717000000000_550e8400-e29b-41d4-a716-446655440000_a1b2c3d4.jpg&action=keep-theirs
+```
+
+---
+
 ## GUI routes
 
 These routes are served by the same HTTP server but are not part of the JSON API.
@@ -287,6 +346,44 @@ A transfer was aborted mid-flight (hash mismatch, oversized payload, I/O error, 
 | `peer` | UUID string | Peer (`local_id`) the failed transfer originated from |
 | `reason` | string | Human-readable failure reason |
 
+### `ConflictDetected`
+
+A conflict copy appeared — either created locally when concurrent edits were reconciled, or received from a peer.  The GUI refreshes its Conflicts section (`GET /api/conflicts`) on this event.
+
+```json
+{
+  "ConflictDetected": {
+    "dir": "Photos",
+    "conflict_path": "Photos/img_CONFLICT_1717000000000_550e8400-e29b-41d4-a716-446655440000_a1b2c3d4.jpg",
+    "original_path": "Photos/img.jpg"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dir` | `RelativePath` | Top-level sync directory the conflict belongs to |
+| `conflict_path` | `RelativePath` | Path of the `_CONFLICT_` copy |
+| `original_path` | `RelativePath` | Path of the original entry the copy diverged from |
+
+### `ConflictResolved`
+
+A conflict copy was removed — via `POST /api/resolve-conflict`, a manual delete, or a peer's tombstone.  The GUI drops it from the Conflicts section.
+
+```json
+{
+  "ConflictResolved": {
+    "dir": "Photos",
+    "conflict_path": "Photos/img_CONFLICT_1717000000000_550e8400-e29b-41d4-a716-446655440000_a1b2c3d4.jpg"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dir` | `RelativePath` | Top-level sync directory the conflict belonged to |
+| `conflict_path` | `RelativePath` | Path of the removed `_CONFLICT_` copy |
+
 ### `ServerRestart`
 
 The server is about to perform an in-process restart (e.g. after a `home_path` change).  Clients should reconnect to `/api/events` after receiving this event.
@@ -330,5 +427,7 @@ name = "Documents"
 | `/api/add-sync-dir` | POST | `name` | 201, 409, 500 |
 | `/api/remove-sync-dir` | POST | `name` | 200, 500 |
 | `/api/set-home-path` | POST | `path` | 200, 400, 500 |
+| `/api/conflicts` | GET | — | 200, 500 |
+| `/api/resolve-conflict` | POST | `path`, `action` | 200, 400, 404, 500 |
 | `/` | GET | — | 200, 500 |
 | `/static/*` | GET | — | 200, 404 |

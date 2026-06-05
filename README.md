@@ -11,6 +11,7 @@
 -   **.gitignore Support:** Respects your `.gitignore` files, plus `.git/` directories are always excluded — safe to sync folders containing Git repositories.
 -   **Real-Time Sync:** Uses a file watcher to detect changes and synchronize them instantly.
 -   **Live Activity Feedback:** The web GUI shows per-directory sync activity as files are received from peers, including the most recent completed and failed transfers.
+-   **Conflict Resolution in the GUI:** When concurrent edits create a conflict copy, the web GUI lists it under a **Conflicts** section and lets you resolve it with one click — keep the current file or adopt the conflict copy — with the change propagated to all peers.
 -   **Peer-to-Peer:** Files are transferred directly between your devices.
 -   **Web Interface:** A simple, browser-based GUI for managing the app.
 -   **Configurable Ports & CLI Flags:** Override the HTTP/presence/transport ports via a `[ports]` block in `config.toml` or `--http-port`/`--presence-port`/`--transport-port` flags, and relocate all state with `--config-dir` to run multiple instances on one host.

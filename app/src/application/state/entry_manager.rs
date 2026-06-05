@@ -39,6 +39,29 @@ enum CommitAction {
     Drop(&'static str),
 }
 
+/// A conflict copy surfaced to the GUI by `EntryManager::list_conflicts`.
+#[derive(Debug, Clone)]
+pub struct ConflictInfo {
+    /// Top-level sync directory the conflict belongs to.
+    pub dir: RelativePath,
+    /// Path of the `_CONFLICT_` copy inside the home directory.
+    pub conflict_path: RelativePath,
+    /// Path of the original entry the copy diverged from.
+    pub original_path: RelativePath,
+    /// Absolute on-disk path of the conflict copy (shown in the GUI).
+    pub abs_path: String,
+}
+
+/// Which side of a conflict the user chose in the GUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolveAction {
+    /// Keep the file at the original path; delete the conflict copy.
+    KeepMine,
+    /// Overwrite the original with the conflict copy's contents, then
+    /// delete the copy.
+    KeepTheirs,
+}
+
 /// Owns the lifecycle of synchronized filesystem entries.
 ///
 /// Combines a `PersistenceInterface` (durable metadata store), the
@@ -507,11 +530,7 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
         loop {
             let rand = &Uuid::new_v4().simple().to_string()[..8];
-            let file_name = if ext.is_empty() {
-                format!("{stem}_CONFLICT_{now_ms}_{device}_{rand}")
-            } else {
-                format!("{stem}_CONFLICT_{now_ms}_{device}_{rand}.{ext}")
-            };
+            let file_name = RelativePath::conflict_file_name(&stem, &ext, now_ms, device, rand);
             let new_path = path.with_file_name(file_name);
 
             match fs::OpenOptions::new()
@@ -870,6 +889,205 @@ impl<P: PersistenceInterface> EntryManager<P> {
 
         self.db.insert_or_replace_entry(&entry).await?;
         Ok(entry)
+    }
+
+    /// Lists the live conflict copies currently tracked, for the GUI's
+    /// Conflicts section. Only live (non-tombstone) file entries whose
+    /// name is a recognized `_CONFLICT_` copy inside a configured sync
+    /// directory are returned; the HTTP layer groups them by `dir`.
+    pub async fn list_conflicts(&self) -> io::Result<Vec<ConflictInfo>> {
+        let mut conflicts = Vec::new();
+        for entry in self.db.list_all_entries().await? {
+            if entry.is_removed() || !entry.is_file() || !entry.name.is_conflict_file() {
+                continue;
+            }
+            let Some(original_path) = entry.name.conflict_origin() else {
+                continue;
+            };
+            if !self.state.contains_sync_dir(&entry.name.sync_dir()).await {
+                continue;
+            }
+            let abs_path = entry
+                .name
+                .to_canonical(self.state.home_path())
+                .display()
+                .to_string();
+            conflicts.push(ConflictInfo {
+                dir: entry.name.sync_dir(),
+                conflict_path: entry.name.clone(),
+                original_path,
+                abs_path,
+            });
+        }
+        Ok(conflicts)
+    }
+
+    /// Resolves a conflict copy on behalf of the GUI and returns the
+    /// entries that must be broadcast to peers (the conflict tombstone,
+    /// plus the updated original for `KeepTheirs`).
+    ///
+    /// Mirrors the receiver's remote-write discipline: a shared
+    /// path-mutation gate plus the per-entry inflight lock serialize the
+    /// disk + metadata changes against inbound Transfers/tombstones for
+    /// the same paths, and `mark_remote_write` keeps the watcher from
+    /// re-broadcasting our own writes as local edits.
+    pub async fn resolve_conflict(
+        &self,
+        conflict: &RelativePath,
+        action: ResolveAction,
+    ) -> io::Result<Vec<EntryInfo>> {
+        if !conflict.is_conflict_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "not a conflict file",
+            ));
+        }
+        if !self.state.contains_sync_dir(&conflict.sync_dir()).await {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "conflict is not under a configured sync directory",
+            ));
+        }
+        let conflict_entry = match self.get_entry(conflict).await? {
+            Some(entry) if !entry.is_removed() => entry,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "conflict already resolved",
+                ));
+            }
+        };
+
+        let _path_gate = self.state.acquire_path_mutation_shared().await;
+
+        let result = match action {
+            ResolveAction::KeepMine => self.resolve_keep_mine(conflict, conflict_entry).await,
+            ResolveAction::KeepTheirs => self.resolve_keep_theirs(conflict, conflict_entry).await,
+        };
+
+        if result.is_ok() {
+            self.state.broadcast_conflict_resolved(conflict);
+        }
+        result
+    }
+
+    async fn resolve_keep_mine(
+        &self,
+        conflict: &RelativePath,
+        conflict_entry: EntryInfo,
+    ) -> io::Result<Vec<EntryInfo>> {
+        let lock = self.state.acquire_inflight_lock(conflict).await;
+        let guard = lock.lock().await;
+        self.state.mark_remote_write(conflict).await;
+
+        // Capture the result and clear/release unconditionally below —
+        // `clear_remote_write` is async so it cannot run from a `Drop`.
+        let abs = conflict.to_canonical(self.state.home_path());
+        let result = match Self::remove_file_if_exists(&abs).await {
+            Ok(()) => self
+                .delete_and_update_entry(conflict_entry)
+                .await
+                .map(|tombstone| vec![tombstone]),
+            Err(err) => Err(err),
+        };
+
+        self.state.clear_remote_write(conflict).await;
+        drop(guard);
+        drop(lock);
+        self.state.release_inflight_lock(conflict).await;
+        result
+    }
+
+    async fn resolve_keep_theirs(
+        &self,
+        conflict: &RelativePath,
+        conflict_entry: EntryInfo,
+    ) -> io::Result<Vec<EntryInfo>> {
+        let original = conflict.conflict_origin().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot derive original path from conflict copy",
+            )
+        })?;
+
+        // Acquire both per-entry locks in a fixed order (conflict first,
+        // then original) so concurrent resolutions cannot deadlock.
+        let conflict_lock = self.state.acquire_inflight_lock(conflict).await;
+        let original_lock = self.state.acquire_inflight_lock(&original).await;
+        let conflict_guard = conflict_lock.lock().await;
+        let original_guard = original_lock.lock().await;
+
+        self.state.mark_remote_write(conflict).await;
+        self.state.mark_remote_write(&original).await;
+
+        let result = self
+            .keep_theirs_inner(conflict, &original, conflict_entry)
+            .await;
+
+        self.state.clear_remote_write(&original).await;
+        self.state.clear_remote_write(conflict).await;
+        drop(original_guard);
+        drop(conflict_guard);
+        drop(original_lock);
+        drop(conflict_lock);
+        self.state.release_inflight_lock(&original).await;
+        self.state.release_inflight_lock(conflict).await;
+        result
+    }
+
+    /// The disk + metadata work of a `KeepTheirs` resolution, factored out
+    /// so the caller can clear remote-write marks and release locks
+    /// unconditionally around it.
+    async fn keep_theirs_inner(
+        &self,
+        conflict: &RelativePath,
+        original: &RelativePath,
+        conflict_entry: EntryInfo,
+    ) -> io::Result<Vec<EntryInfo>> {
+        let conflict_abs = conflict.to_canonical(self.state.home_path());
+        let original_abs = original.to_canonical(self.state.home_path());
+
+        // Overwrite the original with the copy's bytes via a temp sibling
+        // so a failure never leaves a partially-written user file.
+        Self::overwrite_file_atomic(&conflict_abs, &original_abs).await?;
+
+        // `entry_created` covers new / revived / modified originals and
+        // no-ops when the content already matched.
+        let hash = Some(compute_hash(&original_abs).await?);
+        let updated = self.entry_created(original, EntryKind::File, hash).await?;
+
+        Self::remove_file_if_exists(&conflict_abs).await?;
+        let tombstone = self.delete_and_update_entry(conflict_entry).await?;
+
+        Ok(vec![updated, tombstone])
+    }
+
+    async fn remove_file_if_exists(path: &Path) -> io::Result<()> {
+        match fs::remove_file(path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn overwrite_file_atomic(src: &Path, dst: &Path) -> io::Result<()> {
+        let parent = dst
+            .parent()
+            .ok_or_else(|| io::Error::other("original entry has no parent directory"))?;
+        fs::create_dir_all(parent).await?;
+        let temp = parent.join(format!(".synche-resolve-{}.tmp", Uuid::new_v4()));
+
+        let result = async {
+            fs::copy(src, &temp).await?;
+            fs::rename(&temp, dst).await?;
+            Ok(())
+        }
+        .await;
+
+        if result.is_err() {
+            let _ = fs::remove_file(&temp).await;
+        }
+        result
     }
 
     /// Drops tombstone rows older than `retention` so the entry map — and
@@ -2466,5 +2684,165 @@ mod tests {
             manager.get_entry(&name).await.unwrap().is_none(),
             "failed final metadata persistence must not leave a DB row"
         );
+    }
+
+    #[tokio::test]
+    async fn list_conflicts_returns_live_conflict_copies_only() {
+        let (_env, _temp, sync_dir, manager) = setup().await;
+        let sync_rel = add_sync_dir(&manager, &sync_dir).await;
+        let device = manager.state.local_id();
+
+        // A live conflict copy — surfaced.
+        let conflict_name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let conflict_rel: RelativePath = format!("{sync_rel}/{conflict_name}").into();
+        fs::write(
+            conflict_rel.to_canonical(manager.state.home_path()),
+            b"copy",
+        )
+        .unwrap();
+        manager
+            .insert_entry(entry(conflict_rel.clone(), Some("h1"), device))
+            .await
+            .unwrap();
+
+        // A normal (non-conflict) file — excluded.
+        let normal_rel: RelativePath = format!("{sync_rel}/img.jpg").into();
+        manager
+            .insert_entry(entry(normal_rel, Some("h2"), device))
+            .await
+            .unwrap();
+
+        // A tombstoned conflict copy — excluded.
+        let gone_name = RelativePath::conflict_file_name("gone", "txt", 2, device, "deadbeef");
+        let gone_rel: RelativePath = format!("{sync_rel}/{gone_name}").into();
+        let mut tomb = entry(gone_rel, Some("h3"), device);
+        tomb.mark_removed();
+        manager.insert_entry(tomb).await.unwrap();
+
+        let conflicts = manager.list_conflicts().await.unwrap();
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].conflict_path, conflict_rel);
+        assert_eq!(
+            conflicts[0].original_path,
+            format!("{sync_rel}/img.jpg").into()
+        );
+        assert_eq!(conflicts[0].dir, sync_rel);
+    }
+
+    #[tokio::test]
+    async fn resolve_conflict_keep_mine_removes_copy_and_tombstones() {
+        let (_env, _temp, sync_dir, manager) = setup().await;
+        let sync_rel = add_sync_dir(&manager, &sync_dir).await;
+        let device = manager.state.local_id();
+
+        let conflict_name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let conflict_rel: RelativePath = format!("{sync_rel}/{conflict_name}").into();
+        let conflict_abs = conflict_rel.to_canonical(manager.state.home_path());
+        fs::write(&conflict_abs, b"copy").unwrap();
+        manager
+            .insert_entry(entry(conflict_rel.clone(), Some("h1"), device))
+            .await
+            .unwrap();
+
+        let broadcast = manager
+            .resolve_conflict(&conflict_rel, ResolveAction::KeepMine)
+            .await
+            .unwrap();
+
+        assert!(!conflict_abs.exists(), "conflict copy must be removed");
+        assert_eq!(broadcast.len(), 1);
+        assert!(broadcast[0].is_removed());
+        assert_eq!(broadcast[0].name, conflict_rel);
+
+        let stored = manager.get_entry(&conflict_rel).await.unwrap().unwrap();
+        assert!(stored.is_removed(), "conflict entry must be tombstoned");
+    }
+
+    #[tokio::test]
+    async fn resolve_conflict_keep_theirs_overwrites_original_and_tombstones_copy() {
+        let (_env, _temp, sync_dir, manager) = setup().await;
+        let sync_rel = add_sync_dir(&manager, &sync_dir).await;
+        let device = manager.state.local_id();
+
+        // Original (current winner) on disk + entry.
+        let original_rel: RelativePath = format!("{sync_rel}/img.jpg").into();
+        let original_abs = original_rel.to_canonical(manager.state.home_path());
+        fs::write(&original_abs, b"winner").unwrap();
+        let original_hash = compute_hash(&original_abs).await.unwrap();
+        manager
+            .insert_entry(entry(
+                original_rel.clone(),
+                Some(original_hash.as_str()),
+                device,
+            ))
+            .await
+            .unwrap();
+
+        // Divergent conflict copy on disk + entry.
+        let conflict_name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let conflict_rel: RelativePath = format!("{sync_rel}/{conflict_name}").into();
+        let conflict_abs = conflict_rel.to_canonical(manager.state.home_path());
+        fs::write(&conflict_abs, b"divergent copy").unwrap();
+        manager
+            .insert_entry(entry(conflict_rel.clone(), Some("hcopy"), device))
+            .await
+            .unwrap();
+
+        let broadcast = manager
+            .resolve_conflict(&conflict_rel, ResolveAction::KeepTheirs)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fs::read(&original_abs).unwrap(),
+            b"divergent copy",
+            "original must adopt the copy's bytes"
+        );
+        assert!(!conflict_abs.exists(), "conflict copy must be removed");
+
+        assert_eq!(broadcast.len(), 2);
+        assert_eq!(broadcast[0].name, original_rel);
+        assert!(!broadcast[0].is_removed());
+        assert_eq!(broadcast[1].name, conflict_rel);
+        assert!(broadcast[1].is_removed());
+
+        let stored_orig = manager.get_entry(&original_rel).await.unwrap().unwrap();
+        assert!(!stored_orig.is_removed());
+        assert!(stored_orig.hash.is_some());
+        assert_ne!(
+            stored_orig.hash.as_deref(),
+            Some(original_hash.as_str()),
+            "original hash must change to the copy's content hash"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_conflict_rejects_non_conflict_path() {
+        let (_env, _temp, sync_dir, manager) = setup().await;
+        let sync_rel = add_sync_dir(&manager, &sync_dir).await;
+
+        let normal: RelativePath = format!("{sync_rel}/img.jpg").into();
+        let err = manager
+            .resolve_conflict(&normal, ResolveAction::KeepMine)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn resolve_conflict_missing_entry_is_not_found() {
+        let (_env, _temp, sync_dir, manager) = setup().await;
+        let sync_rel = add_sync_dir(&manager, &sync_dir).await;
+        let device = manager.state.local_id();
+
+        let conflict_name = RelativePath::conflict_file_name("img", "jpg", 1, device, "a1b2c3d4");
+        let conflict_rel: RelativePath = format!("{sync_rel}/{conflict_name}").into();
+
+        let err = manager
+            .resolve_conflict(&conflict_rel, ResolveAction::KeepMine)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }
 }

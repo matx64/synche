@@ -211,3 +211,55 @@ export function setSyncFailed({ dir, relative_path, peer, reason }) {
       ` &mdash; ${escapeHtml(reason)}</span>`,
   );
 }
+
+function basename(path) {
+  const p = String(path);
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+
+function conflictItem({ conflict_path, original_path, abs_path }) {
+  const safePath = escapeHtml(conflict_path);
+  return `<div class="list-item conflict-item">
+            <div class="conflict-info">
+              <strong>${escapeHtml(basename(original_path))}</strong>
+              <span class="conflict-copy">copy: <code>${escapeHtml(basename(conflict_path))}</code></span>
+              <span class="conflict-path">${escapeHtml(abs_path)}</span>
+            </div>
+            <div class="conflict-actions">
+              <button class="btn keep-mine-btn" data-conflict="${safePath}">Keep current</button>
+              <button class="btn btn-success use-theirs-btn" data-conflict="${safePath}">Use this copy</button>
+            </div>
+          </div>`;
+}
+
+function conflictGroup({ dir, items }) {
+  const body = (items || []).map(conflictItem).join("");
+  return `<div class="conflict-group"><h3>${escapeHtml(dir)}</h3>${body}</div>`;
+}
+
+export function renderConflicts(data) {
+  const container = document.getElementById("conflicts-container");
+  const list = document.getElementById("conflict-list");
+  if (!container || !list) return;
+
+  const groups = (data && data.conflicts) || [];
+  if (groups.length === 0) {
+    list.innerHTML = "";
+    container.hidden = true;
+    return;
+  }
+
+  list.innerHTML = groups.map(conflictGroup).join("");
+  container.hidden = false;
+}
+
+export async function refreshConflicts() {
+  try {
+    const res = await fetch("/api/conflicts");
+    if (!res.ok) return;
+    renderConflicts(await res.json());
+  } catch (err) {
+    console.error("Failed to load conflicts:", err);
+  }
+}

@@ -49,6 +49,22 @@ pub enum ServerEvent {
         /// Human-readable failure reason (hash mismatch, oversized, I/O error).
         reason: String,
     },
+    /// A conflict copy appeared (created locally or received from a peer),
+    /// so the GUI should surface it in the Conflicts list.
+    ConflictDetected {
+        /// Top-level sync directory the conflict belongs to.
+        dir: RelativePath,
+        /// Path of the `_CONFLICT_` copy inside the home directory.
+        conflict_path: RelativePath,
+        /// Path of the original entry the copy diverged from.
+        original_path: RelativePath,
+    },
+    /// A conflict copy was resolved (locally or via a peer's tombstone), so
+    /// the GUI should drop it from the Conflicts list.
+    ConflictResolved {
+        dir: RelativePath,
+        conflict_path: RelativePath,
+    },
     /// The server is restarting (e.g. after a `home_path` change) — the
     /// GUI should reconnect.
     ServerRestart,
@@ -82,5 +98,35 @@ mod tests {
         };
         let failed_json = serde_json::to_value(&failed).unwrap();
         assert_eq!(failed_json["EntrySyncFailed"]["reason"], "Hash mismatch");
+    }
+
+    #[test]
+    fn conflict_variants_serialize_as_tagged_json() {
+        let detected = ServerEvent::ConflictDetected {
+            dir: "sync".into(),
+            conflict_path: "sync/foo_CONFLICT_1_x_y.txt".into(),
+            original_path: "sync/foo.txt".into(),
+        };
+        let detected_json = serde_json::to_value(&detected).unwrap();
+        assert_eq!(detected_json["ConflictDetected"]["dir"], "sync");
+        assert_eq!(
+            detected_json["ConflictDetected"]["conflict_path"],
+            "sync/foo_CONFLICT_1_x_y.txt"
+        );
+        assert_eq!(
+            detected_json["ConflictDetected"]["original_path"],
+            "sync/foo.txt"
+        );
+
+        let resolved = ServerEvent::ConflictResolved {
+            dir: "sync".into(),
+            conflict_path: "sync/foo_CONFLICT_1_x_y.txt".into(),
+        };
+        let resolved_json = serde_json::to_value(&resolved).unwrap();
+        assert_eq!(resolved_json["ConflictResolved"]["dir"], "sync");
+        assert_eq!(
+            resolved_json["ConflictResolved"]["conflict_path"],
+            "sync/foo_CONFLICT_1_x_y.txt"
+        );
     }
 }

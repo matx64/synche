@@ -2,6 +2,7 @@ use crate::{
     application::{
         AppState, EntryManager, PeerManager, persistence::interface::PersistenceInterface,
     },
+    domain::TransportChannelData,
     infra::http::routes,
 };
 use axum::{
@@ -25,13 +26,20 @@ pub async fn run<P: PersistenceInterface>(
     state: Arc<AppState>,
     peer_manager: Arc<PeerManager>,
     entry_manager: Arc<EntryManager<P>>,
+    sender_tx: tokio::sync::mpsc::Sender<TransportChannelData>,
 ) -> tokio::io::Result<()> {
     let port = state.ports().http;
     let template_engine = init_template_engine();
 
-    let router = routes::build_router(state, peer_manager, entry_manager, template_engine)
-        .layer(middleware::from_fn(insert_version_header))
-        .layer(TraceLayer::new_for_http());
+    let router = routes::build_router(
+        state,
+        peer_manager,
+        entry_manager,
+        template_engine,
+        sender_tx,
+    )
+    .layer(middleware::from_fn(insert_version_header))
+    .layer(TraceLayer::new_for_http());
 
     let addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&addr).await?;

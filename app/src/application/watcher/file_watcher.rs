@@ -167,6 +167,12 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
         self.send_metadata(file).await;
 
+        // A conflict copy that `handle_conflict` just wrote aside appears
+        // here as a new local file — surface it in the Conflicts list.
+        if path.relative.is_conflict_file() {
+            self.state.broadcast_conflict_detected(&path.relative);
+        }
+
         if path.relative.ends_with(".gitignore") {
             self.entry_manager.insert_gitignore(&path.canonical).await;
         }
@@ -225,6 +231,11 @@ impl<T: FileWatcherInterface, P: PersistenceInterface> FileWatcher<T, P> {
 
             if removed.name.ends_with(".gitignore") {
                 self.entry_manager.remove_gitignore(&removed.name).await;
+            }
+
+            // A user-initiated delete of a conflict copy resolves it.
+            if removed.name.is_conflict_file() {
+                self.state.broadcast_conflict_resolved(&removed.name);
             }
 
             self.send_metadata(removed).await;
