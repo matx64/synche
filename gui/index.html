@@ -4,7 +4,18 @@
         <meta charset="UTF-8" />
         <meta content="width=device-width, initial-scale=1.0" name="viewport" />
         <title>Synche</title>
-        <link href="/static/icon.svg" rel="icon" type="image/svg+xml" />
+        <link
+            href="/static/icon-dark.svg"
+            rel="icon"
+            type="image/svg+xml"
+            media="(prefers-color-scheme: light)"
+        />
+        <link
+            href="/static/icon.svg"
+            rel="icon"
+            type="image/svg+xml"
+            media="(prefers-color-scheme: dark)"
+        />
         <link href="/static/style.css" rel="stylesheet" />
     </head>
 
@@ -22,13 +33,23 @@
                 <div class="brand-lockup">
                     <img
                         alt="Synche logo"
-                        class="brand-logo"
-                        src="/static/logo.svg"
-                        width="240"
+                        class="brand-logo brand-logo-on-light"
+                        src="/static/icon-dark.svg"
+                        width="72"
                     />
+                    <img
+                        alt="Synche logo"
+                        class="brand-logo brand-logo-on-dark"
+                        src="/static/icon.svg"
+                        width="72"
+                    />
+                    <span class="brand-wordmark">Synche</span>
                 </div>
 
-                <section class="rail-section local-device-card" aria-labelledby="local-device-title">
+                <section
+                    class="rail-section local-device-card"
+                    aria-labelledby="local-device-title"
+                >
                     <div class="rail-section-header">
                         <svg
                             class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"
@@ -42,7 +63,14 @@
                             width="20"
                             xmlns="http://www.w3.org/2000/svg"
                         >
-                            <rect height="12" rx="2" ry="2" width="18" x="3" y="4" />
+                            <rect
+                                height="12"
+                                rx="2"
+                                ry="2"
+                                width="18"
+                                x="3"
+                                y="4"
+                            />
                             <line x1="2" x2="22" y1="20" y2="20" />
                         </svg>
                         <h1 id="local-device-title">{{ hostname }}</h1>
@@ -82,7 +110,9 @@
                             <dt>ID</dt>
                             <dd class="identifier-value">
                                 <span class="id-chip" title="{{ local_id }}">
-                                    <span aria-hidden="true">{{ local_id_short }}</span>
+                                    <span aria-hidden="true"
+                                        >{{ local_id_short }}</span
+                                    >
                                     <span class="sr-only">{{ local_id }}</span>
                                 </span>
                             </dd>
@@ -93,7 +123,11 @@
                 <div id="settings-container" class="rail-actions">
                     <button
                         class="btn btn-ghost icon-btn settings-btn"
-                        onclick="document.getElementById('home-path-dialog').showModal()"
+                        onclick="
+                            document
+                                .getElementById('home-path-dialog')
+                                .showModal()
+                        "
                         type="button"
                     >
                         <svg
@@ -119,32 +153,15 @@
 
                 <footer class="brand-footer">
                     <span>© 2026 Synche &bull; v{{ version }}</span>
-                    <a href="https://github.com/matx64/synche/"
-                        ><svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            class="lucide lucide-github-icon lucide-github"
-                        >
-                            <path
-                                d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"
-                            />
-                            <path d="M9 18c-4.51 2-5-2-7-2" />
-                        </svg>
-                        <span>source</span></a
-                    >
                 </footer>
             </aside>
 
             <div class="content-shell">
                 <main class="dashboard">
-                    <section id="dirs-container" class="dashboard-panel panel-primary">
+                    <section
+                        id="dirs-container"
+                        class="dashboard-panel panel-primary"
+                    >
                         <header class="section-header">
                             <span class="section-title">
                                 <span class="section-icon section-icon-folders">
@@ -164,9 +181,13 @@
                                             d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"
                                         />
                                         <path d="M12 10v4h4" />
-                                        <path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5" />
+                                        <path
+                                            d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5"
+                                        />
                                         <path d="M22 22v-4h-4" />
-                                        <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5" />
+                                        <path
+                                            d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5"
+                                        />
                                     </svg>
                                 </span>
                                 <span>
@@ -177,7 +198,11 @@
 
                             <button
                                 class="btn btn-primary icon-btn"
-                                onclick="document.getElementById('add-dir-dialog').showModal()"
+                                onclick="
+                                    document
+                                        .getElementById('add-dir-dialog')
+                                        .showModal()
+                                "
                                 type="button"
                             >
                                 <svg
@@ -203,10 +228,15 @@
 
                         <div class="item-list" id="dir-list">
                             {% for dir in dirs %}
-                            <details class="list-item dir-item" id="dir-{{dir.name}}">
+                            <details
+                                class="list-item dir-item"
+                                id="dir-{{dir.name}}"
+                            >
                                 <summary>
                                     <strong>
-                                        <span class="item-icon item-icon-folder">
+                                        <span
+                                            class="item-icon item-icon-folder"
+                                        >
                                             <svg
                                                 class="lucide lucide-folder-open-icon lucide-folder-open"
                                                 fill="none"
@@ -269,7 +299,10 @@
                         </div>
                     </section>
 
-                    <section id="devices-container" class="dashboard-panel panel-secondary">
+                    <section
+                        id="devices-container"
+                        class="dashboard-panel panel-secondary"
+                    >
                         <header class="section-header">
                             <span class="section-title">
                                 <span class="section-icon section-icon-devices">
@@ -285,7 +318,13 @@
                                         width="24"
                                         xmlns="http://www.w3.org/2000/svg"
                                     >
-                                        <rect height="20" rx="2" width="14" x="5" y="2" />
+                                        <rect
+                                            height="20"
+                                            rx="2"
+                                            width="14"
+                                            x="5"
+                                            y="2"
+                                        />
                                         <path d="M15 14h.01" />
                                         <path d="M9 6h6" />
                                         <path d="M9 10h6" />
@@ -300,10 +339,15 @@
 
                         <div class="item-list" id="peer-list">
                             {% for peer in peers %}
-                            <details class="list-item peer-item" id="peer-{{ peer.id }}">
+                            <details
+                                class="list-item peer-item"
+                                id="peer-{{ peer.id }}"
+                            >
                                 <summary>
                                     <strong>
-                                        <span class="item-icon item-icon-device">
+                                        <span
+                                            class="item-icon item-icon-device"
+                                        >
                                             <svg
                                                 class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"
                                                 fill="none"
@@ -324,12 +368,19 @@
                                                     x="3"
                                                     y="4"
                                                 />
-                                                <line x1="2" x2="22" y1="20" y2="20" />
+                                                <line
+                                                    x1="2"
+                                                    x2="22"
+                                                    y1="20"
+                                                    y2="20"
+                                                />
                                             </svg>
                                         </span>
                                         <span>{{ peer.hostname }}</span></strong
                                     ><small class="peer-status">
-                                        <span class="status-pill status-pill-online">
+                                        <span
+                                            class="status-pill status-pill-online"
+                                        >
                                             <svg
                                                 class="lucide lucide-cloud-check-icon lucide-cloud-check connected"
                                                 fill="none"
@@ -359,31 +410,39 @@
                                     <div>
                                         <dt>ID</dt>
                                         <dd class="identifier-value">
-                                            <span class="id-chip">{{ peer.id }}</span>
+                                            <span class="id-chip"
+                                                >{{ peer.id }}</span
+                                            >
                                         </dd>
                                     </div>
                                     <div>
                                         <dt>Instance ID</dt>
                                         <dd class="identifier-value">
-                                            <span class="id-chip">{{ peer.instance_id }}</span>
+                                            <span class="id-chip"
+                                                >{{ peer.instance_id }}</span
+                                            >
                                         </dd>
                                     </div>
                                     <div>
                                         <dt>Last Seen</dt>
-                                        <dd><span class="peer-last-seen" data-ts="{{ peer.last_seen.secs_since_epoch }}"></span></dd>
+                                        <dd>
+                                            <span
+                                                class="peer-last-seen"
+                                                data-ts="{{ peer.last_seen.secs_since_epoch }}"
+                                            ></span>
+                                        </dd>
                                     </div>
                                     <div>
                                         <dt>Sync Directories</dt>
                                         <dd>
                                             {% if peer.sync_dirs %}
-                                                <ul>
-                                                    {% for dir_name, _ in peer.sync_dirs %}
-                                                        <li>{{ dir_name }}</li>
-                                                    {% endfor %}
-                                                </ul>
-                                            {% else %}
-                                                None
-                                            {% endif %}
+                                            <ul>
+                                                {% for dir_name, _ in
+                                                peer.sync_dirs %}
+                                                <li>{{ dir_name }}</li>
+                                                {% endfor %}
+                                            </ul>
+                                            {% else %} None {% endif %}
                                         </dd>
                                     </div>
                                 </dl>
@@ -400,7 +459,11 @@
                         </div>
                     </section>
 
-                    <section id="conflicts-container" class="dashboard-panel panel-alert" hidden>
+                    <section
+                        id="conflicts-container"
+                        class="dashboard-panel panel-alert"
+                        hidden
+                    >
                         <header class="section-header">
                             <span class="section-title">
                                 <span class="section-icon section-icon-alert">
@@ -440,13 +503,13 @@
             <hgroup>
                 <h2>Add Sync Directory</h2>
                 <p>
-                    A <strong>Sync Directory</strong> is always a direct
-                    child to the home folder <kbd>(/Synche)</kbd>.
+                    A <strong>Sync Directory</strong> is always a direct child
+                    to the home folder <kbd>(/Synche)</kbd>.
                 </p>
 
                 <small>
-                    If the Directory doesn't exist yet, it will be
-                    created automatically.
+                    If the Directory doesn't exist yet, it will be created
+                    automatically.
                 </small>
             </hgroup>
 
@@ -489,17 +552,12 @@
                 </p>
 
                 <small>
-                    This will remove the directory from sync. Local
-                    files will not be deleted.
+                    This will remove the directory from sync. Local files will
+                    not be deleted.
                 </small>
             </hgroup>
 
-            <p
-                class="form-error"
-                hidden
-                id="remove-dir-error"
-                role="alert"
-            ></p>
+            <p class="form-error" hidden id="remove-dir-error" role="alert"></p>
 
             <div>
                 <button
@@ -522,16 +580,18 @@
             <hgroup>
                 <h2>Change Home Directory</h2>
                 <p>
-                    The <strong>Home Directory</strong> is the base
-                    folder where all sync directories are stored.
+                    The <strong>Home Directory</strong> is the base folder where
+                    all sync directories are stored.
                 </p>
 
                 <small>
-                    <strong>Important:</strong> Changing this will
-                    restart Synche and begin syncing at the new
-                    location. <strong>Files in the old home directory
-                    will not be moved or deleted.</strong> You will
-                    need to manually transfer files if desired.
+                    <strong>Important:</strong> Changing this will restart
+                    Synche and begin syncing at the new location.
+                    <strong
+                        >Files in the old home directory will not be moved or
+                        deleted.</strong
+                    >
+                    You will need to manually transfer files if desired.
                 </small>
             </hgroup>
 
@@ -568,10 +628,13 @@
         <script type="module" src="/static/main.js"></script>
         <script type="module" src="/static/sse.js"></script>
         <script>
-            document.querySelectorAll(".peer-last-seen[data-ts]").forEach(function (el) {
-                var ts = parseInt(el.dataset.ts, 10);
-                if (ts) el.textContent = new Date(ts * 1000).toLocaleString();
-            });
+            document
+                .querySelectorAll(".peer-last-seen[data-ts]")
+                .forEach(function (el) {
+                    var ts = parseInt(el.dataset.ts, 10);
+                    if (ts)
+                        el.textContent = new Date(ts * 1000).toLocaleString();
+                });
         </script>
     </body>
 </html>

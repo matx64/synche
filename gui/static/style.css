@@ -27,36 +27,45 @@
     --radius-lg: 8px;
     --size-row: 3rem;
 
-    --brand-primary: #04745c;
-    --brand-primary-strong: #035f4b;
-    --brand-foreground: #04745c;
-    --brand-primary-soft: #e0f3ed;
-    --brand-primary-muted: #69bca3;
-    --brand-on-dark: #5ee6bd;
-    --network-color: #256d85;
-    --network-strong: #174f64;
-    --network-soft: #e1f1f5;
-    --accent-amber: #b86b00;
-    --accent-amber-soft: #fff0d1;
+    /* Brand palette — light theme. Every semantic token below is derived from
+       these five via color-mix(), with var(--text) as the contrast pole so the
+       same formulas auto-adjust in the dark block (where --text flips light). */
+    --text: #0d1208;
+    --background: #f7faf5;
+    --primary: #beff99;
+    --secondary: #9dd8d4;
+    --accent: #7e9cc8;
+
+    --brand-primary: var(--primary);
+    --brand-primary-strong: color-mix(in srgb, var(--primary) 78%, var(--text));
+    --brand-foreground: color-mix(in srgb, var(--primary) 50%, var(--text));
+    --brand-primary-soft: color-mix(in srgb, var(--primary) 22%, var(--background));
+    --brand-primary-muted: color-mix(in srgb, var(--primary) 55%, var(--text));
+    --brand-on-dark: color-mix(in srgb, var(--primary) 55%, var(--text));
+    --network-color: color-mix(in srgb, var(--accent) 58%, var(--text));
+    --network-strong: color-mix(in srgb, var(--accent) 42%, var(--text));
+    --network-soft: color-mix(in srgb, var(--accent) 18%, var(--background));
+    --accent-amber: color-mix(in srgb, var(--secondary) 55%, var(--text));
+    --accent-amber-soft: color-mix(in srgb, var(--secondary) 22%, var(--background));
     --danger-color: #ba2d22;
     --danger-strong: #8f1f17;
     --danger-soft: #fde5e1;
-    --on-accent: #ffffff;
+    --on-accent: var(--text);
     --on-danger: #ffffff;
 
-    --canvas: #f4f7f8;
-    --canvas-strong: #e8eef1;
-    --surface: #ffffff;
-    --surface-raised: #ffffff;
-    --surface-muted: #edf3f4;
-    --surface-tint: #edf8f4;
-    --text-color: #14201f;
-    --text-muted: #4d5e5d;
-    --text-subtle: #738381;
-    --border-color: #d7e0e2;
-    --border-strong: #aebec1;
-    --focus-ring: #0b9577;
-    --focus-shadow: rgba(4, 116, 92, 0.24);
+    --canvas: var(--background);
+    --canvas-strong: color-mix(in srgb, var(--background) 94%, var(--text));
+    --surface: var(--background);
+    --surface-raised: color-mix(in srgb, var(--background) 97%, var(--primary));
+    --surface-muted: color-mix(in srgb, var(--background) 92%, var(--text));
+    --surface-tint: color-mix(in srgb, var(--background) 86%, var(--primary));
+    --text-color: var(--text);
+    --text-muted: color-mix(in srgb, var(--text) 70%, var(--background));
+    --text-subtle: color-mix(in srgb, var(--text) 55%, var(--background));
+    --border-color: color-mix(in srgb, var(--text) 14%, var(--background));
+    --border-strong: color-mix(in srgb, var(--text) 30%, var(--background));
+    --focus-ring: color-mix(in srgb, var(--accent) 70%, var(--text));
+    --focus-shadow: color-mix(in srgb, var(--accent) 28%, transparent);
     --shadow-sm: 0 1px 2px rgba(11, 30, 34, 0.08);
     --shadow-md: 0 16px 34px rgba(11, 30, 34, 0.12);
     --shadow-lg: 0 26px 64px rgba(11, 30, 34, 0.17);
@@ -66,36 +75,28 @@
     :root {
         color-scheme: dark;
 
-        --brand-primary: #04745c;
-        --brand-primary-strong: #5ee6bd;
-        --brand-foreground: #5ee6bd;
-        --brand-primary-soft: #163a31;
-        --brand-primary-muted: #35ae8e;
-        --brand-on-dark: #5ee6bd;
-        --network-color: #72d0e7;
-        --network-strong: #a4e5f2;
-        --network-soft: #1a3744;
-        --accent-amber: #f4b947;
-        --accent-amber-soft: #3f2f14;
+        /* Brand palette — dark theme. --text flips to a light tone so the
+           color-mix() formulas inherited from :root lighten instead of darken. */
+        --text: #f2f7ed;
+        --background: #070a05;
+        --primary: #256600;
+        --secondary: #27625f;
+        --accent: #375481;
+
+        --brand-foreground: color-mix(in srgb, var(--primary) 38%, var(--text));
+        --brand-primary-muted: color-mix(in srgb, var(--primary) 60%, var(--text));
+        --brand-on-dark: color-mix(in srgb, var(--primary) 38%, var(--text));
+        --network-color: color-mix(in srgb, var(--accent) 45%, var(--text));
+        --network-strong: color-mix(in srgb, var(--accent) 30%, var(--text));
+        --accent-amber: color-mix(in srgb, var(--secondary) 45%, var(--text));
         --danger-color: #ff8b80;
         --danger-strong: #ffc0b9;
         --danger-soft: #4a221e;
-        --on-accent: #071a17;
         --on-danger: #2a0705;
 
-        --canvas: #0d1418;
-        --canvas-strong: #11191f;
-        --surface: #1b2630;
-        --surface-raised: #212e38;
-        --surface-muted: #26333d;
-        --surface-tint: #1a2f2b;
-        --text-color: #f5f8f7;
-        --text-muted: #c4d0ce;
-        --text-subtle: #94a6a3;
-        --border-color: #33454e;
-        --border-strong: #4a626b;
-        --focus-ring: #5ee6bd;
-        --focus-shadow: rgba(94, 230, 189, 0.22);
+        --surface: color-mix(in srgb, var(--background) 92%, var(--text));
+        --surface-raised: color-mix(in srgb, var(--background) 88%, var(--text));
+        --surface-muted: color-mix(in srgb, var(--background) 84%, var(--text));
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
         --shadow-md: 0 18px 42px rgba(0, 0, 0, 0.34);
         --shadow-lg: 0 30px 70px rgba(0, 0, 0, 0.44);
@@ -243,13 +244,37 @@ kbd {
 
 .brand-lockup {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    min-height: 4.5rem;
+    gap: var(--space-2);
 }
 
 .brand-logo {
-    width: min(13rem, 100%);
+    width: 4.5rem;
     height: auto;
+}
+
+/* Logo variants swap by theme. Using a media query per scheme (rather than a
+   base `display:none` + dark override) keeps this independent of source order,
+   and `light` also covers browsers reporting no active preference. */
+@media (prefers-color-scheme: light) {
+    .brand-logo-on-dark {
+        display: none;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    .brand-logo-on-light {
+        display: none;
+    }
+}
+
+.brand-wordmark {
+    color: var(--text-color);
+    font-size: var(--font-size-2xl);
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    line-height: var(--line-height-tight);
 }
 
 .rail-section {
@@ -337,32 +362,22 @@ h1 {
 }
 
 .rail-actions {
+    margin-top: auto;
     display: grid;
     gap: var(--space-2);
 }
 
 .brand-footer {
-    margin-top: auto;
     display: grid;
     gap: var(--space-2);
     color: var(--text-subtle);
     font-size: var(--font-size-sm);
 }
 
-.brand-footer > * {
+.brand-footer > span {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
-}
-
-.brand-footer a {
-    width: fit-content;
-    color: var(--network-color);
-    text-decoration: none;
-}
-
-.brand-footer a:hover {
-    text-decoration: underline;
 }
 
 .content-shell {
@@ -890,6 +905,17 @@ input::placeholder {
         padding: var(--space-5);
         border-right: 0;
         border-bottom: 1px solid var(--border-color);
+        text-align: center;
+    }
+
+    /* Center the flex-based rows too — text-align alone won't move them. */
+    .rail-section-header,
+    .identifier-value {
+        justify-content: center;
+    }
+
+    .brand-footer {
+        justify-items: center;
     }
 
     /* Center and cap rail content so it isn't pinned hard-left when stacked. */
@@ -906,12 +932,8 @@ input::placeholder {
         justify-content: center;
     }
 
-    .brand-logo {
-        width: min(11rem, 70%);
-    }
-
-    .brand-footer {
-        margin-top: 0;
+    .rail-actions {
+        margin-top: var(--space-2);
     }
 
     .content-shell {
@@ -933,10 +955,6 @@ input::placeholder {
 
     .brand-rail {
         gap: var(--space-4);
-    }
-
-    .brand-logo {
-        width: min(9.5rem, 60%);
     }
 
     .rail-section {

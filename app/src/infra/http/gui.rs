@@ -323,8 +323,8 @@ mod tests {
             );
         }
         assert!(
-            styles.contains("#04745c"),
-            "Palette should remain anchored to the logo green"
+            styles.contains("#beff99") && styles.contains("#256600"),
+            "Palette should be anchored to the brand primary green (light #beff99 / dark #256600)"
         );
         assert!(
             styles.contains(".id-chip"),
