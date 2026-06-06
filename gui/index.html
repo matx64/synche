@@ -428,7 +428,7 @@
                                         <dd>
                                             <span
                                                 class="peer-last-seen"
-                                                data-ts="{{ peer.last_seen.secs_since_epoch }}"
+                                                data-ts="{{ peer.last_seen }}"
                                             ></span>
                                         </dd>
                                     </div>
@@ -437,8 +437,7 @@
                                         <dd>
                                             {% if peer.sync_dirs %}
                                             <ul>
-                                                {% for dir_name, _ in
-                                                peer.sync_dirs %}
+                                                {% for dir_name in peer.sync_dirs %}
                                                 <li>{{ dir_name }}</li>
                                                 {% endfor %}
                                             </ul>

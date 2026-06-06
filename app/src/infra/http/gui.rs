@@ -3,8 +3,20 @@ use crate::application::{
 };
 use axum::{Router, extract::State, http::StatusCode, response::Html, routing::get};
 use minijinja::{Environment, context};
+use serde::Serialize;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
+use uuid::Uuid;
+
+#[derive(Serialize)]
+struct PeerView {
+    id: Uuid,
+    addr: std::net::IpAddr,
+    hostname: String,
+    instance_id: Uuid,
+    last_seen: u64,
+    sync_dirs: Vec<String>,
+}
 
 struct GuiState<P: PersistenceInterface> {
     pub state: Arc<AppState>,
@@ -39,6 +51,28 @@ async fn index<P: PersistenceInterface>(
 ) -> Result<Html<String>, StatusCode> {
     let dirs = state.entry_manager.list_dirs().await;
     let dirs: Vec<_> = dirs.values().cloned().collect();
+    let peers = state
+        .peer_manager
+        .list()
+        .await
+        .into_iter()
+        .map(|peer| PeerView {
+            id: peer.id,
+            addr: peer.addr,
+            hostname: peer.hostname,
+            instance_id: peer.instance_id,
+            last_seen: peer
+                .last_seen
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            sync_dirs: peer
+                .sync_dirs
+                .into_keys()
+                .map(|dir| dir.to_string())
+                .collect(),
+        })
+        .collect::<Vec<_>>();
 
     let tmpl = state
         .engine
@@ -51,7 +85,7 @@ async fn index<P: PersistenceInterface>(
             hostname => state.state.hostname(),
             local_id => state.state.local_id(),
             local_id_short => compact_device_id(&state.state.local_id()),
-            peers => state.peer_manager.list().await,
+            peers => peers,
             local_ip => state.state.local_ip().await,
             home_path => state.state.home_path().display().to_string(),
             version => env!("CARGO_PKG_VERSION"),
@@ -77,7 +111,13 @@ mod tests {
         application::persistence::interface::PersistenceResult, domain::EntryInfo,
         infra::http::server::init_template_engine,
     };
+    use std::{
+        collections::HashMap,
+        net::{IpAddr, Ipv4Addr},
+        time::SystemTime,
+    };
     use tokio::sync::Mutex;
+    use uuid::Uuid;
 
     struct MockPersistence {
         entries: Arc<Mutex<Vec<EntryInfo>>>,
@@ -137,6 +177,19 @@ mod tests {
         let engine = init_template_engine();
 
         (env, state, peer_manager, entry_manager, engine)
+    }
+
+    fn peer_with_sync_dir() -> crate::domain::Peer {
+        let dir = crate::domain::RelativePath::from("Docs");
+        crate::domain::Peer {
+            id: Uuid::new_v4(),
+            addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 10)),
+            transport_port: 52882,
+            hostname: "peer-host".into(),
+            instance_id: Uuid::new_v4(),
+            last_seen: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_717_000_000),
+            sync_dirs: HashMap::from([(dir.clone(), crate::domain::SyncDirectory { name: dir })]),
+        }
     }
 
     #[tokio::test]
@@ -199,6 +252,45 @@ mod tests {
         assert!(
             html.contains("Add a folder under your home path to start syncing"),
             "Should include the sync directories empty state copy"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_index_renders_connected_peer_details() {
+        let (_env, state, pm, em, engine) = create_test_components().await;
+        let peer = peer_with_sync_dir();
+        let peer_id = peer.id.to_string();
+        let instance_id = peer.instance_id.to_string();
+        pm.insert(peer).await;
+
+        let gui_state = Arc::new(GuiState {
+            state,
+            engine,
+            peer_manager: pm,
+            entry_manager: em,
+        });
+
+        let result = index(State(gui_state)).await;
+        assert!(
+            result.is_ok(),
+            "Index should render successfully with peers"
+        );
+
+        let Html(html) = result.unwrap();
+        assert!(html.contains("peer-host"), "Should render peer hostname");
+        assert!(html.contains("10.0.0.10"), "Should render peer IP");
+        assert!(html.contains(&peer_id), "Should render peer id");
+        assert!(
+            html.contains(&instance_id),
+            "Should render peer instance id"
+        );
+        assert!(
+            html.contains("data-ts=\"1717000000\""),
+            "Should render the serialized last-seen epoch seconds"
+        );
+        assert!(
+            html.contains("<li>Docs</li>"),
+            "Should render shared sync dirs"
         );
     }
 
