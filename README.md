@@ -17,6 +17,12 @@
 
 **Synche** is an open-source, peer-to-peer file synchronization tool that operates entirely on your local network. It automatically syncs files between your devices, similar to Dropbox or Syncthing, but without requiring any cloud services or external servers.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/matx64/synche/releases/download/v0.0.6-alpha/ss-dark.png" />
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/matx64/synche/releases/download/v0.0.6-alpha/ss-light.png" />
+  <img alt="Synche GUI screenshot" src="https://github.com/matx64/synche/releases/download/v0.0.6-alpha/ss-light.png" />
+</picture>
+
 ## Features
 
 -   **Local-Only:** No internet or cloud dependency.
