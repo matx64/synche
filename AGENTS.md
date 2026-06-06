@@ -174,6 +174,8 @@ Never construct a production `AppState` from a test (the binary builds it via `S
 
 The peer and sync-directory lists include template-rendered `.empty-state` rows whose visibility is maintained by `gui/static/components.js` after API/SSE list updates. Keep the empty-state copy, CSS design tokens, focus styles, and the GUI contract tests in `infra/http/gui.rs` in sync when changing the visual shell.
 
+The GUI visual shell is a polished dashboard: `.app-shell` contains a persistent `.brand-rail` for logo, local device identity, settings, version, and source link, plus a `.dashboard` content area for directories, devices, and conflicts. The palette is intentionally multi-hue and anchored on the logo green `#04745c`: green is for brand/healthy sync states, indigo for primary actions, cyan for network/devices, amber for activity/warnings, and red for destructive/conflict states. Preserve light/dark token pairs, high-contrast text, visible focus states, and responsive rules when changing the UI; do not collapse the app back to a monochromatic green theme or a card-style top header.
+
 All GUI `/api/*` calls that can fail must go through the shared feedback helper in `gui/static/api_feedback.js` (or an equivalent central wrapper if it is replaced). Non-success HTTP responses must surface the status plus a short user-readable reason, network failures must show `Could not reach Synche.`, and modal forms must stay open until the action succeeds so the user can correct input.
 
 ### App version

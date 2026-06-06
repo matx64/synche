@@ -17,499 +17,544 @@
             role="status"
         ></div>
 
-        <header class="app-header">
-            <img
-                alt="Synche logo"
-                class="brand-logo"
-                src="/static/logo.svg"
-                width="240"
-            />
+        <div class="app-shell">
+            <aside class="brand-rail" aria-label="Synche overview">
+                <div class="brand-lockup">
+                    <img
+                        alt="Synche logo"
+                        class="brand-logo"
+                        src="/static/logo.svg"
+                        width="240"
+                    />
+                </div>
 
-            <div id="settings-container">
-                <button
-                    class="btn icon-btn settings-btn"
-                    onclick="document.getElementById('home-path-dialog').showModal()"
-                    type="button"
-                >
-                    <svg
-                        class="lucide lucide-settings-icon lucide-settings"
-                        fill="none"
-                        height="18"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        viewBox="0 0 24 24"
-                        width="18"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <path
-                            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-                        />
-                        <circle cx="12" cy="12" r="3" />
-                    </svg>
-                    <span>Settings</span>
-                </button>
-            </div>
-        </header>
-
-        <main>
-            <section id="devices-container">
-                <header>
-                    <span>
+                <section class="rail-section local-device-card" aria-labelledby="local-device-title">
+                    <div class="rail-section-header">
                         <svg
-                            class="lucide lucide-pc-case-icon lucide-pc-case"
+                            class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"
                             fill="none"
-                            height="24"
+                            height="20"
                             stroke="currentColor"
                             stroke-linecap="round"
                             stroke-linejoin="round"
                             stroke-width="2"
                             viewBox="0 0 24 24"
-                            width="24"
+                            width="20"
                             xmlns="http://www.w3.org/2000/svg"
                         >
-                            <rect height="20" rx="2" width="14" x="5" y="2" />
-                            <path d="M15 14h.01" />
-                            <path d="M9 6h6" />
-                            <path d="M9 10h6" />
+                            <rect height="12" rx="2" ry="2" width="18" x="3" y="4" />
+                            <line x1="2" x2="22" y1="20" y2="20" />
                         </svg>
-                        <h2>Devices</h2>
-                    </span>
-                </header>
-
-                <div class="item-list" id="peer-list">
-                    <details class="list-item">
-                        <summary>
-                            <strong>
-                                <svg
-                                    class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"
-                                    fill="none"
-                                    height="20"
-                                    stroke="currentColor"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    viewBox="0 0 24 24"
-                                    width="20"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <rect
-                                        height="12"
-                                        rx="2"
-                                        ry="2"
-                                        width="18"
-                                        x="3"
-                                        y="4"
-                                    />
-                                    <line x1="2" x2="22" y1="20" y2="20" />
-                                </svg>
-                                <span>{{ hostname }} (My Device)</span></strong
-                            ><small class="peer-status">
-                                <span>Connected</span>
-                                <svg
-                                    class="lucide lucide-cloud-check-icon lucide-cloud-check connected"
-                                    fill="none"
-                                    height="17"
-                                    stroke="currentColor"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    viewBox="0 0 24 24"
-                                    width="17"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <path d="m17 15-5.5 5.5L9 18" />
-                                    <path
-                                        d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"
-                                    />
-                                </svg>
-                            </small>
-                        </summary>
-                        <p><strong>IP:</strong> {{ local_ip }}</p>
-                        <p><strong>ID:</strong> {{ local_id }}</p>
-                    </details>
-
-                    {% for peer in peers %}
-                    <details class="list-item" id="peer-{{ peer.id }}">
-                        <summary>
-                            <strong>
-                                <svg
-                                    class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"
-                                    fill="none"
-                                    height="20"
-                                    stroke="currentColor"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    viewBox="0 0 24 24"
-                                    width="20"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <rect
-                                        height="12"
-                                        rx="2"
-                                        ry="2"
-                                        width="18"
-                                        x="3"
-                                        y="4"
-                                    />
-                                    <line x1="2" x2="22" y1="20" y2="20" />
-                                </svg>
-                                <span>{{ peer.hostname }}</span></strong
-                            ><small class="peer-status">
-                                <span>Connected</span>
-                                <svg
-                                    class="lucide lucide-cloud-check-icon lucide-cloud-check connected"
-                                    fill="none"
-                                    height="17"
-                                    stroke="currentColor"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    viewBox="0 0 24 24"
-                                    width="17"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <path d="m17 15-5.5 5.5L9 18" />
-                                    <path
-                                        d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"
-                                    />
-                                </svg>
-                            </small>
-                        </summary>
-                        <p><strong>IP:</strong> {{ peer.addr }}</p>
-                        <p><strong>ID:</strong> {{ peer.id }}</p>
-                        <p><strong>Instance ID:</strong> {{ peer.instance_id }}</p>
-                        <p>
-                            <strong>Last Seen:</strong>
-                            <span class="peer-last-seen" data-ts="{{ peer.last_seen.secs_since_epoch }}"></span>
-                        </p>
-                        <p><strong>Sync Directories:</strong>
-                            {% if peer.sync_dirs %}
-                                <ul>
-                                    {% for dir_name, _ in peer.sync_dirs %}
-                                        <li>{{ dir_name }}</li>
-                                    {% endfor %}
-                                </ul>
-                            {% else %}
-                                None
-                            {% endif %}
-                        </p>
-                    </details>
-                    {% endfor %}
-
-                    <div
-                        class="empty-state"
-                        data-empty-state="peers"
-                        {% if peers %}hidden{% endif %}
-                    >
-                        No devices yet &mdash; start Synche on another device on the same network
+                        <h1 id="local-device-title">{{ hostname }}</h1>
                     </div>
-                </div>
-            </section>
 
-            <section id="dirs-container">
-                <header>
-                    <span>
+                    <dl class="identity-list">
+                        <div>
+                            <dt>Status</dt>
+                            <dd>
+                                <span class="status-pill status-pill-online">
+                                    <svg
+                                        class="lucide lucide-cloud-check-icon lucide-cloud-check"
+                                        fill="none"
+                                        height="15"
+                                        stroke="currentColor"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        viewBox="0 0 24 24"
+                                        width="15"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                        <path d="m17 15-5.5 5.5L9 18" />
+                                        <path
+                                            d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"
+                                        />
+                                    </svg>
+                                    Connected
+                                </span>
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>IP</dt>
+                            <dd>{{ local_ip }}</dd>
+                        </div>
+                        <div>
+                            <dt>ID</dt>
+                            <dd>{{ local_id }}</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <div id="settings-container" class="rail-actions">
+                    <button
+                        class="btn btn-ghost icon-btn settings-btn"
+                        onclick="document.getElementById('home-path-dialog').showModal()"
+                        type="button"
+                    >
                         <svg
-                            class="lucide lucide-folder-sync-icon lucide-folder-sync"
+                            class="lucide lucide-settings-icon lucide-settings"
                             fill="none"
-                            height="24"
+                            height="18"
                             stroke="currentColor"
                             stroke-linecap="round"
                             stroke-linejoin="round"
                             stroke-width="2"
                             viewBox="0 0 24 24"
-                            width="24"
+                            width="18"
                             xmlns="http://www.w3.org/2000/svg"
                         >
                             <path
-                                d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"
+                                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
                             />
-                            <path d="M12 10v4h4" />
-                            <path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5" />
-                            <path d="M22 22v-4h-4" />
-                            <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5" />
+                            <circle cx="12" cy="12" r="3" />
                         </svg>
-                        <h2>Directories</h2>
-                    </span>
+                        <span>Settings</span>
+                    </button>
+                </div>
 
-                    <span>
-                        <button
-                            class="btn btn-success icon-btn"
-                            onclick="document.getElementById('add-dir-dialog').showModal()"
-                            type="button"
+                <footer class="brand-footer">
+                    <span>© 2026 Synche &bull; v{{ version }}</span>
+                    <a href="https://github.com/matx64/synche/"
+                        ><svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class="lucide lucide-github-icon lucide-github"
                         >
-                            <svg
-                                class="lucide lucide-folder-plus-icon lucide-folder-plus"
-                                fill="none"
-                                height="18"
-                                stroke="currentColor"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                viewBox="0 0 24 24"
-                                width="18"
-                                xmlns="http://www.w3.org/2000/svg"
-                            >
-                                <path d="M12 10v6" />
-                                <path d="M9 13h6" />
-                                <path
-                                    d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-                                /></svg
-                            ><span>Add</span>
-                        </button>
-                    </span>
-                </header>
+                            <path
+                                d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"
+                            />
+                            <path d="M9 18c-4.51 2-5-2-7-2" />
+                        </svg>
+                        <span>source</span></a
+                    >
+                </footer>
+            </aside>
 
-                <div class="item-list" id="dir-list">
-                    {% for dir in dirs %}
-                    <details class="list-item" id="dir-{{dir.name}}">
-                        <summary>
-                            <strong>
-                                <svg
-                                    class="lucide lucide-folder-open-icon lucide-folder-open"
-                                    fill="none"
-                                    height="20"
-                                    stroke="currentColor"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    viewBox="0 0 24 24"
-                                    width="20"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <path
-                                        d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"
-                                    />
-                                </svg>
-                                <span>{{dir.name}}</span>
-                            </strong>
-                        </summary>
+            <div class="content-shell">
+                <main class="dashboard">
+                    <section id="dirs-container" class="dashboard-panel panel-primary">
+                        <header class="section-header">
+                            <span class="section-title">
+                                <span class="section-icon section-icon-folders">
+                                    <svg
+                                        class="lucide lucide-folder-sync-icon lucide-folder-sync"
+                                        fill="none"
+                                        height="24"
+                                        stroke="currentColor"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        viewBox="0 0 24 24"
+                                        width="24"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                        <path
+                                            d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"
+                                        />
+                                        <path d="M12 10v4h4" />
+                                        <path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5" />
+                                        <path d="M22 22v-4h-4" />
+                                        <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5" />
+                                    </svg>
+                                </span>
+                                <span>
+                                    <small>Sync workspace</small>
+                                    <h2>Directories</h2>
+                                </span>
+                            </span>
 
-                        <div class="dir-activity" hidden></div>
-
-                        <div class="dir-actions">
                             <button
-                                class="btn icon-btn remove-dir-btn"
+                                class="btn btn-primary icon-btn"
+                                onclick="document.getElementById('add-dir-dialog').showModal()"
                                 type="button"
                             >
                                 <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="18"
-                                    height="18"
-                                    viewBox="0 0 24 24"
+                                    class="lucide lucide-folder-plus-icon lucide-folder-plus"
                                     fill="none"
+                                    height="18"
                                     stroke="currentColor"
-                                    stroke-width="2"
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
-                                    class="lucide lucide-folder-x-icon lucide-folder-x"
+                                    stroke-width="2"
+                                    viewBox="0 0 24 24"
+                                    width="18"
+                                    xmlns="http://www.w3.org/2000/svg"
                                 >
+                                    <path d="M12 10v6" />
+                                    <path d="M9 13h6" />
                                     <path
                                         d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-                                    />
-                                    <path d="m9.5 10.5 5 5" />
-                                    <path d="m14.5 10.5-5 5" />
-                                </svg>
-                                <span>Stop Syncing</span>
+                                    /></svg
+                                ><span>Add</span>
                             </button>
-                        </div>
-                    </details>
-                    {% endfor %}
+                        </header>
 
-                    <div
-                        class="empty-state"
-                        data-empty-state="dirs"
-                        {% if dirs %}hidden{% endif %}
+                        <div class="item-list" id="dir-list">
+                            {% for dir in dirs %}
+                            <details class="list-item dir-item" id="dir-{{dir.name}}">
+                                <summary>
+                                    <strong>
+                                        <span class="item-icon item-icon-folder">
+                                            <svg
+                                                class="lucide lucide-folder-open-icon lucide-folder-open"
+                                                fill="none"
+                                                height="20"
+                                                stroke="currentColor"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                viewBox="0 0 24 24"
+                                                width="20"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                            >
+                                                <path
+                                                    d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"
+                                                />
+                                            </svg>
+                                        </span>
+                                        <span>{{dir.name}}</span>
+                                    </strong>
+                                </summary>
+
+                                <div class="dir-activity" hidden></div>
+
+                                <div class="dir-actions">
+                                    <button
+                                        class="btn btn-danger-soft icon-btn remove-dir-btn"
+                                        type="button"
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="18"
+                                            height="18"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            class="lucide lucide-folder-x-icon lucide-folder-x"
+                                        >
+                                            <path
+                                                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                                            />
+                                            <path d="m9.5 10.5 5 5" />
+                                            <path d="m14.5 10.5-5 5" />
+                                        </svg>
+                                        <span>Stop Syncing</span>
+                                    </button>
+                                </div>
+                            </details>
+                            {% endfor %}
+
+                            <div
+                                class="empty-state"
+                                data-empty-state="dirs"
+                                {% if dirs %}hidden{% endif %}
+                            >
+                                Add a folder under your home path to start syncing
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="devices-container" class="dashboard-panel panel-secondary">
+                        <header class="section-header">
+                            <span class="section-title">
+                                <span class="section-icon section-icon-devices">
+                                    <svg
+                                        class="lucide lucide-pc-case-icon lucide-pc-case"
+                                        fill="none"
+                                        height="24"
+                                        stroke="currentColor"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        viewBox="0 0 24 24"
+                                        width="24"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                        <rect height="20" rx="2" width="14" x="5" y="2" />
+                                        <path d="M15 14h.01" />
+                                        <path d="M9 6h6" />
+                                        <path d="M9 10h6" />
+                                    </svg>
+                                </span>
+                                <span>
+                                    <small>Network</small>
+                                    <h2>Devices</h2>
+                                </span>
+                            </span>
+                        </header>
+
+                        <div class="item-list" id="peer-list">
+                            {% for peer in peers %}
+                            <details class="list-item peer-item" id="peer-{{ peer.id }}">
+                                <summary>
+                                    <strong>
+                                        <span class="item-icon item-icon-device">
+                                            <svg
+                                                class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"
+                                                fill="none"
+                                                height="20"
+                                                stroke="currentColor"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                viewBox="0 0 24 24"
+                                                width="20"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                            >
+                                                <rect
+                                                    height="12"
+                                                    rx="2"
+                                                    ry="2"
+                                                    width="18"
+                                                    x="3"
+                                                    y="4"
+                                                />
+                                                <line x1="2" x2="22" y1="20" y2="20" />
+                                            </svg>
+                                        </span>
+                                        <span>{{ peer.hostname }}</span></strong
+                                    ><small class="peer-status">
+                                        <span class="status-pill status-pill-online">
+                                            <svg
+                                                class="lucide lucide-cloud-check-icon lucide-cloud-check connected"
+                                                fill="none"
+                                                height="15"
+                                                stroke="currentColor"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                viewBox="0 0 24 24"
+                                                width="15"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                            >
+                                                <path d="m17 15-5.5 5.5L9 18" />
+                                                <path
+                                                    d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"
+                                                />
+                                            </svg>
+                                            Connected
+                                        </span>
+                                    </small>
+                                </summary>
+                                <dl class="details-list">
+                                    <div>
+                                        <dt>IP</dt>
+                                        <dd>{{ peer.addr }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>ID</dt>
+                                        <dd>{{ peer.id }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Instance ID</dt>
+                                        <dd>{{ peer.instance_id }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Last Seen</dt>
+                                        <dd><span class="peer-last-seen" data-ts="{{ peer.last_seen.secs_since_epoch }}"></span></dd>
+                                    </div>
+                                    <div>
+                                        <dt>Sync Directories</dt>
+                                        <dd>
+                                            {% if peer.sync_dirs %}
+                                                <ul>
+                                                    {% for dir_name, _ in peer.sync_dirs %}
+                                                        <li>{{ dir_name }}</li>
+                                                    {% endfor %}
+                                                </ul>
+                                            {% else %}
+                                                None
+                                            {% endif %}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </details>
+                            {% endfor %}
+
+                            <div
+                                class="empty-state"
+                                data-empty-state="peers"
+                                {% if peers %}hidden{% endif %}
+                            >
+                                No devices yet &mdash; start Synche on another device on the same network
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="conflicts-container" class="dashboard-panel panel-alert" hidden>
+                        <header class="section-header">
+                            <span class="section-title">
+                                <span class="section-icon section-icon-alert">
+                                    <svg
+                                        class="lucide lucide-triangle-alert-icon lucide-triangle-alert"
+                                        fill="none"
+                                        height="24"
+                                        stroke="currentColor"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        viewBox="0 0 24 24"
+                                        width="24"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                        <path
+                                            d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"
+                                        />
+                                        <path d="M12 9v4" />
+                                        <path d="M12 17h.01" />
+                                    </svg>
+                                </span>
+                                <span>
+                                    <small>Attention</small>
+                                    <h2>Conflicts</h2>
+                                </span>
+                            </span>
+                        </header>
+
+                        <div class="item-list" id="conflict-list"></div>
+                    </section>
+                </main>
+            </div>
+        </div>
+
+        <dialog id="add-dir-dialog">
+            <hgroup>
+                <h2>Add Sync Directory</h2>
+                <p>
+                    A <strong>Sync Directory</strong> is always a direct
+                    child to the home folder <kbd>(/Synche)</kbd>.
+                </p>
+
+                <small>
+                    If the Directory doesn't exist yet, it will be
+                    created automatically.
+                </small>
+            </hgroup>
+
+            <form id="add-dir-form">
+                <input
+                    autocomplete="off"
+                    minlength="1"
+                    name="dir-name"
+                    placeholder="Directory Name"
+                    required
+                    type="text"
+                />
+                <p
+                    class="form-error"
+                    hidden
+                    id="add-dir-error"
+                    role="alert"
+                ></p>
+                <div>
+                    <button class="btn btn-primary" type="submit">
+                        Confirm
+                    </button>
+                    <button
+                        class="btn btn-ghost"
+                        onclick="this.closest('dialog').close()"
+                        type="button"
                     >
-                        Add a folder under your home path to start syncing
-                    </div>
+                        Cancel
+                    </button>
                 </div>
+            </form>
+        </dialog>
 
-                <dialog id="add-dir-dialog">
-                    <hgroup>
-                        <h2>Add Sync Directory</h2>
-                        <p>
-                            A <strong>Sync Directory</strong> is always a direct
-                            child to the home folder <kbd>(/Synche)</kbd>.
-                        </p>
+        <dialog id="remove-dir-dialog">
+            <hgroup>
+                <h2>Stop Syncing Directory</h2>
+                <p>
+                    Are you sure you want to stop syncing
+                    <strong><span id="remove-dir-name"></span></strong>?
+                </p>
 
-                        <small>
-                            If the Directory doesn't exist yet, it will be
-                            created automatically.
-                        </small>
-                    </hgroup>
+                <small>
+                    This will remove the directory from sync. Local
+                    files will not be deleted.
+                </small>
+            </hgroup>
 
-                    <form id="add-dir-form">
-                        <input
-                            autocomplete="off"
-                            minlength="1"
-                            name="dir-name"
-                            placeholder="Directory Name"
-                            required
-                            type="text"
-                        />
-                        <p
-                            class="form-error"
-                            hidden
-                            id="add-dir-error"
-                            role="alert"
-                        ></p>
-                        <div>
-                            <button class="btn btn-success" type="submit">
-                                Confirm
-                            </button>
-                            <button
-                                class="btn"
-                                onclick="this.closest('dialog').close()"
-                                type="button"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                </dialog>
+            <p
+                class="form-error"
+                hidden
+                id="remove-dir-error"
+                role="alert"
+            ></p>
 
-                <dialog id="remove-dir-dialog">
-                    <hgroup>
-                        <h2>Stop Syncing Directory</h2>
-                        <p>
-                            Are you sure you want to stop syncing
-                            <strong><span id="remove-dir-name"></span></strong>?
-                        </p>
-
-                        <small>
-                            This will remove the directory from sync. Local
-                            files will not be deleted.
-                        </small>
-                    </hgroup>
-
-                    <p
-                        class="form-error"
-                        hidden
-                        id="remove-dir-error"
-                        role="alert"
-                    ></p>
-
-                    <div>
-                        <button
-                            class="btn btn-danger"
-                            id="confirm-remove-btn"
-                            type="button"
-                        >
-                            Confirm
-                        </button>
-                        <button
-                            class="btn"
-                            onclick="this.closest('dialog').close()"
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                </dialog>
-
-                <dialog id="home-path-dialog">
-                    <hgroup>
-                        <h2>Change Home Directory</h2>
-                        <p>
-                            The <strong>Home Directory</strong> is the base
-                            folder where all sync directories are stored.
-                        </p>
-
-                        <small>
-                            <strong>Important:</strong> Changing this will
-                            restart Synche and begin syncing at the new
-                            location. <strong>Files in the old home directory
-                            will not be moved or deleted.</strong> You will
-                            need to manually transfer files if desired.
-                        </small>
-                    </hgroup>
-
-                    <form id="home-path-form">
-                        <input
-                            autocomplete="off"
-                            minlength="1"
-                            name="home-path"
-                            value="{{ home_path }}"
-                            required
-                            type="text"
-                        />
-                        <p
-                            class="form-error"
-                            hidden
-                            id="home-path-error"
-                            role="alert"
-                        ></p>
-                        <div>
-                            <button class="btn btn-success" type="submit">
-                                Confirm
-                            </button>
-                            <button
-                                class="btn"
-                                type="button"
-                                onclick="this.closest('dialog').close()"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                </dialog>
-            </section>
-
-            <section id="conflicts-container" hidden>
-                <header>
-                    <span>
-                        <svg
-                            class="lucide lucide-triangle-alert-icon lucide-triangle-alert"
-                            fill="none"
-                            height="24"
-                            stroke="currentColor"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            viewBox="0 0 24 24"
-                            width="24"
-                            xmlns="http://www.w3.org/2000/svg"
-                        >
-                            <path
-                                d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"
-                            />
-                            <path d="M12 9v4" />
-                            <path d="M12 17h.01" />
-                        </svg>
-                        <h2>Conflicts</h2>
-                    </span>
-                </header>
-
-                <div class="item-list" id="conflict-list"></div>
-            </section>
-        </main>
-
-        <footer>
-            <span>© 2026 Synche &bull; v{{ version }}</span>
-            <a href="https://github.com/matx64/synche/"
-                ><svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="lucide lucide-github-icon lucide-github"
+            <div>
+                <button
+                    class="btn btn-danger"
+                    id="confirm-remove-btn"
+                    type="button"
                 >
-                    <path
-                        d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"
-                    />
-                    <path d="M9 18c-4.51 2-5-2-7-2" />
-                </svg>
-                <span>source</span></a
-            >
-        </footer>
+                    Confirm
+                </button>
+                <button
+                    class="btn btn-ghost"
+                    onclick="this.closest('dialog').close()"
+                >
+                    Cancel
+                </button>
+            </div>
+        </dialog>
+
+        <dialog id="home-path-dialog">
+            <hgroup>
+                <h2>Change Home Directory</h2>
+                <p>
+                    The <strong>Home Directory</strong> is the base
+                    folder where all sync directories are stored.
+                </p>
+
+                <small>
+                    <strong>Important:</strong> Changing this will
+                    restart Synche and begin syncing at the new
+                    location. <strong>Files in the old home directory
+                    will not be moved or deleted.</strong> You will
+                    need to manually transfer files if desired.
+                </small>
+            </hgroup>
+
+            <form id="home-path-form">
+                <input
+                    autocomplete="off"
+                    minlength="1"
+                    name="home-path"
+                    value="{{ home_path }}"
+                    required
+                    type="text"
+                />
+                <p
+                    class="form-error"
+                    hidden
+                    id="home-path-error"
+                    role="alert"
+                ></p>
+                <div>
+                    <button class="btn btn-primary" type="submit">
+                        Confirm
+                    </button>
+                    <button
+                        class="btn btn-ghost"
+                        type="button"
+                        onclick="this.closest('dialog').close()"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </dialog>
 
         <script type="module" src="/static/main.js"></script>
         <script type="module" src="/static/sse.js"></script>

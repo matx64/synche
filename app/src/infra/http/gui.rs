@@ -161,6 +161,18 @@ mod tests {
             "Should contain crate version in footer"
         );
         assert!(
+            html.contains("class=\"app-shell\""),
+            "Should render the dashboard shell"
+        );
+        assert!(
+            html.contains("class=\"brand-rail\""),
+            "Should render the brand rail instead of a card-style header"
+        );
+        assert!(
+            html.contains("class=\"dashboard\""),
+            "Should render the dashboard content grid"
+        );
+        assert!(
             html.contains("id=\"toast-region\""),
             "Should include the global toast region"
         );
@@ -185,6 +197,10 @@ mod tests {
         assert!(
             html.contains("Add a folder under your home path to start syncing"),
             "Should include the sync directories empty state copy"
+        );
+        assert!(
+            !html.contains("class=\"app-header\""),
+            "The old card-style app header should not be rendered"
         );
     }
 
@@ -252,6 +268,26 @@ mod tests {
             "Removing directories should reveal the directory empty state"
         );
         assert!(
+            template.contains("class=\"app-shell\""),
+            "Template should expose the app shell"
+        );
+        assert!(
+            template.contains("class=\"brand-rail\""),
+            "Template should expose the persistent brand rail"
+        );
+        assert!(
+            template.contains("class=\"dashboard-panel panel-primary\""),
+            "Directories should be presented as the primary dashboard panel"
+        );
+        assert!(
+            components.contains("list-item dir-item"),
+            "Dynamic directory rows should match the redesigned row classes"
+        );
+        assert!(
+            components.contains("status-pill status-pill-online"),
+            "Dynamic peer rows should use the redesigned status pill"
+        );
+        assert!(
             main.contains("syncEmptyStates();"),
             "Initial page load should reconcile server-rendered empty states"
         );
@@ -260,12 +296,29 @@ mod tests {
             "--space-4:",
             "--font-size-base:",
             "--line-height-base:",
+            "--brand-primary:",
+            "--accent-indigo:",
+            "--accent-cyan:",
+            "--accent-amber:",
+            "--danger-color:",
         ] {
             assert!(
                 styles.contains(token),
                 "Styles should define the visual scale token {token}"
             );
         }
+        assert!(
+            styles.contains("#04745c"),
+            "Palette should remain anchored to the logo green"
+        );
+        assert!(
+            styles.contains(".brand-rail"),
+            "Styles should define the brand rail"
+        );
+        assert!(
+            styles.contains(".dashboard-panel"),
+            "Styles should define the dashboard panels"
+        );
         assert!(
             styles.contains("prefers-color-scheme: dark"),
             "Styles should keep an explicit dark-mode palette"
