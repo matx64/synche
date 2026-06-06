@@ -172,7 +172,11 @@ Never construct a production `AppState` from a test (the binary builds it via `S
 
 `gui/index.html` is a single-page UI rendered via `minijinja` and served by axum; static assets in `gui/static/`. The server pushes live updates to the GUI over SSE using `ServerEvent` broadcast through `AppState::sse_sender()`. Variants currently include peer connect/disconnect, sync-directory add/remove, `ServerRestart`, and the per-entry `EntrySyncStarted` / `EntrySyncCompleted` / `EntrySyncFailed` events broadcast from the transport receiver path so the GUI can show live per-directory sync activity.
 
+The peer and sync-directory lists include template-rendered `.empty-state` rows whose visibility is maintained by `gui/static/components.js` after API and SSE list updates. Preserve that behavior and keep the empty-state copy user-readable.
+
 All GUI `/api/*` calls that can fail must go through the shared feedback helper in `gui/static/api_feedback.js` (or an equivalent central wrapper if it is replaced). Non-success HTTP responses must surface the status plus a short user-readable reason, network failures must show `Could not reach Synche.`, and modal forms must stay open until the action succeeds so the user can correct input.
+
+Treat the GUI structure, class names, and styling tokens as implementation details unless a user-visible behavior depends on them. Keep tests focused on rendered data, live-update behavior, and shared API-error handling rather than exact markup or CSS internals.
 
 ### App version
 

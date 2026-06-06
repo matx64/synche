@@ -16,23 +16,25 @@ function escapeHtml(s) {
 
 export function dirListItem(name) {
   const safe = escapeHtml(name);
-  return `<details class="list-item" id="dir-${safe}">
+  return `<details class="list-item dir-item" id="dir-${safe}">
             <summary>
               <strong>
-                        <svg class="lucide lucide-folder-open-icon lucide-folder-open" fill="none" height="20"
-                             stroke="currentColor" stroke-linecap="round"
-                             stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
-                             xmlns="http://www.w3.org/2000/svg">
-                            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                        <span>${safe}</span>
-                    </strong>
+                <span class="item-icon item-icon-folder">
+                  <svg class="lucide lucide-folder-open-icon lucide-folder-open" fill="none" height="20"
+                       stroke="currentColor" stroke-linecap="round"
+                       stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
+                       xmlns="http://www.w3.org/2000/svg">
+                    <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </span>
+                <span>${safe}</span>
+              </strong>
             </summary>
 
             <div class="dir-activity" hidden></div>
 
             <div class="dir-actions">
-            <button class="btn icon-btn remove-dir-btn">
+            <button class="btn btn-danger-soft icon-btn remove-dir-btn" type="button">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="18"
@@ -66,48 +68,99 @@ export function peerListItem({ id, addr, hostname, instance_id, last_seen, sync_
       ? `<ul>${sync_dirs.map((d) => `<li>${escapeHtml(d)}</li>`).join("")}</ul>`
       : "None";
 
-  return `<details class="list-item" id="peer-${id}">
-            <summary><strong><svg class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal" fill="none" height="20" stroke="currentColor" stroke-linecap="round"
-                                 stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
-                                 xmlns="http://www.w3.org/2000/svg">
-                        <rect height="12" rx="2" ry="2" width="18" x="3" y="4"/>
-                        <line x1="2" x2="22" y1="20" y2="20"/>
-                    </svg><span>${hostname}</span></strong
-                    ><small class="peer-status">
-                    <span>Connected</span>
-                    <svg class="lucide lucide-cloud-check-icon lucide-cloud-check connected" fill="none" height="17"
-                         stroke="currentColor" stroke-linecap="round"
-                         stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="17"
-                         xmlns="http://www.w3.org/2000/svg">
-                        <path d="m17 15-5.5 5.5L9 18"/>
-                        <path d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"/>
-                    </svg>
-                </small></summary>
-            <p><strong>IP:</strong> ${addr}</p>
-            <p><strong>ID:</strong> ${id}</p>
-            <p><strong>Instance ID:</strong> ${instance_id ?? "unknown"}</p>
-            <p><strong>Last Seen:</strong> ${tsLabel}</p>
-            <p><strong>Sync Directories:</strong> ${dirsList}</p>
+  return `<details class="list-item peer-item" id="peer-${id}">
+            <summary>
+              <strong>
+                <span class="item-icon item-icon-device">
+                  <svg class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal" fill="none" height="20" stroke="currentColor" stroke-linecap="round"
+                       stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20"
+                       xmlns="http://www.w3.org/2000/svg">
+                    <rect height="12" rx="2" ry="2" width="18" x="3" y="4"/>
+                    <line x1="2" x2="22" y1="20" y2="20"/>
+                  </svg>
+                </span>
+                <span>${escapeHtml(hostname)}</span>
+              </strong><small class="peer-status">
+                <span class="status-pill status-pill-online">
+                  <svg class="lucide lucide-cloud-check-icon lucide-cloud-check connected" fill="none" height="15"
+                       stroke="currentColor" stroke-linecap="round"
+                       stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="15"
+                       xmlns="http://www.w3.org/2000/svg">
+                    <path d="m17 15-5.5 5.5L9 18"/>
+                    <path d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"/>
+                  </svg>
+                  Connected
+                </span>
+              </small>
+            </summary>
+            <dl class="details-list">
+              <div><dt>IP</dt><dd>${escapeHtml(addr)}</dd></div>
+              <div><dt>ID</dt><dd class="identifier-value"><span class="id-chip">${escapeHtml(id)}</span></dd></div>
+              <div><dt>Instance ID</dt><dd class="identifier-value"><span class="id-chip">${escapeHtml(instance_id ?? "unknown")}</span></dd></div>
+              <div><dt>Last Seen</dt><dd>${escapeHtml(tsLabel)}</dd></div>
+              <div><dt>Sync Directories</dt><dd>${dirsList}</dd></div>
+            </dl>
           </details>`;
 }
 
 export function peerDisconnectedStatus() {
-  return `<span>Disconnected</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-alert-icon lucide-cloud-alert disconnected"><path d="M12 12v4"/><path d="M12 20h.01"/><path d="M17 18h.5a1 1 0 0 0 0-9h-1.79A7 7 0 1 0 7 17.708"/></svg>`;
+  return `<span class="status-pill status-pill-offline">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-alert-icon lucide-cloud-alert disconnected"><path d="M12 12v4"/><path d="M12 20h.01"/><path d="M17 18h.5a1 1 0 0 0 0-9h-1.79A7 7 0 1 0 7 17.708"/></svg>
+                    Disconnected
+                  </span>`;
+}
+
+function insertListItem(listElement, html) {
+  const emptyState = listElement.querySelector(".empty-state");
+  if (emptyState) {
+    emptyState.insertAdjacentHTML("beforebegin", html);
+    return;
+  }
+
+  listElement.insertAdjacentHTML("beforeend", html);
+}
+
+function setEmptyStateVisibility(listElement, itemSelector) {
+  const emptyState = listElement?.querySelector(".empty-state");
+  if (!emptyState) {
+    return;
+  }
+
+  emptyState.hidden = listElement.querySelector(itemSelector) !== null;
+}
+
+export function updatePeerEmptyState(
+  listElement = document.getElementById("peer-list"),
+) {
+  setEmptyStateVisibility(listElement, 'details[id^="peer-"]');
+}
+
+export function updateDirEmptyState(
+  listElement = document.getElementById("dir-list"),
+) {
+  setEmptyStateVisibility(listElement, 'details[id^="dir-"]');
+}
+
+export function syncEmptyStates() {
+  updatePeerEmptyState();
+  updateDirEmptyState();
 }
 
 export function addDirToList(dirName, listElement) {
   document.getElementById(`dir-${dirName}`)?.remove();
-  listElement.insertAdjacentHTML("beforeend", dirListItem(dirName));
+  insertListItem(listElement, dirListItem(dirName));
+  updateDirEmptyState(listElement);
 }
 
 export function removeDirFromList(dirName) {
   document.getElementById(`dir-${dirName}`)?.remove();
+  updateDirEmptyState();
 }
 
 export function addPeerToList(peer, listElement) {
   document.getElementById(`peer-${peer.id}`)?.remove();
-  listElement.insertAdjacentHTML("beforeend", peerListItem(peer));
+  insertListItem(listElement, peerListItem(peer));
+  updatePeerEmptyState(listElement);
 }
 
 export function setPeerAsDisconnected(peer) {
@@ -229,8 +282,8 @@ function conflictItem({ conflict_path, original_path, abs_path }) {
               <span class="conflict-path">${escapeHtml(abs_path)}</span>
             </div>
             <div class="conflict-actions">
-              <button class="btn keep-mine-btn" data-conflict="${safePath}">Keep current</button>
-              <button class="btn btn-success use-theirs-btn" data-conflict="${safePath}">Use this copy</button>
+              <button class="btn btn-ghost keep-mine-btn" data-conflict="${safePath}" type="button">Keep current</button>
+              <button class="btn btn-primary use-theirs-btn" data-conflict="${safePath}" type="button">Use this copy</button>
             </div>
           </div>`;
 }

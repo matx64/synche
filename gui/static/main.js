@@ -1,4 +1,9 @@
-import { addDirToList, removeDirFromList, refreshConflicts } from './components.js';
+import {
+  addDirToList,
+  removeDirFromList,
+  refreshConflicts,
+  syncEmptyStates,
+} from './components.js';
 import { clearInlineError, requestApi } from './api_feedback.js';
 
 const el_dir_form = document.getElementById("add-dir-form");
@@ -11,6 +16,8 @@ const el_conflict_list = document.getElementById("conflict-list");
 const el_add_dir_error = document.getElementById("add-dir-error");
 const el_remove_dir_error = document.getElementById("remove-dir-error");
 const el_home_path_error = document.getElementById("home-path-error");
+
+syncEmptyStates();
 
 el_dir_form.addEventListener("submit", async (e) => {
   e.preventDefault();

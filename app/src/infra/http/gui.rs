@@ -50,6 +50,7 @@ async fn index<P: PersistenceInterface>(
             dirs => dirs,
             hostname => state.state.hostname(),
             local_id => state.state.local_id(),
+            local_id_short => compact_device_id(&state.state.local_id()),
             peers => state.peer_manager.list().await,
             local_ip => state.state.local_ip().await,
             home_path => state.state.home_path().display().to_string(),
@@ -58,6 +59,15 @@ async fn index<P: PersistenceInterface>(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Html(rendered))
+}
+
+fn compact_device_id(id: &impl std::fmt::Display) -> String {
+    let value = id.to_string();
+    if value.len() <= 13 {
+        return value;
+    }
+
+    format!("{}...{}", &value[..8], &value[value.len() - 4..])
 }
 
 #[cfg(test)]
@@ -153,6 +163,10 @@ mod tests {
             "Should contain local_id"
         );
         assert!(
+            html.contains(&compact_device_id(&state.local_id())),
+            "Should contain compact local_id display"
+        );
+        assert!(
             html.contains(&state.local_ip().await.to_string()),
             "Should contain local_ip"
         );
@@ -176,6 +190,16 @@ mod tests {
             html.contains("id=\"home-path-error\""),
             "Should include home path inline error"
         );
+        assert!(
+            html.contains(
+                "No devices yet &mdash; start Synche on another device on the same network"
+            ),
+            "Should include the peers empty state copy"
+        );
+        assert!(
+            html.contains("Add a folder under your home path to start syncing"),
+            "Should include the sync directories empty state copy"
+        );
     }
 
     #[test]
@@ -193,7 +217,7 @@ mod tests {
             "HTTP failures should include status and reason"
         );
         assert!(
-            main.contains("requestApi(`/api/add-sync-dir"),
+            main.contains("requestApi") && main.contains("/api/add-sync-dir"),
             "Add sync dir should use the shared request helper"
         );
         assert!(
@@ -201,15 +225,15 @@ mod tests {
             "Duplicate sync dir errors should have a specific reason"
         );
         assert!(
-            main.contains("requestApi(\n      `/api/remove-sync-dir"),
+            main.contains("requestApi") && main.contains("/api/remove-sync-dir"),
             "Remove sync dir should use the shared request helper"
         );
         assert!(
-            main.contains("requestApi(\n    `/api/set-home-path"),
+            main.contains("requestApi") && main.contains("/api/set-home-path"),
             "Set home path should use the shared request helper"
         );
         assert!(
-            components.contains("requestApi(\"/api/conflicts\""),
+            components.contains("requestApi") && components.contains("/api/conflicts"),
             "Conflict refresh should use the shared request helper"
         );
     }
