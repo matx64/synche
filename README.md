@@ -1,18 +1,19 @@
-<p align="center">
-  <picture>
-    <source
-      media="(prefers-color-scheme: dark)"
-      srcset="/gui/static/icon.svg"
-    />
-    <source
-      media="(prefers-color-scheme: light)"
-      srcset="/gui/static/icon-dark.svg"
-    />
-    <img alt="Synche logo" src="/gui/static/icon-dark.svg" width="128" />
-  </picture>
-</p>
-
-<h1 align="center">Synche</h1>
+<h1>
+  <p align="center">
+    <picture>
+      <source
+        media="(prefers-color-scheme: dark)"
+        srcset="/gui/static/icon.svg"
+      />
+      <source
+        media="(prefers-color-scheme: light)"
+        srcset="/gui/static/icon-dark.svg"
+      />
+      <img alt="Synche logo" src="/gui/static/icon-dark.svg" width="128" />
+    </picture>
+    <br>Synche
+  </p>
+</h1>
 
 **Synche** is an open-source, peer-to-peer file synchronization tool that operates entirely on your local network. It automatically syncs files between your devices, similar to Dropbox or Syncthing, but without requiring any cloud services or external servers.
 
