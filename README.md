@@ -8,11 +8,11 @@
       media="(prefers-color-scheme: light)"
       srcset="/gui/static/icon-dark.svg"
     />
-    <img alt="Synche logo" src="/gui/static/icon-dark.svg" width="96" />
+    <img alt="Synche logo" src="/gui/static/icon-dark.svg" width="144" />
   </picture>
-  <br />
-  <strong>Synche</strong>
 </p>
+
+<h1 align="center">Synche</h1>
 
 ---
 
