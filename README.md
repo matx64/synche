@@ -1,4 +1,18 @@
-![logo.png](https://i.postimg.cc/mDzfDtcj/logo.png)
+<p align="center">
+  <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="/gui/static/icon.svg"
+    />
+    <source
+      media="(prefers-color-scheme: light)"
+      srcset="/gui/static/icon-dark.svg"
+    />
+    <img alt="Synche logo" src="/gui/static/icon-dark.svg" width="96" />
+  </picture>
+  <br />
+  <strong>Synche</strong>
+</p>
 
 ---
 
