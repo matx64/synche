@@ -35,7 +35,7 @@
 ## Getting Started
 
 > [!NOTE]
-> Synche is currently in alpha. It is functional but may still contain bugs. Please avoid using it with critical data.
+> Synche is currently in alpha. It is fully functional but may contain bugs. Please avoid using it with critical data.
 >
 > Also, check out the **[Practical Example](docs/EXAMPLE.md)** to learn how to synchronize your first folder between two devices.
 
@@ -46,7 +46,7 @@ You can either download a prebuilt binary or build it from source:
 
 ## Documentation & Contributing
 
--   **[HTTP API Reference](docs/API.md)** — endpoint details, query parameters, response codes, and SSE event shapes.
--   **[Architecture Guide](docs/ARCHITECTURE.md)** — hexagonal layout, version vectors and conflict resolution, TCP wire format, `home_path` restart contract, and mDNS discovery.
+-   **[Architecture Guide](docs/ARCHITECTURE.md)** — how Synche works under the hood.
+-   **[HTTP API Reference](docs/API.md)** — endpoints and events.
 
 This project is in active development, and contributions are welcome — see the **[Contributing Guide](docs/CONTRIBUTING.md)**.

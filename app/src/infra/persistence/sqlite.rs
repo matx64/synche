@@ -170,16 +170,17 @@ impl PersistenceInterface for SqliteDb {
     }
 
     async fn get_entry(&self, name: &str) -> PersistenceResult<Option<EntryInfo>> {
-        let entry = sqlx::query_as("SELECT * FROM entries WHERE name = ?")
-            .bind(name)
-            .fetch_optional(&self.pool)
-            .await?;
+        let entry =
+            sqlx::query_as("SELECT name, kind, hash, version, deleted FROM entries WHERE name = ?")
+                .bind(name)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(entry)
     }
 
     async fn list_all_entries(&self) -> PersistenceResult<Vec<EntryInfo>> {
-        let entries = sqlx::query_as("SELECT * FROM entries")
+        let entries = sqlx::query_as("SELECT name, kind, hash, version, deleted FROM entries")
             .fetch_all(&self.pool)
             .await?;
 
@@ -588,6 +589,64 @@ mod tests {
         let live = db.get_entry("dir/live.txt").await.unwrap().unwrap();
         assert!(!live.is_removed());
         assert_eq!(live.hash, Some("abc123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_list_all_entries_after_legacy_removed_hash_migration() {
+        // `EntryInfo` maps only domain columns; persistence-only migration
+        // columns such as `tombstoned_at` must not affect list reads.
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("legacy_list.db");
+
+        let legacy_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+
+        legacy_pool
+            .execute(
+                "CREATE TABLE entries (
+                    name TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    hash TEXT,
+                    version TEXT NOT NULL
+                )",
+            )
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO entries (name, kind, hash, version) VALUES (?, ?, ?, ?)")
+            .bind("dir/gone.txt")
+            .bind("F")
+            .bind(LEGACY_REMOVED_HASH)
+            .bind("{}")
+            .execute(&legacy_pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO entries (name, kind, hash, version) VALUES (?, ?, ?, ?)")
+            .bind("dir/live.txt")
+            .bind("F")
+            .bind("abc123")
+            .bind("{}")
+            .execute(&legacy_pool)
+            .await
+            .unwrap();
+        legacy_pool.close().await;
+
+        let db = SqliteDb::new(&db_path).await.unwrap();
+        let mut entries = db.list_all_entries().await.unwrap();
+        entries.sort_by(|left, right| left.name.cmp(&right.name));
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(&*entries[0].name, "dir/gone.txt");
+        assert!(entries[0].is_removed());
+        assert_eq!(entries[0].hash, None);
+        assert_eq!(&*entries[1].name, "dir/live.txt");
+        assert!(!entries[1].is_removed());
+        assert_eq!(entries[1].hash, Some("abc123".to_string()));
     }
 
     #[tokio::test]
