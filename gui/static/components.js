@@ -59,7 +59,15 @@ export function dirListItem(name) {
           </details>`;
 }
 
-export function peerListItem({ id, addr, hostname, instance_id, last_seen, sync_dirs }) {
+function compactId(value) {
+  if (!value || value.length <= 13) {
+    return value ?? "";
+  }
+
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
+export function peerListItem({ id, addr, hostname, last_seen, sync_dirs }) {
   const tsLabel = last_seen
     ? new Date(last_seen * 1000).toLocaleString()
     : "unknown";
@@ -95,8 +103,7 @@ export function peerListItem({ id, addr, hostname, instance_id, last_seen, sync_
             </summary>
             <dl class="details-list">
               <div><dt>IP</dt><dd>${escapeHtml(addr)}</dd></div>
-              <div><dt>ID</dt><dd class="identifier-value"><span class="id-chip">${escapeHtml(id)}</span></dd></div>
-              <div><dt>Instance ID</dt><dd class="identifier-value"><span class="id-chip">${escapeHtml(instance_id ?? "unknown")}</span></dd></div>
+              <div><dt>ID</dt><dd class="identifier-value"><span class="id-chip" title="${escapeHtml(id)}"><span aria-hidden="true">${escapeHtml(compactId(id))}</span><span class="sr-only">${escapeHtml(id)}</span></span></dd></div>
               <div><dt>Last Seen</dt><dd>${escapeHtml(tsLabel)}</dd></div>
               <div><dt>Sync Directories</dt><dd>${dirsList}</dd></div>
             </dl>

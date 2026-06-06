@@ -11,9 +11,9 @@ use uuid::Uuid;
 #[derive(Serialize)]
 struct PeerView {
     id: Uuid,
+    id_short: String,
     addr: std::net::IpAddr,
     hostname: String,
-    instance_id: Uuid,
     last_seen: u64,
     sync_dirs: Vec<String>,
 }
@@ -58,9 +58,9 @@ async fn index<P: PersistenceInterface>(
         .into_iter()
         .map(|peer| PeerView {
             id: peer.id,
+            id_short: compact_device_id(&peer.id),
             addr: peer.addr,
             hostname: peer.hostname,
-            instance_id: peer.instance_id,
             last_seen: peer
                 .last_seen
                 .duration_since(std::time::UNIX_EPOCH)
@@ -260,7 +260,7 @@ mod tests {
         let (_env, state, pm, em, engine) = create_test_components().await;
         let peer = peer_with_sync_dir();
         let peer_id = peer.id.to_string();
-        let instance_id = peer.instance_id.to_string();
+        let peer_id_short = compact_device_id(&peer.id);
         pm.insert(peer).await;
 
         let gui_state = Arc::new(GuiState {
@@ -279,10 +279,13 @@ mod tests {
         let Html(html) = result.unwrap();
         assert!(html.contains("peer-host"), "Should render peer hostname");
         assert!(html.contains("10.0.0.10"), "Should render peer IP");
-        assert!(html.contains(&peer_id), "Should render peer id");
         assert!(
-            html.contains(&instance_id),
-            "Should render peer instance id"
+            html.contains(&peer_id),
+            "Should render full peer id (tooltip / sr-only)"
+        );
+        assert!(
+            html.contains(&peer_id_short),
+            "Should render the compact peer id"
         );
         assert!(
             html.contains("data-ts=\"1717000000\""),
