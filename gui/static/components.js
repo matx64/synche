@@ -95,8 +95,8 @@ export function peerListItem({ id, addr, hostname, instance_id, last_seen, sync_
             </summary>
             <dl class="details-list">
               <div><dt>IP</dt><dd>${escapeHtml(addr)}</dd></div>
-              <div><dt>ID</dt><dd>${escapeHtml(id)}</dd></div>
-              <div><dt>Instance ID</dt><dd>${escapeHtml(instance_id ?? "unknown")}</dd></div>
+              <div><dt>ID</dt><dd class="identifier-value"><span class="id-chip">${escapeHtml(id)}</span></dd></div>
+              <div><dt>Instance ID</dt><dd class="identifier-value"><span class="id-chip">${escapeHtml(instance_id ?? "unknown")}</span></dd></div>
               <div><dt>Last Seen</dt><dd>${escapeHtml(tsLabel)}</dd></div>
               <div><dt>Sync Directories</dt><dd>${dirsList}</dd></div>
             </dl>

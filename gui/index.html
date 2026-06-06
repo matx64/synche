@@ -80,7 +80,12 @@
                         </div>
                         <div>
                             <dt>ID</dt>
-                            <dd>{{ local_id }}</dd>
+                            <dd class="identifier-value">
+                                <span class="id-chip" title="{{ local_id }}">
+                                    <span aria-hidden="true">{{ local_id_short }}</span>
+                                    <span class="sr-only">{{ local_id }}</span>
+                                </span>
+                            </dd>
                         </div>
                     </dl>
                 </section>
@@ -353,11 +358,15 @@
                                     </div>
                                     <div>
                                         <dt>ID</dt>
-                                        <dd>{{ peer.id }}</dd>
+                                        <dd class="identifier-value">
+                                            <span class="id-chip">{{ peer.id }}</span>
+                                        </dd>
                                     </div>
                                     <div>
                                         <dt>Instance ID</dt>
-                                        <dd>{{ peer.instance_id }}</dd>
+                                        <dd class="identifier-value">
+                                            <span class="id-chip">{{ peer.instance_id }}</span>
+                                        </dd>
                                     </div>
                                     <div>
                                         <dt>Last Seen</dt>

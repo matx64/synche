@@ -50,6 +50,7 @@ async fn index<P: PersistenceInterface>(
             dirs => dirs,
             hostname => state.state.hostname(),
             local_id => state.state.local_id(),
+            local_id_short => compact_device_id(&state.state.local_id()),
             peers => state.peer_manager.list().await,
             local_ip => state.state.local_ip().await,
             home_path => state.state.home_path().display().to_string(),
@@ -58,6 +59,15 @@ async fn index<P: PersistenceInterface>(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Html(rendered))
+}
+
+fn compact_device_id(id: &impl std::fmt::Display) -> String {
+    let value = id.to_string();
+    if value.len() <= 13 {
+        return value;
+    }
+
+    format!("{}...{}", &value[..8], &value[value.len() - 4..])
 }
 
 #[cfg(test)]
@@ -151,6 +161,10 @@ mod tests {
         assert!(
             html.contains(&state.local_id().to_string()),
             "Should contain local_id"
+        );
+        assert!(
+            html.contains(&compact_device_id(&state.local_id())),
+            "Should contain compact local_id display"
         );
         assert!(
             html.contains(&state.local_ip().await.to_string()),
@@ -297,8 +311,9 @@ mod tests {
             "--font-size-base:",
             "--line-height-base:",
             "--brand-primary:",
-            "--accent-indigo:",
-            "--accent-cyan:",
+            "--brand-foreground:",
+            "--brand-on-dark:",
+            "--network-color:",
             "--accent-amber:",
             "--danger-color:",
         ] {
@@ -310,6 +325,14 @@ mod tests {
         assert!(
             styles.contains("#04745c"),
             "Palette should remain anchored to the logo green"
+        );
+        assert!(
+            styles.contains(".id-chip"),
+            "Styles should define compact identifier chips"
+        );
+        assert!(
+            styles.contains(".sr-only"),
+            "Styles should preserve full identifiers for assistive technology"
         );
         assert!(
             styles.contains(".brand-rail"),
