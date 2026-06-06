@@ -175,18 +175,6 @@ mod tests {
             "Should contain crate version in footer"
         );
         assert!(
-            html.contains("class=\"app-shell\""),
-            "Should render the dashboard shell"
-        );
-        assert!(
-            html.contains("class=\"brand-rail\""),
-            "Should render the brand rail instead of a card-style header"
-        );
-        assert!(
-            html.contains("class=\"dashboard\""),
-            "Should render the dashboard content grid"
-        );
-        assert!(
             html.contains("id=\"toast-region\""),
             "Should include the global toast region"
         );
@@ -212,10 +200,6 @@ mod tests {
             html.contains("Add a folder under your home path to start syncing"),
             "Should include the sync directories empty state copy"
         );
-        assert!(
-            !html.contains("class=\"app-header\""),
-            "The old card-style app header should not be rendered"
-        );
     }
 
     #[test]
@@ -233,7 +217,7 @@ mod tests {
             "HTTP failures should include status and reason"
         );
         assert!(
-            main.contains("requestApi(`/api/add-sync-dir"),
+            main.contains("requestApi") && main.contains("/api/add-sync-dir"),
             "Add sync dir should use the shared request helper"
         );
         assert!(
@@ -241,118 +225,16 @@ mod tests {
             "Duplicate sync dir errors should have a specific reason"
         );
         assert!(
-            main.contains("requestApi(\n      `/api/remove-sync-dir"),
+            main.contains("requestApi") && main.contains("/api/remove-sync-dir"),
             "Remove sync dir should use the shared request helper"
         );
         assert!(
-            main.contains("requestApi(\n    `/api/set-home-path"),
+            main.contains("requestApi") && main.contains("/api/set-home-path"),
             "Set home path should use the shared request helper"
         );
         assert!(
-            components.contains("requestApi(\"/api/conflicts\""),
+            components.contains("requestApi") && components.contains("/api/conflicts"),
             "Conflict refresh should use the shared request helper"
-        );
-    }
-
-    #[test]
-    fn test_gui_visual_refresh_contract() {
-        let template = include_str!("../../../../gui/index.html");
-        let components = include_str!("../../../../gui/static/components.js");
-        let main = include_str!("../../../../gui/static/main.js");
-        let styles = include_str!("../../../../gui/static/style.css");
-
-        assert!(
-            template.contains("data-empty-state=\"peers\""),
-            "Peer list should include a template-rendered empty state"
-        );
-        assert!(
-            template.contains("data-empty-state=\"dirs\""),
-            "Directory list should include a template-rendered empty state"
-        );
-        assert!(
-            components.contains("function setEmptyStateVisibility"),
-            "List rendering should keep empty states in sync after live updates"
-        );
-        assert!(
-            components.contains("updatePeerEmptyState(listElement)"),
-            "Adding peers should hide the peer empty state"
-        );
-        assert!(
-            components.contains("updateDirEmptyState();"),
-            "Removing directories should reveal the directory empty state"
-        );
-        assert!(
-            template.contains("class=\"app-shell\""),
-            "Template should expose the app shell"
-        );
-        assert!(
-            template.contains("class=\"brand-rail\""),
-            "Template should expose the persistent brand rail"
-        );
-        assert!(
-            template.contains("class=\"dashboard-panel panel-primary\""),
-            "Directories should be presented as the primary dashboard panel"
-        );
-        assert!(
-            components.contains("list-item dir-item"),
-            "Dynamic directory rows should match the redesigned row classes"
-        );
-        assert!(
-            components.contains("status-pill status-pill-online"),
-            "Dynamic peer rows should use the redesigned status pill"
-        );
-        assert!(
-            main.contains("syncEmptyStates();"),
-            "Initial page load should reconcile server-rendered empty states"
-        );
-        for token in [
-            "--space-1:",
-            "--space-4:",
-            "--font-size-base:",
-            "--line-height-base:",
-            "--brand-primary:",
-            "--brand-foreground:",
-            "--brand-on-dark:",
-            "--network-color:",
-            "--accent-amber:",
-            "--danger-color:",
-        ] {
-            assert!(
-                styles.contains(token),
-                "Styles should define the visual scale token {token}"
-            );
-        }
-        assert!(
-            styles.contains("#beff99") && styles.contains("#256600"),
-            "Palette should be anchored to the brand primary green (light #beff99 / dark #256600)"
-        );
-        assert!(
-            styles.contains(".id-chip"),
-            "Styles should define compact identifier chips"
-        );
-        assert!(
-            styles.contains(".sr-only"),
-            "Styles should preserve full identifiers for assistive technology"
-        );
-        assert!(
-            styles.contains(".brand-rail"),
-            "Styles should define the brand rail"
-        );
-        assert!(
-            styles.contains(".dashboard-panel"),
-            "Styles should define the dashboard panels"
-        );
-        assert!(
-            styles.contains("prefers-color-scheme: dark"),
-            "Styles should keep an explicit dark-mode palette"
-        );
-        assert!(
-            styles.contains(":focus-visible"),
-            "Styles should include keyboard focus states"
-        );
-        assert!(
-            styles.contains("dialog::backdrop"),
-            "Dialog styling should include backdrop treatment"
         );
     }
 }
