@@ -69,36 +69,49 @@
         --brand-primary: #04745c;
         --brand-primary-strong: #5ee6bd;
         --brand-foreground: #5ee6bd;
-        --brand-primary-soft: #102f2a;
+        --brand-primary-soft: #163a31;
         --brand-primary-muted: #35ae8e;
         --brand-on-dark: #5ee6bd;
         --network-color: #72d0e7;
         --network-strong: #a4e5f2;
-        --network-soft: #132f39;
+        --network-soft: #1a3744;
         --accent-amber: #f4b947;
-        --accent-amber-soft: #3b2b10;
+        --accent-amber-soft: #3f2f14;
         --danger-color: #ff8b80;
         --danger-strong: #ffc0b9;
-        --danger-soft: #421d1a;
+        --danger-soft: #4a221e;
         --on-accent: #071a17;
         --on-danger: #2a0705;
 
-        --canvas: #0b1114;
-        --canvas-strong: #0f171b;
-        --surface: #151d22;
-        --surface-raised: #1b252b;
-        --surface-muted: #202c33;
-        --surface-tint: #112d28;
+        --canvas: #0d1418;
+        --canvas-strong: #11191f;
+        --surface: #1b2630;
+        --surface-raised: #212e38;
+        --surface-muted: #26333d;
+        --surface-tint: #1a2f2b;
         --text-color: #f5f8f7;
-        --text-muted: #bac7c5;
-        --text-subtle: #879896;
-        --border-color: #293940;
-        --border-strong: #476067;
+        --text-muted: #c4d0ce;
+        --text-subtle: #94a6a3;
+        --border-color: #33454e;
+        --border-strong: #4a626b;
         --focus-ring: #5ee6bd;
         --focus-shadow: rgba(94, 230, 189, 0.22);
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
         --shadow-md: 0 18px 42px rgba(0, 0, 0, 0.34);
         --shadow-lg: 0 30px 70px rgba(0, 0, 0, 0.44);
+    }
+
+    /* Soften the decorative neon top-accents so they read as brand tints, not glare. */
+    .panel-primary {
+        border-top-color: color-mix(in srgb, var(--brand-foreground) 60%, var(--surface));
+    }
+
+    .panel-secondary {
+        border-top-color: color-mix(in srgb, var(--network-color) 60%, var(--surface));
+    }
+
+    .panel-alert {
+        border-top-color: color-mix(in srgb, var(--accent-amber) 60%, var(--surface));
     }
 }
 
@@ -210,7 +223,7 @@ kbd {
 .app-shell {
     min-height: 100vh;
     display: grid;
-    grid-template-columns: minmax(17rem, 20rem) minmax(0, 1fr);
+    grid-template-columns: minmax(14.5rem, 17rem) minmax(0, 1fr);
 }
 
 .brand-rail {
@@ -359,6 +372,7 @@ h1 {
 
 .dashboard {
     width: min(100%, 1120px);
+    margin-inline: auto;
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.9fr);
     gap: var(--space-6);
@@ -367,7 +381,7 @@ h1 {
 
 .dashboard-panel {
     min-width: 0;
-    min-height: 16.85rem;
+    min-height: 13rem;
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
@@ -398,7 +412,8 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
 }
 
 .section-title {
@@ -745,6 +760,16 @@ input::placeholder {
     transform: none;
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .btn {
+        transition: none;
+    }
+
+    .btn:hover {
+        transform: none;
+    }
+}
+
 .btn-primary {
     background-color: var(--brand-primary);
     color: var(--on-accent);
@@ -844,25 +869,49 @@ input::placeholder {
     flex-wrap: wrap;
 }
 
-@media (max-width: 1100px) {
+/* Sidebar stays, but a two-up dashboard gets too cramped to host the panel
+   headers + Add button, so collapse it to a single column first. */
+@media (max-width: 1120px) {
+    .dashboard {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 860px) {
     .app-shell {
         grid-template-columns: 1fr;
     }
 
+    /* Stay a vertical flex column — never the broken 3-column grid. */
     .brand-rail {
         position: static;
         min-height: auto;
-        display: grid;
-        grid-template-columns: minmax(10rem, 0.8fr) minmax(0, 1.2fr) auto;
         align-items: center;
         padding: var(--space-5);
         border-right: 0;
         border-bottom: 1px solid var(--border-color);
     }
 
+    /* Center and cap rail content so it isn't pinned hard-left when stacked. */
+    .brand-lockup,
+    .rail-section,
+    .rail-actions,
+    .brand-footer {
+        width: 100%;
+        max-width: 46rem;
+        margin-inline: auto;
+    }
+
+    .brand-lockup {
+        justify-content: center;
+    }
+
+    .brand-logo {
+        width: min(11rem, 70%);
+    }
+
     .brand-footer {
         margin-top: 0;
-        justify-items: end;
     }
 
     .content-shell {
@@ -871,21 +920,6 @@ input::placeholder {
 
     .dashboard {
         width: 100%;
-        grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.85fr);
-    }
-}
-
-@media (max-width: 900px) {
-    .brand-rail {
-        grid-template-columns: 1fr;
-        align-items: stretch;
-    }
-
-    .brand-footer {
-        justify-items: start;
-    }
-
-    .dashboard {
         grid-template-columns: 1fr;
     }
 }
@@ -895,6 +929,19 @@ input::placeholder {
     .content-shell,
     .dashboard-panel {
         padding: var(--space-4);
+    }
+
+    .brand-rail {
+        gap: var(--space-4);
+    }
+
+    .brand-logo {
+        width: min(9.5rem, 60%);
+    }
+
+    .rail-section {
+        padding: var(--space-4);
+        gap: var(--space-3);
     }
 
     .section-header {
